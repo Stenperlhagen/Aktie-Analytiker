@@ -1032,23 +1032,35 @@ with five:
             return {'Faktor':label,'Värde':formatted,'Förklaring':description}
         positives = [factor_display(x) for x in _assessment_rows if x.get('Utfall')=='Positivt']
         negatives = [factor_display(x) for x in _assessment_rows if x.get('Utfall')=='Negativt']
+        # Kompakta analyskort utan upprepade rubriker eller stora styckesavstånd.
+        from html import escape as html_escape
+        def render_factor_cards(factors, empty_text, accent):
+            if not factors:
+                st.caption(empty_text)
+                return
+            cards = []
+            for factor in factors:
+                title = html_escape(str(factor['Faktor']))
+                value = html_escape(str(factor['Värde']))
+                description = html_escape(str(factor['Förklaring']))
+                cards.append(
+                    '<div style="border:1px solid #e4e8ef;border-left:3px solid '+accent+';'
+                    'border-radius:9px;padding:11px 13px;margin:0 0 8px 0;background:transparent;">'
+                    '<div style="display:flex;justify-content:space-between;align-items:baseline;'
+                    'gap:12px;flex-wrap:wrap;">'
+                    '<span style="font-size:14px;font-weight:600;">'+title+'</span>'
+                    '<span style="font-size:16px;font-weight:700;white-space:nowrap;">'+value+'</span>'
+                    '</div><div style="font-size:12px;opacity:.72;line-height:1.45;margin-top:3px;">'
+                    +description+'</div></div>'
+                )
+            st.markdown(''.join(cards),unsafe_allow_html=True)
         col_strengths,col_risks=st.columns(2,gap='large')
         with col_strengths:
             st.markdown('**Styrkor**')
-            if positives:
-                for factor in positives:
-                    st.markdown(f"**{factor['Faktor']} · {factor['Värde']}**")
-                    st.caption(factor['Förklaring'])
-            else:
-                st.caption('Inga positiva faktorer har kunnat fastställas.')
+            render_factor_cards(positives,'Inga positiva faktorer har kunnat fastställas.','#2c8b69')
         with col_risks:
             st.markdown('**Utmaningar och risker**')
-            if negatives:
-                for factor in negatives:
-                    st.markdown(f"**{factor['Faktor']} · {factor['Värde']}**")
-                    st.caption(factor['Förklaring'])
-            else:
-                st.caption('Inga negativa faktorer identifierades med tillgängliga data.')
+            render_factor_cards(negatives,'Inga negativa faktorer identifierades med tillgängliga data.','#c58a45')
         st.markdown('**Sammanfattande bedömning**')
         if _assessment_score is None:
             st.write('Underlaget räcker inte för ett sammanvägt betyg. De enskilda styrkorna och riskerna visas ändå.')
