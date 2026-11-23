@@ -502,7 +502,7 @@ with five:
             volatility = returns.std() * (252**0.5)
             drawdown = (prices/prices.cummax()-1).min()
             x,y,z = st.columns(3)
-            x.metric('Historisk annualiserad kursförändring', show(yearly*100,' %') if yearly is not None else 'Saknas')
+            x.metric('Genomsnittlig årlig kursutveckling', show(yearly*100,' %') if yearly is not None else 'Saknas')
             y.metric('Historisk volatilitet', show(volatility*100,' %'))
             z.metric('Största historiska nedgång', show(drawdown*100,' %'))
             st.caption('Beräknat på tillgängliga handelsdagar. Kursförändringen exkluderar utdelningar när ej justerad kurs används. Historisk utveckling är ingen prognos.')
