@@ -151,7 +151,10 @@ def fetch(ticker):
             return fallback
     info = attempt('Bolagsprofil', lambda: obj.info, {})
     history = attempt('Kurshistorik', lambda: obj.history(period='5y', auto_adjust=False), pd.DataFrame())
-    fin = attempt('Resultaträkning', lambda: obj.income_stmt, pd.DataFrame())
+    def annual_income_fallback():
+        annual_income=obj.income_stmt
+        return annual_income
+    fin = attempt('Resultaträkning', annual_income_fallback, pd.DataFrame())
     cash = attempt('Kassaflöde', lambda: obj.cashflow, pd.DataFrame())
     balance = attempt('Balansräkning', lambda: obj.balance_sheet, pd.DataFrame())
     # Yahoo fast_info kan fungera även när den större bolagsprofilen blockeras.
