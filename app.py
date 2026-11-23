@@ -1187,7 +1187,7 @@ with four:
 
 with five:
     st.subheader(f'Bolagsvärdering – {company}')
-    st.caption('Tre oberoende metoder med tydliga antaganden. Beräknade värden är känslighetsanalyser, inte riktkurser eller köprekommendationer.')
+    st.caption('Automatiska historikbaserade antaganden och öppet redovisade modellpolicyer. Inga manuella reglage. Resultaten är inte riktkurser eller köprekommendationer.')
     if price is None or price<=0 or not quote_ccy:
         st.warning('Aktuell aktiekurs och handelsvaluta krävs för att jämföra värderingarna.')
     else:
@@ -1227,9 +1227,19 @@ with five:
             valuation_eps=eps
             valuation_eps_note='Yahoo EPS i handelsvaluta; kontrollera rapportperiod'
         default_pe=max(5.0,min(35.0,round(float(pe),1))) if pe is not None and pe>0 else 15.0
-        pe_multiple=st.slider('Antaget rimligt P/E-tal',5.0,40.0,float(default_pe),0.5,key='valuation_pe')
-        if valuation_eps is None:
-            st.info('Verifierbar EPS saknas. P/E-värdet kan inte beräknas utan att blanda rapportperioder eller valutor.')
+        valuation_frame=extended.get('valuation_history',pd.DataFrame())
+        pe_samples=[]
+        if isinstance(valuation_frame,pd.DataFrame) and not valuation_frame.empty:
+            for label in ('PeRatio','PE Ratio','Trailing P/E','Trailing PE','peRatio','trailingPE','TrailingPeRatio'):
+                if label in valuation_frame.index:
+                    pe_samples+=pd.to_numeric(valuation_frame.loc[label],errors='coerce').dropna().tolist()
+                if label in valuation_frame.columns:
+                    pe_samples+=pd.to_numeric(valuation_frame[label],errors='coerce').dropna().tolist()
+        pe_samples=[float(v) for v in pe_samples if 0<float(v)<=80]
+        pe_multiple=float(pd.Series(pe_samples).median()) if len(pe_samples)>=3 else None
+        st.caption('P/E-antagande: median av minst tre observerade historiska P/E-tal. Saknas historik beräknas inget motiverat P/E-värde.')
+        if valuation_eps is None or pe_multiple is None:
+            st.info('P/E-värdering kräver verifierbar EPS och minst tre historiska P/E-observationer.')
             pe_fair=None
         else:
             pe_fair=valuation_eps*pe_multiple
@@ -1237,7 +1247,7 @@ with five:
             c1.metric('Vinst per aktie',show(valuation_eps,' '+quote_ccy,2))
             c2.metric('Motiverat pris enligt P/E',show(pe_fair,' '+quote_ccy,2))
             c3.metric('Skillnad mot kurs',show((pe_fair/price-1)*100,' %',1))
-            st.caption('EPS-källa: '+valuation_eps_note+'. P/E-multipeln är ett användarantagande, inte en prognos.')
+            st.caption('EPS-källa: '+valuation_eps_note+'. Historisk median P/E: '+show(pe_multiple,'×',1)+'. Historisk värdering är ingen garanti för framtida rimligt P/E.')
         st.markdown('#### 2. DCF – diskonterat fritt kassaflöde')
         st.caption('Förenklad aktieägar-DCF: prognostiserat fritt kassaflöde diskonteras till idag, inklusive ett terminalvärde. Modellen kräver kassaflöde och antal aktier i verifierbar valuta.')
         fcf_annual=statement_value(cash,['Free Cash Flow'])
@@ -1249,13 +1259,18 @@ with five:
         fcf_currency=report_ccy
         fcf_fx=fx_rate(fcf_currency,quote_ccy) if fcf_currency and quote_ccy else None
         valid_shares=shares_count if shares_count is not None and shares_count>0 else (market_cap/price if market_cap is not None and market_cap>0 else None)
-        with st.expander('Justera DCF-antaganden',expanded=False):
-            dcf_growth=st.slider('Årlig tillväxt i fritt kassaflöde (%)',-10.0,20.0,5.0,0.5,key='dcf_growth')
-            discount_rate=st.slider('Avkastningskrav (%)',6.0,20.0,10.0,0.5,key='dcf_discount')
-            terminal_growth=st.slider('Långsiktig tillväxt efter år fem (%)',0.0,4.0,2.0,0.5,key='dcf_terminal')
-        if fcf_annual is None or fcf_annual<=0 or fcf_fx is None or valid_shares is None:
+        fcf_series=pd.Series(dtype='float64')
+        if cash is not None and not cash.empty and 'Free Cash Flow' in cash.index:
+            fcf_series=pd.to_numeric(cash.loc['Free Cash Flow'],errors='coerce').dropna().sort_index()
+        dcf_growth=None
+        if len(fcf_series)>=3 and fcf_series.iloc[0]>0 and fcf_series.iloc[-1]>0:
+            dcf_growth=max(-10.0,min(12.0,((float(fcf_series.iloc[-1])/float(fcf_series.iloc[0]))**(1/(len(fcf_series)-1))-1)*100))
+        discount_rate=10.0
+        terminal_growth=2.0
+        st.caption('DCF använder historisk FCF-tillväxt från minst tre årsperioder (begränsad till −10–12 %). Avkastningskrav 10 % och terminaltillväxt 2 % är fasta, öppet redovisade modellantaganden.')
+        if fcf_annual is None or fcf_annual<=0 or fcf_fx is None or valid_shares is None or dcf_growth is None:
             dcf_fair=None
-            st.info('DCF kräver positivt års-FCF, säkerställd rapportvaluta och antal aktier. Modellen hittar inte på saknade värden.')
+            st.info('DCF kräver positivt FCF, minst tre jämförbara år, rapportvaluta och antal aktier. Saknas underlag beräknas inget värde.')
         else:
             fcf_quote=fcf_annual*fcf_fx
             projected=[fcf_quote*(1+dcf_growth/100)**year for year in range(1,6)]
@@ -1271,12 +1286,26 @@ with five:
             st.caption('DCF utgår från senast tillgängligt Yahoo-års-FCF ('+str(fcf_currency)+'). Modellen behandlar det som kassaflöde till aktieägarna och gör därför inget extra avdrag för nettoskuld. Klassificering av räntor i kassaflödet kan påverka jämförbarheten. Terminalvärdet är särskilt känsligt för avkastningskravet.')
         st.markdown('#### 3. Framtida totalavkastning – fem år')
         st.caption('Kursutveckling från framtida EPS och P/E plus uppskattade kontantutdelningar. Årlig totalavkastning beräknas som CAGR för kurs plus utdelningar, utan återinvestering.')
-        with st.expander('Justera totalavkastning',expanded=False):
-            earnings_growth=st.slider('Årlig vinsttillväxt (%)',-15.0,25.0,7.0,0.5,key='total_earnings_growth')
-            exit_pe=st.slider('P/E efter fem år',5.0,40.0,float(default_pe),0.5,key='total_exit_pe')
-            dividend_growth=st.slider('Årlig utdelningstillväxt (%)',-10.0,15.0,2.0,0.5,key='total_dividend_growth')
+        earnings_growth=None
+        if len(_roic_income)>=2:
+            def get_report_eps(record):
+                for k in ('eps_diluted','eps_basic','eps','is_eps_diluted','is_eps_basic'):
+                    value=numeric(record.get(k))
+                    if value is not None: return value
+                return None
+            eps_new=get_report_eps(_roic_income[0])
+            eps_old=get_report_eps(_roic_income[1])
+            try:
+                year_gap=(pd.Timestamp(_roic_income[0]['period_end_date'])-pd.Timestamp(_roic_income[1]['period_end_date'])).days/365.25
+                if eps_new is not None and eps_old is not None and eps_new>0 and eps_old>0 and year_gap>=0.8 and _roic_income[0].get('currency')==_roic_income[1].get('currency'):
+                    earnings_growth=max(-15.0,min(20.0,((eps_new/eps_old)**(1/year_gap)-1)*100))
+            except (ValueError,TypeError,KeyError,OverflowError):
+                pass
+        exit_pe=pe_multiple
+        dividend_growth=0.0
+        st.caption('Historisk EPS-tillväxt (begränsad till −15–20 %), historisk median P/E och oförändrad utdelning används automatiskt. Dessa är modellantaganden, inte bolagets prognoser.')
         dividend_per_share=(price*dividend_yield/100) if dividend_yield is not None and dividend_yield>=0 else None
-        if valuation_eps is None or dividend_per_share is None:
+        if valuation_eps is None or dividend_per_share is None or earnings_growth is None or exit_pe is None:
             total_cagr=None
             st.info('Totalavkastning kräver verifierbar EPS och utdelningsdata. Om någon del saknas visas ingen fullständig totalavkastning.')
         else:
@@ -1292,7 +1321,8 @@ with five:
             st.caption('Utdelningen utgår från nuvarande/historisk direktavkastning och växer enligt valt antagande. Inga utdelningar återinvesteras och ingen skatt ingår.')
         st.markdown('#### 4. Säkerhetsmarginal')
         st.caption('Visar ett möjligt inköpspris med rabatt mot respektive metods motiverade värde.')
-        discount=st.slider('Önskad säkerhetsmarginal (%)',0,50,20,5,key='valuation_safety')
+        discount=20
+        st.caption('Fast säkerhetsmarginal: 20 %.')
         rows=[]
         for method,fair in [('P/E',pe_fair),('DCF',dcf_fair)]:
             if fair is not None and fair>0:
