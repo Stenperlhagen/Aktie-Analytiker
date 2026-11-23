@@ -922,32 +922,6 @@ with five:
     if 'GRÅ' in _signal_title:
         st.info('Grått betyder att appens anslutna datakällor inte räcker för en investeringsvärdering – inte att bolaget saknar offentliga rapporter.')
 
-    with st.expander('Datakontroll – använda värden och ursprung', expanded=True):
-        st.caption('Visar de värden som faktiskt används i översikten. Saknas betyder att ett tillförlitligt värde inte kunnat fastställas.')
-        def diagnostic_number(value, suffix='', decimals=2):
-            if value is None: return 'Saknas'
-            try: return f'{float(value):,.{decimals}f}'.replace(',', ' ').replace('.', ',') + suffix
-            except (ValueError,TypeError): return 'Saknas'
-        roic_period = str(_roic_income[0].get('period_end_date') or 'Okänd') if _roic_income else 'Saknas'
-        roic_currency = str(_roic_income[0].get('currency') or 'Okänd') if _roic_income else 'Saknas'
-        cap_source = ('Yahoo Finance – profil' if val(info,'marketCap') is not None else
-                      'Yahoo Finance – snabbdata' if val(quick,'market_cap') is not None else
-                      'Beräknat: antal aktier × aktiekurs' if market_cap is not None else 'Saknas')
-        eps_display = eps if eps is not None else None
-        diagnostic_rows = [
-            {'Nyckeltal':'Aktiekurs','Värde':diagnostic_number(price,' '+str(quote_ccy or '')),'Källa':'Yahoo Finance – kurs/profil','Period':'Senaste tillgängliga'},
-            {'Nyckeltal':'Börsvärde','Värde':diagnostic_number(market_cap/1e9,' md '+str(quote_ccy or '')) if market_cap is not None else 'Saknas','Källa':cap_source,'Period':'Senaste tillgängliga'},
-            {'Nyckeltal':'Omsättning','Värde':diagnostic_number(revenue/1e6,' M') if revenue is not None else 'Saknas','Källa':revenue_source,'Period':'Se rapportdata'},
-            {'Nyckeltal':'Omsättningstillväxt','Värde':diagnostic_number(sales_growth_pct,' %/år',1),'Källa':'Yahoo årsdata / ROIC årsdata','Period':'Jämförda årsperioder'},
-            {'Nyckeltal':'EBITA','Värde':diagnostic_number(ebita/1e6,' M') if ebita is not None else 'Saknas','Källa':'Yahoo / ROIC årsrapport','Period':roic_period if _roic_income else 'Se årsdata'},
-            {'Nyckeltal':'EPS (resultaträkning)','Värde':diagnostic_number(eps_display),'Källa':'Yahoo Finance – årsresultat' if eps_display is not None else 'Saknas','Period':'Senaste tillgängliga årsperiod'},
-            {'Nyckeltal':'P/E','Värde':diagnostic_number(pe,'×',1),'Källa':pe_source,'Period':eps_report_period or 'Ej verifierad årsperiod'},
-            {'Nyckeltal':'EV/EBITA','Värde':diagnostic_number(ev_ebita,'×',1),'Källa':ev_ebita_source,'Period':'Se årsdata'},
-            {'Nyckeltal':'Direktavkastning','Värde':diagnostic_number(dividend_yield,' %',1),'Källa':'Yahoo Finance / senaste 365 dagars utdelningar','Period':'Senaste 12 månaderna om beräknat'},
-            {'Nyckeltal':'Rapportvaluta (ROIC)','Värde':roic_currency,'Källa':'ROIC AI','Period':roic_period},
-            {'Nyckeltal':'ROIC-anslutning','Värde':'Fungerar' if _roic_income else 'Ingen rapportdata','Källa':_roic_error or 'ROIC AI','Period':roic_period},
-        ]
-        st.dataframe(pd.DataFrame(diagnostic_rows),hide_index=True,use_container_width=True)
     if _assessment_rows:
         st.dataframe(pd.DataFrame(_assessment_rows),hide_index=True,use_container_width=True)
     with st.expander('Datatäckning och källstatus'):
