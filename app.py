@@ -641,6 +641,15 @@ def screener_snapshot(symbol):
                     pe_values+=pd.to_numeric(history.loc[field],errors='coerce').dropna().tolist()
                 if field in history.columns:
                     pe_values+=pd.to_numeric(history[field],errors='coerce').dropna().tolist()
+        # Exkludera "Current" så dagens P/E inte räknas som historisk observation.
+        if isinstance(history,pd.DataFrame) and 'Current' in history.columns:
+            current_observation=[]
+            for field in ('PeRatio','PE Ratio','Trailing P/E','Trailing PE','peRatio','trailingPE','TrailingPeRatio'):
+                if field in history.index:
+                    v=numeric(history.at[field,'Current'])
+                    if v is not None: current_observation.append(v)
+            for v in current_observation:
+                if v in pe_values: pe_values.remove(v)
         pe_values=[float(v) for v in pe_values if 0<float(v)<=80]
         if len(pe_values)<3:
             return {'status':'P/E-historik saknas','pe':current_pe,'price':price,'observations':len(pe_values),'category':category,'missing':'minst tre jämförbara historiska P/E-observationer'}
@@ -660,10 +669,10 @@ st.caption('Bolagen klassificeras efter värderingsmetod. P/E-signaler visas bar
 universe=list(dict.fromkeys(ALL_COMPANIES.values()))
 screener_names={ticker:name for name,ticker in ALL_COMPANIES.items()}
 # Tidigare screeningresultat beräknades utan kategorifilter och måste förnyas.
-if st.session_state.get('screener_model_version')!='category-v5':
+if st.session_state.get('screener_model_version')!='category-v6':
     st.session_state.screener_results={}
     st.session_state.screener_running=False
-    st.session_state.screener_model_version='category-v5'
+    st.session_state.screener_model_version='category-v6'
 if 'screener_results' not in st.session_state:
     st.session_state.screener_results={}
 if 'screener_running' not in st.session_state:
@@ -1977,7 +1986,7 @@ with four:
                         r2.metric('Senaste beräknade FCFE',show(reverse_fcfe/1e6,' M '+quote_ccy,1))
                         r3.metric('Antaget avkastningskrav',show(ke*100,' %',1))
                         st.caption('Antaganden: fem år, konstant årlig FCFE-tillväxt, terminaltillväxt 2 %, CAPM med antagen riskpremie 5,5 %. Modellen är känslig för nettoupplåning och ett enskilt basår. Använd som förväntningsanalys, inte köpsignal.')
-        st.markdown('#### 2. DCF – diskonterat fritt kassaflöde')
+        st.markdown('#### 3. DCF – diskonterat fritt kassaflöde')
         st.warning('DCF-beräkningen nedan är preliminär och inte kvalitetssäkrad för investeringsbeslut. Den används inte i den övergripande värderingsindikatorn.')
         st.caption('Förenklad aktieägar-DCF: prognostiserat fritt kassaflöde diskonteras till idag, inklusive ett terminalvärde. Modellen kräver kassaflöde och antal aktier i verifierbar valuta.')
         fcf_annual=statement_value(cash,['Free Cash Flow'])
