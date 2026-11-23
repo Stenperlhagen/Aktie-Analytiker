@@ -913,7 +913,9 @@ with five:
             base_margin = st.slider('EBITA-marginal år 5 i basscenariot (%)',0.0,40.0,float(suggested_margin),0.5,key='future_margin')
         with right:
             base_multiple = st.slider('EV/EBITA år 5 i basscenariot (×)',4.0,25.0,12.0,0.5,key='future_multiple')
-        st.caption('12× EV/EBITA är ett öppet modellantagande, inte en hämtad marknadsmultipel. Negativt/positivt scenario ändrar tillväxt ±5 procentenheter, marginal ±2 procentenheter och multipel ±3×.')
+        st.caption('EV/EBITA-multipeln är ett antagande, inte ett verifierat framtida marknadspris. Negativt/positivt scenario ändrar tillväxt ±5 procentenheter, marginal ±2 procentenheter och multipel ±3×.')
+        hurdle = st.slider('Avkastningskrav på aktien per år (%)',5.0,20.0,10.0,0.5,key='required_equity_return')
+        st.caption('Avkastningskravet används för att diskontera ett möjligt aktievärde om fem år. Detta är en exitmultipelmodell, inte en fullständig kassaflödesvärdering (DCF).')
         # Nettoskuld måste komma från samma årsbalans som EBITA.
         balance_period = next((x for x in _roic_data.get('balance',[]) if str(x.get('period_end_date') or '')[:10]==forecast_period and x.get('currency')==forecast_currency),None)
         debt_annual = scenario_field(balance_period or {},('bs_total_debt','total_debt','totalDebt'))
@@ -939,6 +941,8 @@ with five:
             current_equity_report = market_cap*market_fx if can_value else None
             future_price = price*future_equity/current_equity_report if can_value else None
             annual_return = ((future_price/price)**(1/5)-1)*100 if future_price is not None and future_price>0 else (-100.0 if future_price==0 else None)
+            fair_price = future_price/(1+hurdle/100)**5 if future_price is not None else None
+            safety_margin = (1-price/fair_price)*100 if fair_price is not None and fair_price>0 else None
             scenario_rows.append({
                 'Scenario':scenario_name,
                 'Tillväxt/år':f'{growth_pct:.1f} %',
@@ -946,11 +950,36 @@ with five:
                 'EV/EBITA år 5':f'{multiple:.1f}×',
                 'EBITA år 5 (M '+str(forecast_currency)+')':round(projected_ebita/1e6,1),
                 'Aktiekurs år 5':show(future_price,' '+str(quote_ccy),2) if future_price is not None else 'Saknas',
-                'Avkastning/år':show(annual_return,' %',1) if annual_return is not None else 'Saknas'
+                'Avkastning/år':show(annual_return,' %',1) if annual_return is not None else 'Saknas',
+                'Motiverat pris idag':show(fair_price,' '+str(quote_ccy),2) if fair_price is not None else 'Saknas',
+                'Säkerhetsmarginal':show(safety_margin,' %',1) if safety_margin is not None else 'Saknas'
             })
         st.dataframe(pd.DataFrame(scenario_rows),hide_index=True,use_container_width=True)
         if can_value:
             base_case = scenario_rows[1]
+            base_future_ev = forecast_revenue*(1+base_growth/100)**5*(base_margin/100)*base_multiple
+            base_equity_report = max(0.0,base_future_ev-annual_netdebt)
+            base_fair_price = price*base_equity_report/(market_cap*market_fx)/(1+hurdle/100)**5
+            base_return = (base_equity_report/(market_cap*market_fx))**(1/5)-1 if base_equity_report>0 else -1.0
+            fair_col, return_col, margin_col = st.columns(3)
+            fair_col.metric('Motiverat pris idag – bas',show(base_fair_price,' '+str(quote_ccy),2))
+            return_col.metric('Årlig kursavkastning – bas',show(base_return*100,' %',1))
+            margin_col.metric('Säkerhetsmarginal – bas',show((1-price/base_fair_price)*100,' %',1) if base_fair_price>0 else 'Saknas')
+            st.caption('Motiverat pris idag = diskonterat framtida aktievärde vid valt avkastningskrav. Säkerhetsmarginal = 1 − dagens kurs / motiverat pris. Negativ säkerhetsmarginal betyder att kursen överstiger modellvärdet.')
+            # Omvänd värdering: vilken omsättningstillväxt behövs för att nå avkastningskravet?
+            target_equity = market_cap*market_fx*(1+hurdle/100)**5
+            required_ev = target_equity+annual_netdebt
+            required_revenue = required_ev/(base_multiple*(base_margin/100)) if base_multiple>0 and base_margin>0 and required_ev>0 else None
+            required_growth = ((required_revenue/forecast_revenue)**(1/5)-1)*100 if required_revenue is not None and required_revenue>0 else None
+            st.markdown('**Vilken tillväxt krävs för att nå avkastningskravet?**')
+            if required_growth is None:
+                st.info('Kan inte beräknas med dessa antaganden. Kontrollera positiv marginal och framtida företagsvärde.')
+            else:
+                st.metric('Nödvändig omsättningstillväxt per år',show(required_growth,' %',1))
+                if historical_growth is not None:
+                    difference=required_growth-historical_growth*100
+                    st.write('Krävd tillväxt ligger '+show(abs(difference),' procentenheter ',1)+('över' if difference>0 else 'under eller i nivå med')+' den senast uppmätta historiska tillväxttakten.')
+                st.caption('Omvänd beräkning håller EBITA-marginal, exitmultipel och nettoskuld oförändrade enligt basscenariot. Den är inte en prognos.')
             st.markdown('**Vad talar för och emot en investering?**')
             if historical_growth is not None and historical_growth>0:
                 st.write(f'Förutsättning: omsättningen har ökat med {historical_growth*100:.1f} % per år mellan de två senaste jämförbara årsrapporterna. Det är historik, inte en garanti för framtida tillväxt.')
