@@ -153,13 +153,73 @@ with one:
     else:st.warning('Kursserie saknas.')
     st.markdown('**Bolagsprofil**');st.write(info.get('longBusinessSummary','Beskrivning saknas.'))
 with two:
-    st.caption('Rapporttabeller från dataleverantören. Kontrollera redovisningsvaluta och rapportdatum.')
-    for label,frame in [('Resultaträkning',fin),('Kassaflöde',cash),('Balansräkning',balance)]:
-        with st.expander(label,expanded=label=='Resultaträkning'):
-            if frame is None or frame.empty:st.warning('Data saknas.')
-            else:
-                display=frame.copy();display.columns=[str(c.date()) if hasattr(c,'date') else str(c) for c in display.columns]
-                st.dataframe(display,use_container_width=True)
+    st.caption('Finansiella rapportdata från Yahoo Finance. Belopp visas i miljoner (M) av bolagets rapporteringsvaluta. År avser rapportperiodens slutdatum, inte nödvändigtvis kalenderår.')
+
+    # Explicit mapping only: do not substitute EBIT for EBITA or infer missing figures.
+    report_sections = [
+        ('Resultaträkning', fin, [
+            ('Omsättning', ['Total Revenue', 'Operating Revenue'], 'money'),
+            ('Bruttoresultat', ['Gross Profit'], 'money'),
+            ('EBITDA', ['EBITDA'], 'money'),
+            ('Rörelseresultat (EBIT)', ['Operating Income', 'EBIT'], 'money'),
+            ('Resultat före skatt', ['Pretax Income'], 'money'),
+            ('Årets resultat', ['Net Income', 'Net Income Common Stockholders'], 'money'),
+            ('Resultat per aktie (EPS)', ['Diluted EPS', 'Basic EPS'], 'per_share'),
+        ]),
+        ('Kassaflöde', cash, [
+            ('Kassaflöde från löpande verksamheten', ['Operating Cash Flow', 'Cash Flow From Continuing Operating Activities'], 'money'),
+            ('Investeringar i anläggningstillgångar', ['Capital Expenditure'], 'money'),
+            ('Fritt kassaflöde', ['Free Cash Flow'], 'money'),
+            ('Kassaflöde från investeringar', ['Investing Cash Flow'], 'money'),
+            ('Kassaflöde från finansiering', ['Financing Cash Flow'], 'money'),
+        ]),
+        ('Balansräkning', balance, [
+            ('Totala tillgångar', ['Total Assets'], 'money'),
+            ('Eget kapital', ['Stockholders Equity', 'Total Equity Gross Minority Interest'], 'money'),
+            ('Totala skulder', ['Total Liabilities Net Minority Interest'], 'money'),
+            ('Räntebärande skulder', ['Total Debt'], 'money'),
+            ('Likvida medel', ['Cash And Cash Equivalents', 'Cash Cash Equivalents And Short Term Investments'], 'money'),
+        ]),
+    ]
+    for section_name, frame, metrics in report_sections:
+        st.markdown(f'#### {section_name}')
+        if frame is None or frame.empty:
+            st.info('Rapportdata saknas för denna del.')
+            continue
+        cols = sorted(frame.columns, reverse=True)[:5]
+        periods = [str(c.date()) if hasattr(c, 'date') else str(c)[:10] for c in cols]
+        rows = []
+        for label, candidates, unit in metrics:
+            found = next((key for key in candidates if key in frame.index), None)
+            values = []
+            for col in cols:
+                raw = numeric(frame.at[found, col]) if found else None
+                if raw is None:
+                    values.append('Saknas')
+                elif unit == 'money':
+                    values.append(show(raw / 1e6, digits=1))
+                else:
+                    values.append(show(raw, digits=2))
+            rows.append([label] + values)
+        # Compute only directly comparable ratios from the same reporting period.
+        if section_name == 'Resultaträkning':
+            ratio_values = []
+            for col in cols:
+                revenue_key = next((k for k in ['Total Revenue', 'Operating Revenue'] if k in frame.index), None)
+                ebit_key = next((k for k in ['Operating Income', 'EBIT'] if k in frame.index), None)
+                rev = numeric(frame.at[revenue_key, col]) if revenue_key else None
+                ebit = numeric(frame.at[ebit_key, col]) if ebit_key else None
+                ratio_values.append(show(100 * ebit / rev, ' %', 1) if rev and ebit is not None else 'Saknas')
+            rows.insert(4, ['Rörelsemarginal (EBIT)'] + ratio_values)
+        table = pd.DataFrame(rows, columns=['Nyckeltal'] + periods)
+        st.dataframe(table, use_container_width=True, hide_index=True)
+        st.caption('Belopp i M (miljoner), utom EPS och procenttal. ”Saknas” betyder att dataleverantören inte har lämnat uppgiften.')
+        if section_name == 'Resultaträkning':
+            st.caption('EBITA och EBITA-marginal visas inte eftersom de inte kan fastställas säkert från dessa standardiserade Yahoo-fält.')
+        with st.expander(f'Visa samtliga originalposter – {section_name.lower()}'):
+            raw_table = frame.copy()
+            raw_table.columns = [str(c.date()) if hasattr(c, 'date') else str(c) for c in raw_table.columns]
+            st.dataframe(raw_table, use_container_width=True)
 with three:
     st.caption('Google News RSS, filtrerat till publiceringsdatum inom sex månader. Rubriker är inte verifierade bolagsmeddelanden och kan innehålla andra bolag.')
     if st.button('Hämta senaste nyheter'):
