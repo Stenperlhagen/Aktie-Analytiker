@@ -1,0 +1,9 @@
+streamlit>=1.38,<2
+pandas>=2.1
+plotly>=5.20
+yfinance>=0.2.54
+requests>=2.31
+feedparser>=6
+pypdf>=4
+python-docx>=1.1
+openpyxl>=3.1
