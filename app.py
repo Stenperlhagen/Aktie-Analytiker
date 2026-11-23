@@ -1163,64 +1163,6 @@ with target_slot.container():
             '<div style="font-size:.95rem;font-weight:700;color:'+header_ink+';">'+header_signal+'</div>'
             '<div style="font-size:.8rem;color:#475569;margin-top:7px;">Beräknad jämförelsekurs baserad på historiskt P/E.</div></div>',
             unsafe_allow_html=True)
-st.markdown('### Värderingskontroll')
-valid_price=price is not None and price>0
-valid_current_pe=pe is not None and 0<pe<=80
-valid_history=global_pe_median is not None and len(global_pe_samples)>=3
-if valid_price and valid_current_pe and valid_history:
-    # Jämför multiplar på samma skala. Detta kräver inte osäkra omräkningar
-    # av historisk års-EPS till aktuell aktiekurs.
-    relative_gap=(pe/global_pe_median-1)*100
-    indicative_value=price*global_pe_median/pe
-    global_fair=indicative_value
-    global_display_value=indicative_value
-    status='Dyrare än historiskt' if relative_gap>0 else 'Billigare än historiskt' if relative_gap<0 else 'I nivå med historiken'
-    v1,v2,v3,v4=st.columns(4)
-    v1.metric('Aktuell aktiekurs',show(price,' '+str(quote_ccy),2))
-    v2.metric('Nuvarande P/E',show(pe,'×',1))
-    v3.metric('Historisk median P/E',show(global_pe_median,'×',1))
-    signal_color='#15803d' if relative_gap<0 else '#b42332' if relative_gap>0 else '#64748b'
-    v4.markdown(
-        '<div style="background:#f3f5f9;border:1px solid #e3e8f0;border-radius:15px;padding:15px;min-height:112px;">'
-        '<div style="font-size:0.95rem;color:#374151;margin-bottom:8px;">'+status+'</div>'
-        '<div style="font-size:2.15rem;font-weight:700;line-height:1.25;color:'+signal_color+';">'
-        +show(abs(relative_gap),' %',1)+'</div></div>',
-        unsafe_allow_html=True
-    )
-    st.markdown('#### Slutsats utifrån värderingen')
-    if relative_gap<=-20:
-        st.success('**INTRESSANT ATT ANALYSERA VIDARE** – Aktien handlas med minst 20 % lägre P/E än sin historiska median. Undersök om vinsten är hållbar och om bolagets risker motiverar rabatten.')
-    elif relative_gap>=20:
-        st.error('**AVVAKTA NYA KÖP** – Aktien handlas med minst 20 % högre P/E än historiskt. Det krävs starkare framtida vinsttillväxt för att motivera priset.')
-    elif relative_gap>0:
-        st.info('**AVVAKTA** – Aktien är något dyrare än normalt. Ingen tydlig värderingsrabatt finns. En lägre kurs eller förbättrade vinstutsikter skulle göra aktien mer intressant.')
-    elif relative_gap<0:
-        st.info('**BEVAKA** – Aktien är något billigare än normalt, men rabatten är ännu mindre än vår gräns på 20 %. Kontrollera bolagets kvalitet och vinstutsikter.')
-    else:
-        st.info('**AVVAKTA** – Aktien värderas i nivå med sin historiska P/E-median.')
-    price_difference=(price/indicative_value-1)*100 if indicative_value>0 else None
-    st.write('**Kurs vid historiskt P/E:** '+show(indicative_value,' '+str(quote_ccy),2)+
-             ' · **Dagens kurs:** '+show(price,' '+str(quote_ccy),2))
-    st.caption('Kursen vid historiskt P/E är en jämförelsenivå med dagens vinst, inte en kursprognos. P/E-jämförelsen är ett första filter, inte en fullständig investeringsbedömning.')
-    with st.expander('Visa metod, indikativt pris och säkerhetsmarginal'):
-        st.write('**Indikativt pris vid historisk P/E:** '+show(indicative_value,' '+str(quote_ccy),2))
-        st.write('**Pris med 20 % säkerhetsmarginal:** '+show(indicative_value*0.8,' '+str(quote_ccy),2))
-        st.write('**Antal historiska P/E-observationer:** '+str(len(global_pe_samples)))
-        st.caption('Indikativt pris = dagens kurs × historisk median-P/E / aktuellt P/E. Beräkningen antar oförändrad vinstnivå och jämförbara P/E-definitioner. Ingen prognos för aktiekursen.')
-        st.caption('P/E kan påverkas av engångsposter och skillnader i perioddefinition. Kontrollera bolagets rapporter innan investeringsbeslut.')
-else:
-    v1,v2,v3=st.columns(3)
-    v1.metric('Aktuell aktiekurs',show(price,' '+str(quote_ccy),2) if valid_price else 'Saknas')
-    v2.metric('Nuvarande P/E',show(pe,'×',1) if valid_current_pe else 'Saknas')
-    v3.metric('Historisk P/E-median',show(global_pe_median,'×',1) if valid_history else 'Saknas')
-    missing=[]
-    if not valid_price: missing.append('aktuell aktiekurs')
-    if not valid_current_pe: missing.append('positivt aktuellt P/E')
-    if not valid_history: missing.append('minst tre historiska P/E-observationer')
-    st.info('**INGEN INVESTERINGSSIGNAL** – Otillräckligt underlag. Saknas: '+', '.join(missing)+'.')
-st.caption('Detta är en historisk multipeljämförelse, inte en fullständig bolagsvärdering. DCF och sammanvägd köp-/säljsignal är pausade tills de har validerats.')
-st.divider()
-
 one,two,three,four=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering'])
 with one:
     if not hist.empty:
@@ -1963,6 +1905,64 @@ with three:
 
 with four:
     st.subheader(f'Bolagsvärdering – {company}')
+    st.markdown('### Värderingskontroll')
+    valid_price=price is not None and price>0
+    valid_current_pe=pe is not None and 0<pe<=80
+    valid_history=global_pe_median is not None and len(global_pe_samples)>=3
+    if valid_price and valid_current_pe and valid_history:
+        # Jämför multiplar på samma skala. Detta kräver inte osäkra omräkningar
+        # av historisk års-EPS till aktuell aktiekurs.
+        relative_gap=(pe/global_pe_median-1)*100
+        indicative_value=price*global_pe_median/pe
+        global_fair=indicative_value
+        global_display_value=indicative_value
+        status='Dyrare än historiskt' if relative_gap>0 else 'Billigare än historiskt' if relative_gap<0 else 'I nivå med historiken'
+        v1,v2,v3,v4=st.columns(4)
+        v1.metric('Aktuell aktiekurs',show(price,' '+str(quote_ccy),2))
+        v2.metric('Nuvarande P/E',show(pe,'×',1))
+        v3.metric('Historisk median P/E',show(global_pe_median,'×',1))
+        signal_color='#15803d' if relative_gap<0 else '#b42332' if relative_gap>0 else '#64748b'
+        v4.markdown(
+            '<div style="background:#f3f5f9;border:1px solid #e3e8f0;border-radius:15px;padding:15px;min-height:112px;">'
+            '<div style="font-size:0.95rem;color:#374151;margin-bottom:8px;">'+status+'</div>'
+            '<div style="font-size:2.15rem;font-weight:700;line-height:1.25;color:'+signal_color+';">'
+            +show(abs(relative_gap),' %',1)+'</div></div>',
+            unsafe_allow_html=True
+        )
+        st.markdown('#### Slutsats utifrån värderingen')
+        if relative_gap<=-20:
+            st.success('**INTRESSANT ATT ANALYSERA VIDARE** – Aktien handlas med minst 20 % lägre P/E än sin historiska median. Undersök om vinsten är hållbar och om bolagets risker motiverar rabatten.')
+        elif relative_gap>=20:
+            st.error('**AVVAKTA NYA KÖP** – Aktien handlas med minst 20 % högre P/E än historiskt. Det krävs starkare framtida vinsttillväxt för att motivera priset.')
+        elif relative_gap>0:
+            st.info('**AVVAKTA** – Aktien är något dyrare än normalt. Ingen tydlig värderingsrabatt finns. En lägre kurs eller förbättrade vinstutsikter skulle göra aktien mer intressant.')
+        elif relative_gap<0:
+            st.info('**BEVAKA** – Aktien är något billigare än normalt, men rabatten är ännu mindre än vår gräns på 20 %. Kontrollera bolagets kvalitet och vinstutsikter.')
+        else:
+            st.info('**AVVAKTA** – Aktien värderas i nivå med sin historiska P/E-median.')
+        price_difference=(price/indicative_value-1)*100 if indicative_value>0 else None
+        st.write('**Kurs vid historiskt P/E:** '+show(indicative_value,' '+str(quote_ccy),2)+
+                 ' · **Dagens kurs:** '+show(price,' '+str(quote_ccy),2))
+        st.caption('Kursen vid historiskt P/E är en jämförelsenivå med dagens vinst, inte en kursprognos. P/E-jämförelsen är ett första filter, inte en fullständig investeringsbedömning.')
+        with st.expander('Visa metod, indikativt pris och säkerhetsmarginal'):
+            st.write('**Indikativt pris vid historisk P/E:** '+show(indicative_value,' '+str(quote_ccy),2))
+            st.write('**Pris med 20 % säkerhetsmarginal:** '+show(indicative_value*0.8,' '+str(quote_ccy),2))
+            st.write('**Antal historiska P/E-observationer:** '+str(len(global_pe_samples)))
+            st.caption('Indikativt pris = dagens kurs × historisk median-P/E / aktuellt P/E. Beräkningen antar oförändrad vinstnivå och jämförbara P/E-definitioner. Ingen prognos för aktiekursen.')
+            st.caption('P/E kan påverkas av engångsposter och skillnader i perioddefinition. Kontrollera bolagets rapporter innan investeringsbeslut.')
+    else:
+        v1,v2,v3=st.columns(3)
+        v1.metric('Aktuell aktiekurs',show(price,' '+str(quote_ccy),2) if valid_price else 'Saknas')
+        v2.metric('Nuvarande P/E',show(pe,'×',1) if valid_current_pe else 'Saknas')
+        v3.metric('Historisk P/E-median',show(global_pe_median,'×',1) if valid_history else 'Saknas')
+        missing=[]
+        if not valid_price: missing.append('aktuell aktiekurs')
+        if not valid_current_pe: missing.append('positivt aktuellt P/E')
+        if not valid_history: missing.append('minst tre historiska P/E-observationer')
+        st.info('**INGEN INVESTERINGSSIGNAL** – Otillräckligt underlag. Saknas: '+', '.join(missing)+'.')
+    st.caption('Detta är en historisk multipeljämförelse, inte en fullständig bolagsvärdering. DCF och sammanvägd köp-/säljsignal är pausade tills de har validerats.')
+    st.divider()
+
     st.caption('Automatiska historikbaserade antaganden och öppet redovisade modellpolicyer. Inga manuella reglage. Resultaten är inte riktkurser eller köprekommendationer.')
     if price is None or price<=0 or not quote_ccy:
         st.warning('Aktuell aktiekurs och handelsvaluta krävs för att jämföra värderingarna.')
