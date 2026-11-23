@@ -1185,14 +1185,28 @@ if _roic_income:
             sales_growth_pct=(current_rev/prior_rev-1)*100
     # EV/EBITA kräver samma period och valuta; blandning med Yahoo-värden undviks.
 # EV/EBITA visar endast verifierad beräkning; källstatus vid saknad data.
+valuation_result=screener_snapshot(ticker)
+# Use exactly the same valuation snapshot in overview and valuation tabs.
+valuation_inputs=valuation_result.get('inputs',{})
+valuation_earnings=valuation_inputs.get('EBITA')
+if valuation_earnings is None: valuation_earnings=valuation_inputs.get('EBITA (beräknad)')
+valuation_debt=valuation_inputs.get('Nettoskuld')
+valuation_fx=valuation_inputs.get('Valutakurs')
+valuation_shares=valuation_inputs.get('Antal aktier')
+valuation_price=valuation_result.get('price')
+ev_ebita=None
+if all(x is not None for x in (valuation_earnings,valuation_debt,valuation_fx,valuation_shares,valuation_price)) and valuation_earnings>0 and valuation_fx>0 and valuation_shares>0 and valuation_price>0:
+    ev_ebita=(valuation_price*valuation_shares/valuation_fx+valuation_debt)/valuation_earnings
+ebita=valuation_earnings
+dividend_yield=trailing_dividend_yield(ticker,valuation_price)
 st.markdown('### Finansiell översikt')
 overview_items = [
     ('Börsvärde',show(market_cap/1e9,' mdkr',2) if market_cap is not None and quote_ccy=='SEK' else (show(market_cap/1e9,' md '+(quote_ccy or ''),2) if market_cap is not None else 'Saknas')),
-    ('Aktiekurs',show(price,' '+(quote_ccy or ''),2)),
+    ('Aktiekurs',show(valuation_price,' '+(valuation_result.get('currency') or ''),2)),
     ('Omsättning (LTM/helår)',show(revenue/1e6,' M',0) if revenue is not None else 'Saknas'),
     ('Omsättningstillväxt',show(sales_growth_pct,' %/år',1) if sales_growth_pct is not None else 'Saknas'),
     ('Rörelsemarginal',show(margin*100,' %') if margin is not None else 'Saknas'),
-    ('EBITA (helår)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas'),
+    ('EBITA (värderingsperiod)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas'),
     ('Avkastning på eget kapital (ROE)',show(roe_overview,' %',1) if roe_overview is not None else 'Saknas'),
     ('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),
     ('P/E',show(pe,'×') if pe is not None else 'Saknas'),
@@ -1209,7 +1223,7 @@ elif _roic_error:
     st.caption('ROIC AI: '+_roic_error)
 elif _roic_income:
     st.caption('Kompletterande rapportdata från ROIC AI (årsperiod: '+str(_roic_income[0].get('period_end_date','okänd'))+', valuta: '+str(_roic_income[0].get('currency','okänd'))+').')
-st.caption('Omsättning och kassaflöde kan avse olika perioder. Omsättningstillväxt = CAGR över tillgängliga rapporterade årsperioder. EBITA visas bara om det finns som separat rapporterad post; EBIT och EBITDA används aldrig som ersättning. EV/EBITA visas endast när rapport- och handelsvaluta matchar. ROE bygger på senaste rapporterade nettoresultat och eget kapital och är en förenklad kvot, inte ett genomsnittligt eget kapital. M = miljoner.')
+st.caption('EBITA och EV/EBITA använder huvudmodellens underlag, rapportperiod '+str(valuation_result.get('period') or 'saknas')+'. Omsättning och kassaflöde kan avse olika perioder. Omsättningstillväxt = CAGR över tillgängliga rapporterade årsperioder. EBITA visas bara om det finns som separat rapporterad post; EBIT och EBITDA används aldrig som ersättning. EV/EBITA visas endast när rapport- och handelsvaluta matchar. ROE bygger på senaste rapporterade nettoresultat och eget kapital och är en förenklad kvot, inte ett genomsnittligt eget kapital. M = miljoner.')
 
 @st.cache_data(ttl=86400,show_spinner=False)
 def swedish_ten_year_yield():
@@ -1348,7 +1362,6 @@ global_combined=None
 global_display_value=None
 global_display_method='Historisk P/E-jämförelse'
 # Visas bredvid bolagsnamnet men beräknas först när värderingshistoriken finns.
-valuation_result=screener_snapshot(ticker)
 with target_slot.container():
     target=valuation_result.get('target')
     potential=valuation_result.get('upside')
@@ -1766,7 +1779,7 @@ with three:
     forecast_ebita = scenario_field(latest_report, ('ebita',))
     forecast_period = str(latest_report.get('period_end_date') or 'Okänd')[:10]
     # Utgå endast från rapporterad EBITA och omsättning för samma period och valuta.
-    if not (forecast_revenue and forecast_revenue>0 and forecast_ebita is not None and forecast_currency):
+    if not (forecast_revenue and forecast_revenue>0 and forecast_ebita is not None and forecast_currency and valuation_result.get('assumptions',{}).get('EV/EBITA')):
         st.info('Framtidsvärdering kräver omsättning, EBITA och rapportvaluta för samma årsperiod från ROIC AI. Inga värden uppskattas när rapportdata saknas.')
     else:
         historical_growth = None
@@ -1793,8 +1806,8 @@ with three:
         base_growth=float(suggested_growth)
         base_margin=float(suggested_margin)
         hurdle=10.0
-        base_multiple=float(ev_ebita) if ev_ebita is not None and 2.0<=ev_ebita<=40.0 else 12.0
-        multiple_source='Nuvarande beräknad EV/EBITA' if ev_ebita is not None and 2.0<=ev_ebita<=40.0 else 'Illustrativ standardmultipel – ingen verifierad historisk värdering'
+        base_multiple=valuation_result.get('assumptions',{}).get('EV/EBITA')
+        multiple_source='Huvudmodellens branschmultipel'
         st.markdown('#### 2. Så räknar modellen')
         st.write('Modellen använder rapporterad omsättning och EBITA, uppskattar utvecklingen under fem år och värderar därefter bolaget med en EV/EBITA-multipel.')
         with st.expander('Visa beräkningsantaganden'):
