@@ -167,6 +167,40 @@ def assessment(fin, cash, balance, info, price, netdebt, ebitda, history, extend
     else: status,color='GUL – Blandad investeringsbild','#B7791F'
     return status,color,evidence,score,'Modellpoäng bygger på dokumenterade metodgränser, inte kalibrerad kursprognos.'
 
+# Officiella rapportkällor – byggs ut bolag för bolag.
+# Dessa är källor för fördjupad kontroll, inte automatiskt kvalitetssäkrade siffror.
+OFFICIAL_REPORT_SOURCES = {
+    'BETS-B.ST': {
+        'name': 'Betsson AB',
+        'report': 'https://www.betssonab.com/investors/reports-and-presentations/betsson-ab-interim-report-january-september-2026',
+        'archive': 'https://www.betssonab.com/investors/reports-and-presentations',
+        'period': 'Januari–september 2026'
+    }
+}
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def official_report_excerpt(ticker):
+    """Hämta text från officiell IR-sida, utan att gissa belopp eller enheter."""
+    src = OFFICIAL_REPORT_SOURCES.get(ticker)
+    if not src:
+        return [], None
+    try:
+        from bs4 import BeautifulSoup
+        response = requests.get(src['report'],timeout=12,headers={'User-Agent':'Mozilla/5.0'})
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text,'html.parser')
+        for tag in soup(['script','style','nav','footer','header']):
+            tag.decompose()
+        lines = [re.sub(r'\\s+',' ',x).strip() for x in soup.stripped_strings]
+        terms = ('revenue','ebitda','operating income','net income','operating cash flow','net debt','organic increase')
+        matched=[]
+        for line in lines:
+            if any(term in line.lower() for term in terms) and 25<=len(line)<=600 and line not in matched:
+                matched.append(line)
+        return matched[:16], None
+    except Exception as exc:
+        return [], f'{type(exc).__name__}: {str(exc)[:180]}'
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def news(company):
     """Breda nyhetssökningar med flera RSS-källor och verifierad datumfiltrering."""
@@ -532,6 +566,25 @@ with five:
     cols[1].metric('Historisk vinsttillväxt', show(profit_growth * 100, ' %/år') if profit_growth is not None else 'Saknas')
     cols[2].metric('Nettoskuld/EBITDA', show(leverage, '×', 2) if leverage is not None else 'Saknas')
     cols[3].metric('EV/EBITDA', show(ev_ebitda, '×', 1) if ev_ebitda is not None else 'Saknas')
+    st.markdown('#### Officiella bolagsrapporter')
+    official_source = OFFICIAL_REPORT_SOURCES.get(ticker)
+    if official_source:
+        st.markdown(f"[Öppna senaste registrerade rapport ({official_source['period']})]({official_source['report']}) · [Rapportarkiv]({official_source['archive']})")
+        if st.button('Hämta rapportuppgifter från bolaget',key='official_report_button'):
+            st.session_state['official_report_ticker'] = ticker
+            official_report_excerpt.clear()
+        if st.session_state.get('official_report_ticker') == ticker:
+            official_lines, official_error = official_report_excerpt(ticker)
+            if official_lines:
+                st.caption('Verifierbar rapporttext från bolagets egen webbplats. Texten är inte automatiskt normaliserad till modellens beräkningar.')
+                for line in official_lines:
+                    st.write(line)
+            elif official_error:
+                st.warning('Rapporten kunde inte hämtas: '+official_error)
+            else:
+                st.info('Ingen läsbar finansiell rapporttext hittades på sidan. Öppna originalrapporten via länken.')
+    else:
+        st.caption('Ingen officiell rapportkälla är ännu registrerad för detta bolag. Yahoo Finance är tills vidare huvudkälla.')
     st.markdown('#### Fördjupad investeringsbedömning')
     st.write(_signal_title)
     if _assessment_score is not None:
