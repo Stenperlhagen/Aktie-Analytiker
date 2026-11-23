@@ -36,6 +36,36 @@ def val(info,*keys):
         if v is not None:return v
     return None
 
+# ROIC AI: valfri andra källa, kräver personlig API-nyckel i Streamlit Secrets.
+# Använd aldrig hårdkodade API-nycklar eller påhittade finansdata.
+def roic_key():
+    try: return str(st.secrets.get('ROIC_API_KEY','')).strip()
+    except Exception: return ''
+
+@st.cache_data(ttl=86400,show_spinner=False)
+def roic_company_data(isin, api_key):
+    """ISIN identifierar rätt juridiskt bolag oberoende av tickernamn."""
+    if not isin or not api_key: return {}, 'ROIC kräver ISIN och API-nyckel.'
+    root='https://api.roic.ai/v3.0.0'
+    headers={'Authorization':f'Bearer {api_key}'}
+    try:
+        profile_response=requests.get(f'{root}/company/profile/{urllib.parse.quote(isin,safe="")}',headers=headers,timeout=12)
+        profile_response.raise_for_status()
+        profile=profile_response.json()
+        if not isinstance(profile,dict) or profile.get('isin','').upper()!=isin.upper():
+            return {},'ROIC kunde inte bekräfta bolagets ISIN.'
+        income_response=requests.get(f'{root}/fundamental/income-statement/{urllib.parse.quote(isin,safe="")}',params={'period_type':'annual','limit':3},headers=headers,timeout=12)
+        income_response.raise_for_status()
+        records=income_response.json().get('data',[])
+        records=[x for x in records if isinstance(x,dict) and x.get('period_type')=='annual']
+        records.sort(key=lambda x:x.get('period_end_date',''),reverse=True)
+        return {'profile':profile,'income':records},None
+    except requests.HTTPError as exc:
+        status=exc.response.status_code if exc.response is not None else 'okänd'
+        return {},f'ROIC svarade med HTTP {status}. Kontrollera API-nyckel, åtkomst och bolagstäckning.'
+    except Exception as exc:
+        return {},f'ROIC kunde inte hämtas: {type(exc).__name__}'
+
 @st.cache_data(ttl=1800,show_spinner=False)
 def fetch(ticker):
     """Hämta varje datatyp oberoende så ett fel inte slår ut hela analysen."""
@@ -454,6 +484,24 @@ dividend_yield = val(info,'dividendYield')
 # Yahoo kan ange yield som procenttal eller decimal; avstå om formatet inte kan säkerställas.
 if dividend_yield is not None:
     dividend_yield = dividend_yield*100 if 0<=dividend_yield<=1 else (dividend_yield if 1<dividend_yield<=30 else None)
+# ROIC kompletterar endast verifierade, saknade värden.
+_roic_data, _roic_error = {}, None
+if roic_key():
+    _roic_data,_roic_error = roic_company_data(info.get('isin'),roic_key())
+_roic_income=_roic_data.get('income',[])
+if _roic_income:
+    latest=_roic_income[0]
+    roic_currency=latest.get('currency')
+    if ebita is None and isinstance(latest.get('ebita'),(int,float)):
+        ebita=latest['ebita']
+    if sales_growth_pct is None and len(_roic_income)>=2:
+        current_rev,prior_rev=latest.get('is_sales_revenue_turnover'),_roic_income[1].get('is_sales_revenue_turnover')
+        if isinstance(current_rev,(int,float)) and isinstance(prior_rev,(int,float)) and prior_rev>0:
+            sales_growth_pct=(current_rev/prior_rev-1)*100
+    if (not info.get('longBusinessSummary')) and _roic_data['profile'].get('description'):
+        info['longBusinessSummary']=_roic_data['profile']['description']
+    if ev_ebita is None and ebita and ebita>0 and market_cap is not None and netdebt is not None and quote_ccy and roic_currency==quote_ccy:
+        ev_ebita=(market_cap+netdebt)/ebita
 st.markdown('### Finansiell översikt')
 overview_items = [
     ('Aktiekurs',show(price,' '+(quote_ccy or ''),2)),
@@ -472,6 +520,12 @@ overview_items = [
 for start in range(0,len(overview_items),4):
     cols=st.columns(4)
     for col,(label,value) in zip(cols,overview_items[start:start+4]): col.metric(label,value)
+if not roic_key():
+    st.caption('ROIC AI är inte anslutet ännu. Lägg ROIC_API_KEY i Streamlit Secrets för automatisk komplettering av rapportdata.')
+elif _roic_error:
+    st.caption('ROIC AI: '+_roic_error)
+elif _roic_income:
+    st.caption('Kompletterande rapportdata från ROIC AI (årsperiod: '+str(_roic_income[0].get('period_end_date','okänd'))+', valuta: '+str(_roic_income[0].get('currency','okänd'))+').')
 st.caption('Omsättning och kassaflöde kan avse olika perioder. Omsättningstillväxt = CAGR över tillgängliga rapporterade årsperioder. EBITA visas bara om det finns som separat rapporterad post; EBIT och EBITDA används aldrig som ersättning. EV/EBITA visas endast när rapport- och handelsvaluta matchar. ROE bygger på senaste rapporterade nettoresultat och eget kapital och är en förenklad kvot, inte ett genomsnittligt eget kapital. M = miljoner.')
 
 one,two,three,four,five=st.tabs(['Kurs och historik','Rapporterade data','Nyheter – 6 månader','Dokument och scenarier','Analys om bolaget'])
