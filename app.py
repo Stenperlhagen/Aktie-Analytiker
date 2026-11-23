@@ -599,7 +599,10 @@ def operating_valuation_profile(symbol,info=None):
     if sector in ('industrials','basic materials'): return 'Tillverkningsindustri'
     return None
 
-RESEARCH_TICKERS={'BIOA-B.ST','ACE.ST','HNSA.ST','SYNACT.ST','COALA.ST','SEZI.ST','SUS.ST','BACTI-B.ST'}
+RESEARCH_TICKERS={'BIOA-B.ST','ACE.ST','HNSA.ST','SYNACT.ST'}
+ESTABLISHED_PHARMA_TICKERS={'AZN.ST','SOBI.ST','CAMX.ST'}
+# Medicinteknik och diagnostik (t.ex. Surgical Science, Senzime, Bactiguard)
+# klassificeras inte automatiskt som kliniska läkemedelsprojekt.
 def valuation_category(symbol, info=None):
     """Konservativ kategorisering: särskilda affärsmodeller kräver andra metoder."""
     if symbol in INVESTMENT_TICKERS: return 'Investmentbolag / kapitalförvaltning'
@@ -607,6 +610,7 @@ def valuation_category(symbol, info=None):
     if symbol in INSURANCE_TICKERS: return 'Försäkring'
     if symbol in PROPERTY_TICKERS: return 'Fastigheter'
     if symbol in RESEARCH_TICKERS: return 'Forskningsbolag'
+    if symbol in ESTABLISHED_PHARMA_TICKERS: return 'Etablerade läkemedelsbolag'
     details=info or {}
     sector=str(details.get('sector') or '').lower()
     industry=str(details.get('industry') or '').lower()
@@ -614,7 +618,10 @@ def valuation_category(symbol, info=None):
     if 'reit' in combined or 'real estate' in combined: return 'Fastigheter'
     if 'bank' in combined or 'credit services' in combined or 'capital markets' in combined: return 'Bank / finansiella tjänster'
     if 'insurance' in combined: return 'Försäkring'
-    if any(term in industry for term in ('biotechnology','drug manufacturers—specialty','drug manufacturers - specialty')) and str(details.get('longBusinessSummary') or '').lower().find('clinical')>=0: return 'Forskningsbolag'
+    # Klassificera inte etablerade läkemedelsbolag som forskningsbolag bara
+    # för att bolagsbeskrivningen nämner kliniska studier.
+    if 'biotechnology' in industry and any(term in str(details.get('longBusinessSummary') or '').lower() for term in ('clinical-stage','clinical stage','preclinical-stage','preclinical stage')):
+        return 'Forskningsbolag'
     if 'asset management' in combined or 'investment holding' in combined: return 'Investmentbolag / kapitalförvaltning'
     if 'financial services' in sector or 'financial data' in industry: return 'Bank / finansiella tjänster'
     if not sector and not industry: return 'Ej klassificerad'
@@ -2099,7 +2106,7 @@ with four:
     st.caption('DCF och Reverse DCF använder FCFF/WACC och nettoskuld. EV/EBITA använder rapporterad EBITA och en vald multipel. Alla värden ska anges i samma valuta och beloppen i miljoner. Inga analytikerriktkurser används.')
     model_category=valuation_category(ticker,info)
     if model_category=='Forskningsbolag':
-        st.markdown('#### Forskningsbolag – riskjusterat nuvärde (rNPV)')
+        st.markdown('#### 1. Läkemedelsbolag i forskningsfas – rNPV')
         st.caption('rNPV = summan av sannolikhetsvägda och diskonterade framtida nettokassaflöden. Eget kapital = rNPV + nettokassa − övriga åtaganden. Ange projektdata från kliniska program och rapporter. Ingen sannolikhet eller försäljningsprognos antas automatiskt.')
         research_ccy=report_ccy or quote_ccy
         research_fx=fx_rate(research_ccy,quote_ccy) if research_ccy and quote_ccy else None
@@ -2147,6 +2154,7 @@ with four:
             if price is not None and price>0:
                 st.metric('Upp-/nedsida',show((share_rnpv/price-1)*100,' %',1))
             st.caption('Positiva kassaflöden viktas med angiven sannolikhet; negativa utvecklingskostnader tas med fullt ut. Förenklad femårsmodell utan terminalvärde. Projektkostnader, lanseringstidpunkt, sannolikheter och framtida kapitalanskaffning måste kontrolleras individuellt.')
+            st.caption('Upp-/nedsida = (motiverad kurs / aktuell aktiekurs − 1) × 100. Projektmodellen ger ingen automatisk köp-/säljsignal.')
     elif model_category=='Fastigheter':
         st.markdown('#### Fastighetsbolag – substansvärde (NAV)')
         st.caption('Fastighetsvärde = normaliserat årligt driftnetto / direktavkastningskrav. NAV = fastighetsvärde + övriga tillgångar − samtliga skulder. Ange värden från samma rapportperiod och valuta. Modellen är ett förenklat scenario och ersätter inte rapporterat EPRA NTA.')
@@ -2240,9 +2248,12 @@ with four:
             else:
                 st.info('Ingen positiv uppsida kan beräknas från dessa antaganden.')
             st.caption('Modellen är känslig för normaliserad ROE och kapitalkrav. Den ersätter inte kontroll av CET1, kreditförluster, finansieringskostnader eller kapitaldistribution.')
-    elif model_category!='Rörelsedrivande bolag':
+    elif model_category not in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
         st.info('För '+model_category.lower()+' behövs en särskild värderingsmodell. FCFF/EV/EBITA är inte automatiskt tillämplig.')
     else:
+        if model_category=='Etablerade läkemedelsbolag':
+            st.markdown('#### Etablerade läkemedelsbolag – DCF och EV/EBITA')
+            st.caption('Läkemedelsbolag med etablerade intäkter värderas med FCFF/WACC och EV/EBITA. Upp- och nedsida beräknas separat för båda metoderna. Forskningsprojekt utan etablerat kassaflöde ska i stället analyseras med rNPV.')
         profile_name=operating_valuation_profile(ticker,info)
         profile_values=VALUATION_PROFILES.get(profile_name)
         if profile_values is None:
