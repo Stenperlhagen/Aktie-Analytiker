@@ -723,39 +723,8 @@ def screener_snapshot(symbol):
     except Exception:
         return {'status':'Kunde inte hämtas'}
 
-st.markdown('### Hitta undervärderade aktier')
-st.caption('Gratisläge: Yahoo Finance används för börsdata och rapporter. ROIC AI används bara om du redan har en fungerande anslutning. Ingen Börsdata-prenumeration krävs. Saknade uppgifter markeras – inga siffror uppskattas.')
-st.caption('Bolagen klassificeras efter värderingsmetod. P/E-signaler visas bara för rörelsedrivande bolag. Investmentbolag, banker, försäkringsbolag och fastighetsbolag markeras separat tills rätt värderingsmodell finns. En rabatt är inte ett köpbeslut.')
-universe=list(dict.fromkeys(ALL_COMPANIES.values()))
-screener_names={ticker:name for name,ticker in ALL_COMPANIES.items()}
-# Tidigare screeningresultat beräknades utan kategorifilter och måste förnyas.
-if st.session_state.get('screener_model_version')!='free-v1':
-    st.session_state.screener_results={}
-    st.session_state.screener_running=False
-    st.session_state.screener_model_version='free-v1'
-if 'screener_results' not in st.session_state:
-    st.session_state.screener_results={}
-if 'screener_running' not in st.session_state:
-    st.session_state.screener_running=False
-scan_a,scan_b,scan_c=st.columns([2,2,2])
-if scan_a.button('Sök igenom alla bolag',key='scan_all_stocks',use_container_width=True):
-    st.session_state.screener_running=True
-if scan_b.button('Pausa sökningen',key='pause_scan_stocks',use_container_width=True):
-    st.session_state.screener_running=False
-if scan_c.button('Börja om',key='reset_scan_stocks',use_container_width=True):
-    st.session_state.screener_running=False
-    st.session_state.screener_results={}
-if st.session_state.screener_running:
-    pending=[symbol for symbol in universe if symbol not in st.session_state.screener_results]
-    for symbol in pending[:8]:
-        st.session_state.screener_results[symbol]=screener_snapshot(symbol)
-    if len(st.session_state.screener_results)>=len(universe):
-        st.session_state.screener_running=False
-    else:
-        st.caption('Sökningen fortsätter i omgångar för att minska belastningen på datakällan.')
-completed=len(st.session_state.screener_results)
-st.progress(completed/max(1,len(universe)),text=f'Genomsökta bolag: {completed} av {len(universe)}')
 if st.session_state.screener_results:
+    st.subheader('Resultat från aktiescreenern')
     scan_rows=[]
     for symbol,result in st.session_state.screener_results.items():
         scan_rows.append({
@@ -795,11 +764,10 @@ if st.session_state.screener_results:
     st.caption('För investmentbolag krävs rapporterat substansvärde per aktie för substansrabatt. För fastigheter krävs rapporterat EPRA-substansvärde. P/B är inte samma sak som substansrabatt. Banker och försäkringsbolag visas med P/B och ROE, men får ingen automatisk köp-/säljsignal utan kapital- och riskkontroll.')
     st.caption('Beräkningen bygger på senaste hämtade Yahoo-data. Positiv rabatt = lägre nuvarande P/E än historisk median. P/E-historik och aktuell P/E kan ha olika definitioner eller perioder; resultaten måste granskas. Saknade uppgifter ger ingen investeringssignal.')
     st.download_button('Exportera sökresultat (CSV)',data=scan_df.to_csv(index=False).encode('utf-8-sig'),file_name='equitylab_aktiescreener.csv',mime='text/csv')
-else:
-    st.info('Klicka på ”Sök igenom alla bolag” för att börja. Resultaten visas allt eftersom bolagen kontrolleras.')
 if st.session_state.screener_running:
     st.rerun()
-st.divider()
+if st.session_state.screener_results:
+    st.divider()
 
 with st.sidebar:
     st.header('Välj bolag')
@@ -818,6 +786,35 @@ with st.sidebar:
     if st.button('Uppdatera data', use_container_width=True):
         st.cache_data.clear()
         st.rerun()
+    st.divider()
+    st.subheader('Hitta undervärderade aktier')
+    st.caption('Sök bland samtliga bolag. Resultatet visas i huvudfönstret.')
+    universe=list(dict.fromkeys(ALL_COMPANIES.values()))
+    screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
+    if st.session_state.get('screener_model_version')!='free-v1':
+        st.session_state.screener_results={}
+        st.session_state.screener_running=False
+        st.session_state.screener_model_version='free-v1'
+    if 'screener_results' not in st.session_state:
+        st.session_state.screener_results={}
+    if 'screener_running' not in st.session_state:
+        st.session_state.screener_running=False
+    if st.button('Sök igenom alla bolag',key='scan_all_stocks',use_container_width=True):
+        st.session_state.screener_running=True
+    scan_a,scan_b=st.columns(2)
+    if scan_a.button('Pausa',key='pause_scan_stocks',use_container_width=True):
+        st.session_state.screener_running=False
+    if scan_b.button('Börja om',key='reset_scan_stocks',use_container_width=True):
+        st.session_state.screener_running=False
+        st.session_state.screener_results={}
+    if st.session_state.screener_running:
+        pending=[symbol for symbol in universe if symbol not in st.session_state.screener_results]
+        for symbol in pending[:8]:
+            st.session_state.screener_results[symbol]=screener_snapshot(symbol)
+        if len(st.session_state.screener_results)>=len(universe):
+            st.session_state.screener_running=False
+    completed=len(st.session_state.screener_results)
+    st.progress(completed/max(1,len(universe)),text=f'Genomsökta: {completed} av {len(universe)}')
 if not ticker:st.stop()
 with st.spinner(f'Hämtar data för {name or ticker}…'):
     try: info,hist,fin,cash,balance,quick,fetch_errors=fetch(ticker)
