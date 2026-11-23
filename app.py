@@ -387,12 +387,36 @@ st.markdown(
 )
 st.caption('Modellbedömning, inte statistiskt fastställd sannolikhet för framtida kursuppgång. Se Analys om bolaget för datatäckning och metod.')
 
+# Finansiell översikt: jämförbara nyckeltal utan konstruerade EBITA-värden.
+ebita = statement_value(fin, ['EBITA', 'Adjusted EBITA', 'Normalized EBITA'])
+sales_history = _annual_series(fin, ['Total Revenue', 'Operating Revenue']) if '_annual_series' in globals() else pd.Series(dtype='float64')
+sales_growth_pct = _annual_growth(sales_history)*100 if len(sales_history)>=2 and _annual_growth(sales_history) is not None else None
+netdebt_ebitda = netdebt/ebitda if netdebt is not None and ebitda is not None and ebitda>0 else None
+shares_count = val(info,'sharesOutstanding')
+if shares_count is None: shares_count=val(quick,'shares')
+market_cap = val(info,'marketCap')
+if market_cap is None: market_cap=val(quick,'market_cap')
+if market_cap is None and shares_count is not None and price is not None: market_cap=shares_count*price
+quote_ccy = info.get('currency') or quick.get('currency')
+report_ccy = info.get('financialCurrency')
+# Enterprise value and EBITA must use the same currency.
+ev_ebita = ((market_cap+netdebt)/ebita if market_cap is not None and netdebt is not None and ebita is not None and ebita>0 and quote_ccy and report_ccy and quote_ccy==report_ccy else None)
 st.markdown('### Finansiell översikt')
-cols=st.columns(4)
-for col,(label,value) in zip(cols,[('Aktiekurs',show(price, ' ' + (info.get('currency') or quick.get('currency') or ''), 2)),('Omsättning (LTM/helår)',show(revenue/1e6,' M',0) if revenue is not None else 'Saknas'),('Rörelsemarginal',show(margin*100,' %') if margin is not None else 'Saknas'),('P/E',show(pe,'×') if pe is not None else 'Saknas')]):col.metric(label,value)
-cols=st.columns(4)
-for col,(label,value) in zip(cols,[('EBITDA (LTM/helår)',show(ebitda/1e6,' M',0) if ebitda is not None else 'Saknas'),('Nettoskuld',show(netdebt/1e6,' M',0) if netdebt is not None else 'Saknas'),('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),('EPS senaste 12 mån',show(eps,'',2))]):col.metric(label,value)
-st.caption('Omsättning kan avse senaste rapporterade helår när LTM saknas; kontrollera perioderna i rapporttabellerna. M = miljoner i angiven rapporteringsvaluta. Rörelsemarginal är inte samma sak som EBITA-marginal. Nettoskuld = rapporterade skulder minus likvida medel (förenklad beräkning). LTM-perioder kan skilja sig mellan fält.')
+overview_items = [
+    ('Aktiekurs',show(price,' '+(quote_ccy or ''),2)),
+    ('Omsättning (LTM/helår)',show(revenue/1e6,' M',0) if revenue is not None else 'Saknas'),
+    ('Rörelsemarginal',show(margin*100,' %') if margin is not None else 'Saknas'),
+    ('P/E',show(pe,'×') if pe is not None else 'Saknas'),
+    ('Omsättningstillväxt',show(sales_growth_pct,' %/år',1) if sales_growth_pct is not None else 'Saknas'),
+    ('Nettoskuld/EBITDA',show(netdebt_ebitda,'×',2) if netdebt_ebitda is not None else 'Saknas'),
+    ('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),
+    ('EV/EBITA',show(ev_ebita,'×',1) if ev_ebita is not None else 'Saknas'),
+    ('EBITA (helår)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas')
+]
+for start in range(0,len(overview_items),4):
+    cols=st.columns(4)
+    for col,(label,value) in zip(cols,overview_items[start:start+4]): col.metric(label,value)
+st.caption('Omsättning och kassaflöde kan avse olika perioder. Omsättningstillväxt = CAGR över tillgängliga rapporterade årsperioder. EBITA visas bara om det finns som separat rapporterad post; EBIT och EBITDA används aldrig som ersättning. EV/EBITA visas endast när rapport- och handelsvaluta matchar. M = miljoner.')
 
 one,two,three,four,five=st.tabs(['Kurs och historik','Rapporterade data','Nyheter – 6 månader','Dokument och scenarier','Analys om bolaget'])
 with one:
