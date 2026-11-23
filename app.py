@@ -2303,6 +2303,19 @@ with four:
                     st.info('Inprisad tillväxt ligger utanför modellens intervall −50 till +50 %.')
             else:
                 st.info('Reverse DCF kräver samma verifierade FCFF-underlag som vanlig DCF samt aktuell aktiekurs.')
+            st.markdown('#### Samlad värderingsöversikt')
+            available_models=[(label,value) for label,value in [('DCF (FCFF/WACC)',dcf_target),('EV/EBITA',multiple_target)] if value is not None and value>0]
+            if len(available_models)==2:
+                combined_value=(dcf_target+multiple_target)/2
+                st.metric('Sammanvägt modellvärde – 50 % DCF / 50 % EV/EBITA',show(combined_value,' '+str(quote_ccy),2))
+                if price is not None and price>0:
+                    st.metric('Upp-/nedsida mot dagens kurs',show((combined_value/price-1)*100,' %',1))
+                st.caption('Likaviktat modellscenario, inte en verifierad riktkurs. Reverse DCF ingår inte som ett tredje prisvärde; den testar marknadens inprisade tillväxt.')
+            elif len(available_models)==1:
+                st.metric('Tillgänglig modell – '+available_models[0][0],show(available_models[0][1],' '+str(quote_ccy),2))
+                st.caption('Endast en värderingsmetod har tillräckligt underlag. Ingen sammanvägd riktkurs beräknas.')
+            else:
+                st.info('Ingen sammanvägd värdering: DCF och EV/EBITA saknar tillräckligt jämförbart underlag.')
             st.markdown('#### 4–6. Upp-/nedsida, säkerhetsmarginal och årlig avkastning')
             targets=[(label,value) for label,value in [('DCF',dcf_target),('EV/EBITA',multiple_target)] if value is not None and value>0]
             if targets and price is not None and price>0:
