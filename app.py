@@ -740,6 +740,15 @@ def calculated_stock_beta(ticker):
     except Exception:
         return None
 
+def directional_indicator(good, label):
+    """Visuell bedömningssymbol, inte en historisk kursgraf."""
+    color='#17834b' if good else '#c33843'
+    points='2,24 22,19 42,21 62,11 82,5' if good else '2,5 22,11 42,9 62,19 82,24'
+    return ('<div style="display:flex;align-items:center;gap:12px;margin:7px 0 14px;">'
+            '<svg viewBox="0 0 86 30" width="95" height="34" role="img" aria-label="'+('Positiv' if good else 'Negativ')+' bedömningsindikator">'
+            '<polyline points="'+points+'" fill="none" stroke="'+color+'" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>'
+            '</svg><span style="font-size:0.88rem;color:'+color+';font-weight:600;">'+label+'</span></div>')
+
 # Gemensam värderingsindikator ovanför alla flikar.
 # Baseras på verifierbar års-EPS och historisk P/E-median, aldrig enbart dagens P/E.
 global_pe_samples=[]
@@ -812,6 +821,8 @@ if global_display_value is not None and global_display_value>0 and price is not 
     v1.metric('Aktuell aktiekurs',show(price,' '+str(quote_ccy),2))
     v2.metric('Beräknat värde',show(global_display_value,' '+str(quote_ccy),2))
     v3.metric(status,show(abs(deviation),' %',1))
+    st.markdown(directional_indicator(deviation<0,'Rabatt mot modellvärdet' if deviation<0 else 'Premie mot modellvärdet' if deviation>0 else 'I nivå med modellvärdet') if deviation!=0 else '<span style="color:#64748b;">I nivå med modellvärdet</span>',unsafe_allow_html=True)
+    st.caption('Den gröna/röda linjen visar modellens bedömning av prisnivån, inte historisk kursutveckling.')
     if deviation< -20:
         st.markdown('**Indikation: attraktivt prissatt enligt modellen.** Kursen ligger mer än 20 % under det beräknade värdet.')
     elif deviation>20:
@@ -1425,6 +1436,8 @@ with five:
             risk_a.metric('Riskfri ränta',show(riskfree,' %',2))
             risk_b.metric('Beta – börskänslighet',show(beta,'',2))
             risk_c.metric('Avkastningskrav',show(discount_rate,' %',2))
+            st.markdown(directional_indicator(beta<=1.0,'Lägre eller normal marknadskänslighet' if beta<=1.0 else 'Högre marknadskänslighet'),unsafe_allow_html=True)
+            st.caption('Här visar linjen endast om beta ligger över eller under 1,0 – inte om aktien är bra eller dålig. Högre avkastningskrav är inte i sig ett dåligt resultat.')
             st.caption('Beta mäter hur känslig aktien historiskt varit för börsens rörelser. Beta 1,0 ≈ samma känslighet som marknaden; 1,5 ≈ 50 % större; 0,5 ≈ hälften. Det är ett statistiskt mått, inte en prognos.')
             with st.expander('Vad betyder beta och varför påverkar det värderingen?'):
                 st.write('**Beta 1,0:** aktien har historiskt rört sig ungefär i takt med marknaden. **Beta 1,5:** aktien har i genomsnitt reagerat cirka 50 % mer på marknadsrörelser. **Beta 0,5:** aktien har reagerat cirka hälften så mycket. Sambanden gäller inte vid varje enskild börsrörelse.')
