@@ -829,8 +829,12 @@ if fetch_errors:
     with st.expander('Datakällans status – visa eventuella fel'):
         st.json(fetch_errors)
 company=info.get('longName') or name or ticker
-st.subheader(company)
-st.caption(f'{ticker} · Valuta: {info.get("currency","okänd")} · Börsdata hämtad {dt.datetime.now().strftime("%Y-%m-%d %H:%M")} · Yahoo Finance')
+company_col,target_col=st.columns([2,1],vertical_alignment='top')
+with company_col:
+    st.subheader(company)
+    st.caption(f'{ticker} · Valuta: {info.get("currency","okänd")} · Börsdata hämtad {dt.datetime.now().strftime("%Y-%m-%d %H:%M")} · Yahoo Finance')
+with target_col:
+    target_slot=st.empty()
 
 price=val(info,'currentPrice','regularMarketPrice','previousClose')
 if price is None: price=val(quick,'last_price','previous_close')
@@ -1130,6 +1134,35 @@ global_dcf_fair=None
 global_combined=None
 global_display_value=None
 global_display_method='Historisk P/E-jämförelse'
+# Visas bredvid bolagsnamnet men beräknas först när värderingshistoriken finns.
+with target_slot.container():
+    header_price=price if price is not None and price>0 else None
+    header_pe=pe if pe is not None and 0<pe<=80 else None
+    header_history=global_pe_median if global_pe_median is not None and len(global_pe_samples)>=3 else None
+    header_target=(header_price*header_history/header_pe
+                   if header_price is not None and header_pe is not None and header_history is not None else None)
+    if header_target is None:
+        st.markdown(
+            '<div style="padding:18px;border-radius:15px;background:#f1f5f9;border:1px solid #cbd5e1;">'
+            '<div style="font-weight:650;font-size:1rem;">Indikativ riktkurs</div>'
+            '<div style="font-size:1.6rem;font-weight:750;color:#475569;">Ej beräknad</div>'
+            '<div style="font-size:.85rem;color:#475569;">P/E-historik eller aktiekurs saknas.</div></div>',
+            unsafe_allow_html=True)
+    else:
+        header_gap=(header_pe/header_history-1)*100
+        if header_gap<=-20:
+            header_bg,header_border,header_ink,header_signal='#ecfdf3','#86efac','#166534','INTRESSANT ATT GRANSKA'
+        elif header_gap>=20:
+            header_bg,header_border,header_ink,header_signal='#fef2f2','#fca5a5','#991b1b','HÖGT VÄRDERAD'
+        else:
+            header_bg,header_border,header_ink,header_signal='#fffbeb','#fcd34d','#92400e','AVVAKTA'
+        st.markdown(
+            '<div style="padding:18px;border-radius:15px;background:'+header_bg+';border:1px solid '+header_border+';">'
+            '<div style="font-size:.85rem;font-weight:650;color:'+header_ink+';">INDIKATIV RIKTKURS · HISTORISKT P/E</div>'
+            '<div style="font-size:2rem;font-weight:800;color:'+header_ink+';">'+show(header_target,' '+str(quote_ccy or ''),2)+'</div>'
+            '<div style="font-size:.95rem;font-weight:700;color:'+header_ink+';">'+header_signal+'</div>'
+            '<div style="font-size:.8rem;color:#475569;margin-top:7px;">Beräknad jämförelsekurs, inte analytikerriktkurs eller köp-/säljråd.</div></div>',
+            unsafe_allow_html=True)
 st.markdown('### Värderingskontroll')
 valid_price=price is not None and price>0
 valid_current_pe=pe is not None and 0<pe<=80
