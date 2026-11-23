@@ -1002,44 +1002,76 @@ with five:
     if _assessment_score is not None:
         st.metric('Modellpoäng',f'{_assessment_score*100:.0f} av 100')
     st.caption(_signal_detail)
-    # Förklara det faktiska modellutfallet med samma faktorer som användes i poängen.
+    # Sammanfattad investeringsanalys med begripliga enheter och tydlig motivering.
     if _assessment_rows:
-        st.markdown('##### Varför får bolaget detta betyg?')
-        positive_factors = [x for x in _assessment_rows if x.get('Utfall') == 'Positivt']
-        negative_factors = [x for x in _assessment_rows if x.get('Utfall') == 'Negativt']
-        def explain_factor(item):
-            name = str(item.get('Faktor','Nyckeltal'))
-            value = item.get('Värde')
-            value_text = show(value,'',3) if value is not None else 'Saknas'
-            method = str(item.get('Metod',''))
-            return f"**{name}: {value_text}** – {method}"
-        if positive_factors:
-            st.markdown('**Vad talar för bolaget?**')
-            for item in positive_factors:
-                st.markdown('• '+explain_factor(item))
-        else:
-            st.write('Inga positiva faktorer kunde identifieras med nuvarande modellunderlag.')
-        if negative_factors:
-            st.markdown('**Vad håller tillbaka betyget?**')
-            for item in negative_factors:
-                st.markdown('• '+explain_factor(item))
-        else:
-            st.write('Inga negativa faktorer registrerades i det tillgängliga underlaget.')
-        if _assessment_score is not None:
-            st.markdown('**Vad krävs för att nå grönt?**')
-            if _assessment_score < 0.75:
-                st.write(f"Modellen ger {round(_assessment_score*100,1):.1f} av 100 poäng. Grönt kräver minst 75 poäng, alltså ytterligare {round((0.75-_assessment_score)*100,1):.1f} poäng, samt att ingen särskild skuldvarning utlöses.".replace('.',','))
-                st.write('För att poängen ska öka behöver en eller flera av de negativa faktorerna förbättras över modellens angivna gränser. Det är inte en prognos för aktiekursen.')
-            elif 'GRÖN' not in _signal_title:
-                st.write('Poängen når gränsen för grönt, men en särskild riskregel för skuldsättning kan hindra grönt betyg.')
+        st.markdown('##### Vad talar för och emot bolaget?')
+        factor_explanations = {
+            'Omsättning CAGR': ('Omsättningstillväxt','Omsättningen har vuxit över den analyserade perioden.'),
+            'Nettovinst CAGR': ('Vinsttillväxt','Nettovinsten har förändrats över den analyserade perioden.'),
+            'Senaste EBIT-marginal': ('Rörelsemarginal','Visar hur stor del av omsättningen som blir rörelseresultat.'),
+            'Marginalförändring': ('Förändrad rörelsemarginal','Visar hur lönsamheten har utvecklats mellan rapportåren.'),
+            'Andel positiva kassaflödesår': ('Operativt kassaflöde','Andel analyserade år med positivt operativt kassaflöde.'),
+            'Andel positiva FCF-år': ('Fritt kassaflöde','Andel analyserade år med positivt fritt kassaflöde.'),
+            'ROE senaste år': ('Avkastning på eget kapital','Visar avkastningen på aktieägarnas redovisade kapital.'),
+            'FCF-yield senaste år': ('Fritt kassaflöde i förhållande till börsvärde','Senaste årets fria kassaflöde jämfört med börsvärdet.'),
+            'P/E': ('P/E-tal','Aktiekursens värdering i förhållande till vinst per aktie.'),
+            'Nettoskuld/EBITDA': ('Skuldsättning','Nettoskuld i förhållande till EBITDA.')
+        }
+        def factor_display(item):
+            raw_name = str(item.get('Faktor','Nyckeltal'))
+            label, description = factor_explanations.get(raw_name,(raw_name,str(item.get('Metod',''))))
+            raw_value = numeric(item.get('Värde'))
+            if raw_value is None:
+                formatted = 'Saknas'
+            elif raw_name in ('Omsättning CAGR','Nettovinst CAGR','Senaste EBIT-marginal','Marginalförändring','Andel positiva kassaflödesår','Andel positiva FCF-år','ROE senaste år','FCF-yield senaste år'):
+                formatted = show(raw_value*100,' %',1)
+                if raw_name=='Marginalförändring':
+                    formatted = show(raw_value*100,' procentenheter',1)
             else:
-                st.write('Bolaget uppfyller för närvarande modellens krav för grönt.')
-        st.caption('Bedömningen bygger på tillgängliga faktorer i poängmodellen, främst Yahoo Finance. ROIC-data i översikten ingår inte automatiskt i modellpoängen. Gränserna är modellantaganden, inte analytikerkonsensus.')
+                formatted = show(raw_value,'×',1)
+            return {'Faktor':label,'Värde':formatted,'Förklaring':description}
+        positives = [factor_display(x) for x in _assessment_rows if x.get('Utfall')=='Positivt']
+        negatives = [factor_display(x) for x in _assessment_rows if x.get('Utfall')=='Negativt']
+        col_strengths,col_risks=st.columns(2,gap='large')
+        with col_strengths:
+            st.markdown('**Styrkor**')
+            if positives:
+                for factor in positives:
+                    st.markdown(f"**{factor['Faktor']} · {factor['Värde']}**")
+                    st.caption(factor['Förklaring'])
+            else:
+                st.caption('Inga positiva faktorer har kunnat fastställas.')
+        with col_risks:
+            st.markdown('**Utmaningar och risker**')
+            if negatives:
+                for factor in negatives:
+                    st.markdown(f"**{factor['Faktor']} · {factor['Värde']}**")
+                    st.caption(factor['Förklaring'])
+            else:
+                st.caption('Inga negativa faktorer identifierades med tillgängliga data.')
+        st.markdown('**Sammanfattande bedömning**')
+        if _assessment_score is None:
+            st.write('Underlaget räcker inte för ett sammanvägt betyg. De enskilda styrkorna och riskerna visas ändå.')
+        else:
+            score_pct = _assessment_score*100
+            st.progress(min(1.0,max(0.0,_assessment_score)),text='Historisk modellpoäng: '+show(score_pct,' av 100',1))
+            debt_warning = netdebt is not None and ebitda is not None and ebitda>0 and netdebt/ebitda>=4
+            if 'GRÖN' in _signal_title:
+                conclusion = 'Bolaget når modellens gräns för grönt, även om de redovisade riskfaktorerna fortfarande behöver följas.'
+            elif debt_warning:
+                conclusion = 'Hög skuldsättning utlöser modellens riskspärr. Lägre skuldsättning krävs för att spärren ska upphöra.'
+            elif score_pct<75:
+                conclusion = 'Modellpoängen ligger '+show(75-score_pct,' poäng',1)+' under gränsen för grönt. Förbättringar i de negativa faktorerna kan höja poängen.'
+            else:
+                conclusion = 'Modellpoängen är tillräcklig för grönt, men ytterligare riskvillkor behöver kontrolleras.'
+            st.write(conclusion)
+        st.caption('Detta är den äldre, historiska poängmodellen. Den bygger främst på Yahoo Finance och fasta metodgränser; den nya femårsprognosen visas separat ovan.')
     if 'GRÅ' in _signal_title:
         st.info('Grått betyder att appens anslutna datakällor inte räcker för en investeringsvärdering – inte att bolaget saknar offentliga rapporter.')
 
     if _assessment_rows:
-        st.dataframe(pd.DataFrame(_assessment_rows),hide_index=True,use_container_width=True)
+        with st.expander('Visa detaljerade modellfaktorer'):
+            st.dataframe(pd.DataFrame(_assessment_rows),hide_index=True,use_container_width=True)
     with st.expander('Datatäckning och källstatus'):
         st.write('Årsperioder i resultaträkning:',len(fin.columns) if not fin.empty else 0)
         st.write('Kvartalsperioder i resultaträkning:',len(extended['quarterly_income'].columns) if not extended['quarterly_income'].empty else 0)
