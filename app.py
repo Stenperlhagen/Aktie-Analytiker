@@ -693,7 +693,7 @@ elif _roic_income:
     st.caption('Kompletterande rapportdata från ROIC AI (årsperiod: '+str(_roic_income[0].get('period_end_date','okänd'))+', valuta: '+str(_roic_income[0].get('currency','okänd'))+').')
 st.caption('Omsättning och kassaflöde kan avse olika perioder. Omsättningstillväxt = CAGR över tillgängliga rapporterade årsperioder. EBITA visas bara om det finns som separat rapporterad post; EBIT och EBITDA används aldrig som ersättning. EV/EBITA visas endast när rapport- och handelsvaluta matchar. ROE bygger på senaste rapporterade nettoresultat och eget kapital och är en förenklad kvot, inte ett genomsnittligt eget kapital. M = miljoner.')
 
-one,two,three,four=st.tabs(['Kurs och historik','Finansiella rapporter','Nyheter – 6 månader','Investeringsanalys'])
+one,two,three,four,five=st.tabs(['Kurs och historik','Finansiella rapporter','Nyheter – 6 månader','Investeringsanalys','Bolagsvärdering'])
 with one:
     if not hist.empty:
         h=hist.reset_index();h['Datum']=pd.to_datetime(h['Date']).dt.tz_localize(None)
@@ -1183,6 +1183,125 @@ with four:
     else:
         st.info('Kurshistorik saknas.')
     st.caption('Detta är en transparent indikatoranalys, inte en statistiskt kalibrerad sannolikhet för uppgång eller nedgång. Tröskelvärdena är metodval, inte empiriskt fastställda prognoser. Värdering kräver dessutom jämförelse mot bransch och historiska multiplar. Banken, investmentbolag och fastighetsbolag behöver andra nyckeltal.')
+
+
+with five:
+    st.subheader(f'Bolagsvärdering – {company}')
+    st.caption('Tre oberoende metoder med tydliga antaganden. Beräknade värden är känslighetsanalyser, inte riktkurser eller köprekommendationer.')
+    if price is None or price<=0 or not quote_ccy:
+        st.warning('Aktuell aktiekurs och handelsvaluta krävs för att jämföra värderingarna.')
+    else:
+        st.metric('Aktuell aktiekurs',show(price,' '+quote_ccy,2))
+        st.markdown('#### 1. P/E-värdering')
+        st.caption('Motiverat pris = vinst per aktie × antaget P/E-tal. Års-EPS och dagens kurs måste vara i samma valuta.')
+        valuation_eps=None
+        valuation_eps_note='Ingen verifierad års-EPS'
+        if _roic_income:
+            first_report=_roic_income[0]
+            eps_report_ccy=first_report.get('currency')
+            for field in ('eps_diluted','eps_basic','eps','is_eps_diluted','is_eps_basic','is_earnings_per_share_diluted','is_earnings_per_share_basic'):
+                candidate=numeric(first_report.get(field))
+                if candidate is not None and candidate>0:
+                    valuation_eps=candidate
+                    valuation_eps_note='ROIC års-EPS '+str(first_report.get('period_end_date') or '')
+                    break
+            if valuation_eps is None and fin is not None and not fin.empty and eps_report_ccy and report_ccy==eps_report_ccy:
+                report_year=str(first_report.get('period_end_date') or '')[:4]
+                for column in fin.columns:
+                    try: same_year=str(pd.Timestamp(column).year)==report_year
+                    except (ValueError,TypeError): same_year=False
+                    if not same_year: continue
+                    for label in ('Diluted EPS','Basic EPS'):
+                        if label in fin.index:
+                            candidate=numeric(fin.loc[label,column])
+                            if candidate is not None and candidate>0:
+                                valuation_eps=candidate
+                                valuation_eps_note='Yahoo års-EPS '+report_year
+                                break
+                    if valuation_eps is not None: break
+            if valuation_eps is not None:
+                eps_rate=fx_rate(eps_report_ccy,quote_ccy)
+                valuation_eps=valuation_eps*eps_rate if eps_rate is not None and eps_rate>0 else None
+                valuation_eps_note+='; omräknad '+str(eps_report_ccy)+' till '+quote_ccy
+        elif report_ccy==quote_ccy and eps is not None and eps>0:
+            valuation_eps=eps
+            valuation_eps_note='Yahoo EPS i handelsvaluta; kontrollera rapportperiod'
+        default_pe=max(5.0,min(35.0,round(float(pe),1))) if pe is not None and pe>0 else 15.0
+        pe_multiple=st.slider('Antaget rimligt P/E-tal',5.0,40.0,float(default_pe),0.5,key='valuation_pe')
+        if valuation_eps is None:
+            st.info('Verifierbar EPS saknas. P/E-värdet kan inte beräknas utan att blanda rapportperioder eller valutor.')
+            pe_fair=None
+        else:
+            pe_fair=valuation_eps*pe_multiple
+            c1,c2,c3=st.columns(3)
+            c1.metric('Vinst per aktie',show(valuation_eps,' '+quote_ccy,2))
+            c2.metric('Motiverat pris enligt P/E',show(pe_fair,' '+quote_ccy,2))
+            c3.metric('Skillnad mot kurs',show((pe_fair/price-1)*100,' %',1))
+            st.caption('EPS-källa: '+valuation_eps_note+'. P/E-multipeln är ett användarantagande, inte en prognos.')
+        st.markdown('#### 2. DCF – diskonterat fritt kassaflöde')
+        st.caption('Förenklad aktieägar-DCF: prognostiserat fritt kassaflöde diskonteras till idag, inklusive ett terminalvärde. Modellen kräver kassaflöde och antal aktier i verifierbar valuta.')
+        fcf_annual=statement_value(cash,['Free Cash Flow'])
+        if fcf_annual is None:
+            cash_operating=statement_value(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'])
+            cash_capex=statement_value(cash,['Capital Expenditure'])
+            if cash_operating is not None and cash_capex is not None:
+                fcf_annual=cash_operating-abs(cash_capex)
+        fcf_currency=report_ccy
+        fcf_fx=fx_rate(fcf_currency,quote_ccy) if fcf_currency and quote_ccy else None
+        valid_shares=shares_count if shares_count is not None and shares_count>0 else (market_cap/price if market_cap is not None and market_cap>0 else None)
+        with st.expander('Justera DCF-antaganden',expanded=False):
+            dcf_growth=st.slider('Årlig tillväxt i fritt kassaflöde (%)',-10.0,20.0,5.0,0.5,key='dcf_growth')
+            discount_rate=st.slider('Avkastningskrav (%)',6.0,20.0,10.0,0.5,key='dcf_discount')
+            terminal_growth=st.slider('Långsiktig tillväxt efter år fem (%)',0.0,4.0,2.0,0.5,key='dcf_terminal')
+        if fcf_annual is None or fcf_annual<=0 or fcf_fx is None or valid_shares is None:
+            dcf_fair=None
+            st.info('DCF kräver positivt års-FCF, säkerställd rapportvaluta och antal aktier. Modellen hittar inte på saknade värden.')
+        else:
+            fcf_quote=fcf_annual*fcf_fx
+            projected=[fcf_quote*(1+dcf_growth/100)**year for year in range(1,6)]
+            r=discount_rate/100
+            g=terminal_growth/100
+            terminal=projected[-1]*(1+g)/(r-g)
+            equity_value=sum(amount/(1+r)**year for year,amount in enumerate(projected,1))+terminal/(1+r)**5
+            dcf_fair=equity_value/valid_shares
+            d1,d2,d3=st.columns(3)
+            d1.metric('Fritt kassaflöde, basår',show(fcf_quote/1e6,' M '+quote_ccy,1))
+            d2.metric('DCF-värde per aktie',show(dcf_fair,' '+quote_ccy,2))
+            d3.metric('Skillnad mot kurs',show((dcf_fair/price-1)*100,' %',1))
+            st.caption('DCF utgår från senast tillgängligt Yahoo-års-FCF ('+str(fcf_currency)+'). Modellen behandlar det som kassaflöde till aktieägarna och gör därför inget extra avdrag för nettoskuld. Klassificering av räntor i kassaflödet kan påverka jämförbarheten. Terminalvärdet är särskilt känsligt för avkastningskravet.')
+        st.markdown('#### 3. Framtida totalavkastning – fem år')
+        st.caption('Kursutveckling från framtida EPS och P/E plus uppskattade kontantutdelningar. Årlig totalavkastning beräknas som CAGR för kurs plus utdelningar, utan återinvestering.')
+        with st.expander('Justera totalavkastning',expanded=False):
+            earnings_growth=st.slider('Årlig vinsttillväxt (%)',-15.0,25.0,7.0,0.5,key='total_earnings_growth')
+            exit_pe=st.slider('P/E efter fem år',5.0,40.0,float(default_pe),0.5,key='total_exit_pe')
+            dividend_growth=st.slider('Årlig utdelningstillväxt (%)',-10.0,15.0,2.0,0.5,key='total_dividend_growth')
+        dividend_per_share=(price*dividend_yield/100) if dividend_yield is not None and dividend_yield>=0 else None
+        if valuation_eps is None or dividend_per_share is None:
+            total_cagr=None
+            st.info('Totalavkastning kräver verifierbar EPS och utdelningsdata. Om någon del saknas visas ingen fullständig totalavkastning.')
+        else:
+            future_eps=valuation_eps*(1+earnings_growth/100)**5
+            exit_price=future_eps*exit_pe
+            total_dividends=sum(dividend_per_share*(1+dividend_growth/100)**year for year in range(1,6))
+            total_end_value=exit_price+total_dividends
+            total_cagr=((total_end_value/price)**(1/5)-1)*100 if total_end_value>0 else -100.0
+            t1,t2,t3=st.columns(3)
+            t1.metric('Beräknad kurs år fem',show(exit_price,' '+quote_ccy,2))
+            t2.metric('Utdelningar under fem år',show(total_dividends,' '+quote_ccy,2))
+            t3.metric('Årlig totalavkastning',show(total_cagr,' %',1))
+            st.caption('Utdelningen utgår från nuvarande/historisk direktavkastning och växer enligt valt antagande. Inga utdelningar återinvesteras och ingen skatt ingår.')
+        st.markdown('#### 4. Säkerhetsmarginal')
+        st.caption('Visar ett möjligt inköpspris med rabatt mot respektive metods motiverade värde.')
+        discount=st.slider('Önskad säkerhetsmarginal (%)',0,50,20,5,key='valuation_safety')
+        rows=[]
+        for method,fair in [('P/E',pe_fair),('DCF',dcf_fair)]:
+            if fair is not None and fair>0:
+                rows.append({'Metod':method,'Beräknat värde':show(fair,' '+quote_ccy,2),'Köppris med rabatt':show(fair*(1-discount/100),' '+quote_ccy,2),'Kurs jämfört med värde':show((price/fair-1)*100,' %',1)})
+        if rows:
+            st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
+        else:
+            st.info('Ingen verifierbar värdering finns för att beräkna säkerhetsmarginal.')
+        st.caption('Metoderna kan ge olika resultat. Ingen sammanvägd riktkurs skapas automatiskt eftersom kassaflödes- och vinstvärdering bygger på olika antaganden.')
 
 st.divider()
 st.caption('Källor: Yahoo Finance via yfinance för nyckeltal och historik; Google News RSS för nyhetssökning; användarens egna uppladdade dokument. Inga automatiska AI-slutsatser påstås ha gjorts. Appen körs på egen Streamlit-server och filerna behandlas i den sessionen.')
