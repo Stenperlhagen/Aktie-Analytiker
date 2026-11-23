@@ -439,16 +439,36 @@ one,two,three,four,five=st.tabs(['Kurs och historik','Rapporterade data','Nyhete
 with one:
     if not hist.empty:
         h=hist.reset_index();h['Datum']=pd.to_datetime(h['Date']).dt.tz_localize(None)
+        def mark_high_low(fig, data):
+            # Samma stängningskurser som linjen; intradagshögsta/-lägsta avses inte.
+            clean = data[['Datum','Close']].copy()
+            clean['Close'] = pd.to_numeric(clean['Close'],errors='coerce')
+            clean = clean.dropna(subset=['Datum','Close'])
+            if clean.empty: return fig
+            high = clean.loc[clean['Close'].idxmax()]
+            low = clean.loc[clean['Close'].idxmin()]
+            for row, name, color, position in [
+                (high,'Högsta stängningskurs','#16803C','top center'),
+                (low,'Lägsta stängningskurs','#C53030','bottom center')
+            ]:
+                fig.add_scatter(
+                    x=[row['Datum']],y=[row['Close']],mode='markers+text',
+                    marker=dict(size=12,color=color,line=dict(color='white',width=2)),
+                    text=[f"{name}: {row['Close']:.2f}"],
+                    textposition=position,textfont=dict(color=color,size=12),
+                    name=name,hovertemplate='%{x|%Y-%m-%d}<br>%{y:.2f}<extra>'+name+'</extra>'
+                )
+            return fig
         h_one_year = h[h['Datum'] >= h['Datum'].max() - pd.DateOffset(years=1)].copy()
         if len(h_one_year) >= 2:
             chart_one_year = px.line(h_one_year,x='Datum',y='Close',title='Aktiekurs – senaste året')
             chart_one_year.update_layout(xaxis_title='Datum',yaxis_title='Aktiekurs')
-            st.plotly_chart(chart_one_year,use_container_width=True)
+            st.plotly_chart(mark_high_low(chart_one_year,h_one_year),use_container_width=True)
         else:
             st.info('Det finns inte tillräckligt med kurshistorik för att visa ett år.')
         chart_five_years = px.line(h,x='Datum',y='Close',title='Aktiekurs – senaste fem åren')
         chart_five_years.update_layout(xaxis_title='Datum',yaxis_title='Aktiekurs')
-        st.plotly_chart(chart_five_years,use_container_width=True)
+        st.plotly_chart(mark_high_low(chart_five_years,h),use_container_width=True)
     else:st.warning('Kursserie saknas.')
     st.markdown('**Bolagsprofil**');st.write(info.get('longBusinessSummary','Beskrivning saknas.'))
 with two:
