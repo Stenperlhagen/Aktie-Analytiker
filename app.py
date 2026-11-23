@@ -1044,11 +1044,11 @@ with two:
                 latest_date=pd.Timestamp(current_match['period_end_date'])
                 yoy_source='ROIC AI · rapporterade kvartal'
         if prior_value is None:
-            reason='Föregående års motsvarande kvartal saknas i datakällan'
+            reason='Kvartalsdata för samma period föregående år saknas – se separat helårsjämförelse nedan'
         elif label in ('Räntebärande skulder','Likvida medel'):
-            reason='Balanspost – förändring i procent visas inte här'
+            reason='Balanspost: procentuell förändring ska inte tolkas som automatisk förbättring eller försämring'
         elif prior_value<=0:
-            reason='Jämförelsebasen är noll eller negativ'
+            reason='Procentuell tillväxt kan bli missvisande när jämförelsevärdet är noll eller negativt'
         else:
             yoy=(latest_value/prior_value-1)*100
         # Kvartal mot närmast föregående kvartal med redan hämtad data.
@@ -1082,10 +1082,10 @@ with two:
     if quarterly_rows:
         quarter_table=pd.DataFrame(quarterly_rows)
         if quarter_table['Förändring mot samma kvartal föregående år'].eq('Saknas').all():
-            st.info('Datakällorna saknar motsvarande kvartal föregående år för de här posterna. Därför visas i stället en separat jämförelse av rapporterade helår nedan. Helårsförändring är inte samma sak som kvartalsförändring.')
+            st.info('Samma kvartal föregående år finns inte i tillgängliga rapportdata. Tabellen visar kvartalsutvecklingen där den går att beräkna; längre ned finns en separat jämförelse mellan två rapporterade helår.')
             quarter_table=quarter_table.drop(columns=['Jämförelsekvartal','Värde föregående år','Förändring mot samma kvartal föregående år'])
         st.dataframe(quarter_table,hide_index=True,use_container_width=True)
-        st.caption('Kvartalsjämförelsen använder närmaste föregående kvartal inom 40 dagar; årsjämförelsen använder närmaste rapportperiod inom 45 dagar från motsvarande kvartal föregående år. Om datakällan bara har fyra kvartal kan jämförelsen inte beräknas. Procentuell förändring visas även för negativa aktuella värden när föregående års värde är positivt. Balansposter redovisas separat.')
+        st.caption('QoQ jämför med föregående rapporterade kvartal. YoY jämför med motsvarande kvartal ett år tidigare, endast när båda värdena finns. Helårsförändringen redovisas separat nedan. Ingen saknad kvartalsdata uppskattas.')
     else:
         st.info('Kvartalsrapporter saknas hos den anslutna datakällan för detta bolag.')
 
@@ -1095,7 +1095,7 @@ with two:
         st.caption('ROIC AI levererade '+str(len(roic_quarters))+' rapporterade kvartal. Dessa används endast när motsvarande Yahoo-jämförelse saknas och valuta och period överensstämmer.')
 
     st.markdown('#### Årsförändring – beräknad från befintliga årsrapporter')
-    st.caption('När jämförbara kvartal saknas använder vi bolagets faktiska helårssiffror som en separat, korrekt jämförelse. Inga kvartal uppskattas.')
+    st.caption('Förändring mellan två rapporterade helår, beräknad från de faktiska årsredovisningsposterna. Detta är inte en jämförelse mellan enskilda kvartal.')
     annual_comparisons=[
         ('Omsättning',fin,('Total Revenue','Operating Revenue'),'M'),
         ('EBIT',fin,('Operating Income','EBIT'),'M'),
