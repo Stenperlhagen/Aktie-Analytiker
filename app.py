@@ -1192,14 +1192,8 @@ with target_slot.container():
     header_history=global_pe_median if global_pe_median is not None and len(global_pe_samples)>=2 else None
     header_target=(header_price*header_history/header_pe
                    if header_price is not None and header_pe is not None and header_history is not None else None)
-    # Alternativ källa när historisk P/E inte finns: publicerad analytikerkonsensus.
-    # Blanda aldrig analytikerriktkurs med P/E-beräknad jämförelsekurs.
-    analyst_target=val(info,'targetMeanPrice','targetMedianPrice')
     target_method='Historiskt P/E'
-    if header_target is None and header_price is not None and analyst_target is not None and analyst_target>0:
-        header_target=analyst_target
-        target_method='Analytikerkonsensus'
-    # Reservmodell för lönsamma bolag utan P/E-historik och analytikerkonsensus:
+    # Reservmodell för lönsamma bolag utan P/E-historik:
     # använd senaste RAPPORTERADE EPS med öppet antagen multipel, inte påhittad riktkurs.
     if header_target is None and header_price is not None:
         eps_candidate=numeric(info.get('trailingEps'))
@@ -1225,12 +1219,12 @@ with target_slot.container():
                 scenario_multiple=12.0
                 header_target=scenario_eps*scenario_multiple
                 target_method='EPS-scenario'
-                scenario_description='Antagande: P/E 12 × positiv EPS ('+eps_period+'). Inte historiskt eller analytikerbedömt värde.'
+                scenario_description='Antagande: P/E 12 × positiv EPS ('+eps_period+'). Inte en historiskt observerad värdering.'
     if header_target is None:
         missing_target=[]
         if header_price is None: missing_target.append('aktuell aktiekurs')
         if header_pe is None: missing_target.append('positivt aktuellt P/E')
-        if header_history is None: missing_target.append('historiskt P/E, analytikerriktkurs eller positiv rapporterad EPS')
+        if header_history is None: missing_target.append('historiskt P/E eller positiv rapporterad EPS')
         target_explanation='Saknas: '+', '.join(missing_target)+'.'
         st.markdown(
             '<div style="padding:18px;border-radius:15px;background:#f1f5f9;border:1px solid #cbd5e1;">'
@@ -1252,10 +1246,10 @@ with target_slot.container():
             header_bg,header_border,header_ink,header_signal='#fffbeb','#fcd34d','#92400e','AVVAKTA'
         st.markdown(
             '<div style="padding:18px;border-radius:15px;background:'+header_bg+';border:1px solid '+header_border+';">'
-            '<div style="font-size:.85rem;font-weight:650;color:'+header_ink+';">'+('INDIKATIV KURS · HISTORISKT P/E' if target_method=='Historiskt P/E' else 'ANALYTIKERNAS GENOMSNITTLIGA RIKTKURS' if target_method=='Analytikerkonsensus' else 'SCENARIOKURS · ANTAGET P/E 12')+'</div>'
+            '<div style="font-size:.85rem;font-weight:650;color:'+header_ink+';">'+('INDIKATIV KURS · HISTORISKT P/E' if target_method=='Historiskt P/E' else 'SCENARIOKURS · ANTAGET P/E 12')+'</div>'
             '<div style="font-size:2rem;font-weight:800;color:'+header_ink+';">'+show(header_target,' '+str(quote_ccy or ''),2)+'</div>'
             '<div style="font-size:.95rem;font-weight:700;color:'+header_ink+';">'+header_signal+'</div>'
-            '<div style="font-size:.8rem;color:#475569;margin-top:7px;">'+('Beräknad jämförelsekurs från historiskt P/E ('+str(len(global_pe_samples))+' observationer).' if target_method=='Historiskt P/E' else 'Yahoo Finance: publicerad analytikerkonsensus. Uppgiftens datum och antal analytiker kan saknas.' if target_method=='Analytikerkonsensus' else scenario_description)+'</div></div>',
+            '<div style="font-size:.8rem;color:#475569;margin-top:7px;">'+('Beräknad jämförelsekurs från historiskt P/E ('+str(len(global_pe_samples))+' observationer).' if target_method=='Historiskt P/E' else scenario_description)+'</div></div>',
             unsafe_allow_html=True)
 one,two,three,four=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering'])
 with one:
