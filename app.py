@@ -435,6 +435,25 @@ with five:
         check('Operativt kassaflöde', cf_positive / cf_total, lambda x: x >= 0.75, 'Positivt kassaflöde i minst 75 % av tillgängliga årsperioder')
     if tests:
         positives = sum(row['Bedömning'] == 'Positiv' for row in tests)
+        # Färg är en transparent signal om historisk finansiell styrka,
+        # inte en prognostiserad sannolikhet för kursuppgång.
+        score = positives / len(tests)
+        enough_data = len(tests) >= 4
+        if not enough_data:
+            signal, signal_color, explanation = 'GUL – Otillräckligt underlag', '#B7791F', 'Färre än fyra bedömbara finansiella indikatorer. Ingen tydlig slutsats kan dras.'
+        elif score >= 0.70:
+            signal, signal_color, explanation = 'GRÖN – Positiva fundamentala signaler', '#16803C', 'Minst 70 % av tillgängliga indikatorer är positiva.'
+        elif score <= 0.30:
+            signal, signal_color, explanation = 'RÖD – Negativa fundamentala signaler', '#C53030', 'Högst 30 % av tillgängliga indikatorer är positiva.'
+        else:
+            signal, signal_color, explanation = 'GUL – Blandade fundamentala signaler', '#B7791F', 'Blandade positiva och negativa indikatorer.'
+        st.markdown(
+            f'<div style="border:1px solid {signal_color};border-left:8px solid {signal_color};border-radius:12px;padding:18px 22px;margin:12px 0 18px;">'
+            f'<div style="font-size:22px;font-weight:700;color:{signal_color}">{signal}</div>'
+            f'<div style="margin-top:7px;">{explanation} ({positives} av {len(tests)} positiva.)</div>'
+            f'</div>', unsafe_allow_html=True
+        )
+        st.caption('Färgindikatorn beskriver historiska fundamenta – inte en beräknad sannolikhet för att aktiekursen ska stiga eller falla. Värderingsnivå och marknadsförväntningar ingår inte i färgpoängen.')
         st.metric('Positiva finansiella signaler', f'{positives} av {len(tests)}')
         st.dataframe(pd.DataFrame(tests), hide_index=True, use_container_width=True)
         st.write('**Tolkning:** ' + ('Övervägande positiva historiska signaler.' if positives > len(tests)/2 else 'Övervägande negativa historiska signaler.' if positives < len(tests)/2 else 'Blandade historiska signaler.'))
