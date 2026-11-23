@@ -1386,10 +1386,18 @@ with target_slot.container():
     if header_target is None:
         missing_target=[]
         if header_price is None: missing_target.append('aktuell aktiekurs')
-        if header_pe is None: missing_target.append('positivt aktuellt P/E')
         if header_category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
             missing_target.append('jämförbar EBITA, nettoskuld, aktieantal eller valutakurs')
-        elif header_history is None: missing_target.append('historiskt P/E eller positiv rapporterad EPS')
+        elif header_category=='Investmentbolag / kapitalförvaltning':
+            missing_target.append('senast rapporterat substansvärde per aktie')
+        elif header_category=='Fastigheter':
+            missing_target.append('normaliserat driftnetto, direktavkastningskrav och jämförbart NAV')
+        elif header_category=='Bank / finansiella tjänster':
+            missing_target.append('verifierat bokfört värde och normaliserad ROE')
+        elif header_category=='Forskningsbolag':
+            missing_target.append('projektspecifika kassaflöden och kliniska sannolikheter')
+        else:
+            missing_target.append('sektorspecifikt värderingsunderlag')
         target_explanation='Saknas: '+', '.join(missing_target)+'.'
         st.markdown(
             '<div style="padding:18px;border-radius:15px;background:#f1f5f9;border:1px solid #cbd5e1;">'
@@ -1399,7 +1407,7 @@ with target_slot.container():
             unsafe_allow_html=True)
     else:
         header_gap=((header_pe/header_history-1)*100 if target_method=='Historiskt P/E'
-                    else (header_price/header_target-1)*100)
+                    else (header_price/header_target-1)*100 if header_price is not None and header_target>0 else 0)
         if target_method=='Rapporterat NAV':
             header_signal='SUBSTANSVÄRDE – EJ RIKTKURS'
             header_bg,header_border,header_ink='#f1f5f9','#cbd5e1','#334155'
