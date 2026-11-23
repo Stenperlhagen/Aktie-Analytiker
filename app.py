@@ -508,6 +508,7 @@ PROPERTY_TICKERS={
 }
 # Verifierade substansvärden från publicerade bolagsrapporter.
 # Datum avser värderingsdatum, inte datum då börskursen hämtades.
+VOLATI_Q3_2026={'ebita_ltm':245_000_000.0,'net_debt':1_331_000_000.0,'ordinary_shares':79_406_571.0,'as_of':'2026-09-30','source':'https://www.mfn.se/a/volati/volati-delarsrapport-januari-september-2026'}
 REPORTED_NAV={
     'LATO-B.ST':{'nav':223.0,'date':'2026-11-02','source':'https://www.mfn.se/cis/a/latour/delarsrapport-januari-september-2026-d993ea5e.iframe','kind':'Substansvärde'},
     'INDU-C.ST':{'nav':517.0,'date':'2026-09-30','source':'https://mfn.se/a/industrivarden/delarsrapport-1-januari-30-september-2026.iframe','kind':'Substansvärde'}
@@ -2203,13 +2204,24 @@ with four:
             if all(v is not None for v in (ocf_report,capex_report,interest_report)):
                 fcff=ocf_report-abs(capex_report)+abs(interest_report)*(1-0.206)
             ebit_a=ebita if ebita is not None and ebita>0 else None
+            valuation_debt=netdebt
+            valuation_shares=shares
+            valuation_fx=fx
+            if ticker=='VOLO.ST':
+                ebit_a=VOLATI_Q3_2026['ebita_ltm']
+                valuation_debt=VOLATI_Q3_2026['net_debt']
+                valuation_shares=VOLATI_Q3_2026['ordinary_shares']
+                valuation_fx=1.0 if quote_ccy=='SEK' else fx_rate('SEK',quote_ccy)
+                st.caption('Volati: EBITA R12 245 Mkr, nettoskuld 1 331 Mkr, 79 406 571 stamaktier. Källa: delårsrapport Q3 2026. Värdena uppdateras när nästa rapport har verifierats.')
             required=[]
-            if shares is None: required.append('antal aktier')
-            if fx is None: required.append('verifierad rapport- och handelsvaluta')
-            if netdebt is None: required.append('nettoskuld')
+            if valuation_shares is None: required.append('antal aktier')
+            if valuation_fx is None: required.append('verifierad rapport- och handelsvaluta')
+            if valuation_debt is None: required.append('nettoskuld')
             st.markdown('#### 1. DCF – FCFF / WACC')
             dcf_target=None
-            if fcff is None or fcff<=0:
+            if ticker=='VOLO.ST':
+                st.info('Volatis FCFF kan inte härledas säkert ur det generiska Yahoo-kassaflödet efter utdelningen av Salix. DCF pausas tills ett jämförbart FCFF har verifierats.')
+            elif fcff is None or fcff<=0:
                 st.info('DCF kan inte beräknas utan positiv FCFF och verifierad hantering av räntebetalningar i kassaflödet.')
             elif required:
                 st.info('DCF saknar: '+', '.join(required)+'.')
@@ -2220,7 +2232,7 @@ with four:
                 flows=[fcff*(1+growth)**year for year in range(1,6)]
                 enterprise=sum(cf/(1+rate)**year for year,cf in enumerate(flows,1))
                 enterprise+=flows[-1]*(1+terminal_growth)/(rate-terminal_growth)/(1+rate)**5
-                dcf_target=(enterprise-netdebt)*fx/shares
+                dcf_target=(enterprise-valuation_debt)*valuation_fx/valuation_shares
                 st.metric('DCF – beräknad kurs',show(dcf_target,' '+str(quote_ccy),2))
                 st.caption('FCFF bygger på rapporterad CFO, investeringar och räntebetalningar med antagen 20,6 % skatt. Kontrollera om räntan faktiskt ingår i CFO.')
             st.markdown('#### 2. EV/EBITA')
@@ -2231,25 +2243,25 @@ with four:
                 st.info('EV/EBITA saknar: '+', '.join(required)+'.')
             else:
                 enterprise_multiple=ebit_a*multiple
-                equity_multiple=enterprise_multiple-netdebt
-                multiple_target=equity_multiple*fx/shares
+                equity_multiple=enterprise_multiple-valuation_debt
+                multiple_target=equity_multiple*valuation_fx/valuation_shares
                 st.metric('EV/EBITA – beräknad kurs',show(multiple_target,' '+str(quote_ccy),2))
                 with st.expander('Kontrollera EV/EBITA-beräkningen och indata'):
                     st.write('**Rapporterad EBITA:** '+show(ebit_a/1e6,' M '+str(report_ccy),1))
                     st.write('**Vald EV/EBITA:** '+show(multiple,'×',1))
                     st.write('**Företagsvärde (EV):** '+show(enterprise_multiple/1e6,' M '+str(report_ccy),1))
-                    st.write('**Avdragen nettoskuld:** '+show(netdebt/1e6,' M '+str(report_ccy),1))
+                    st.write('**Avdragen nettoskuld:** '+show(valuation_debt/1e6,' M '+str(report_ccy),1))
                     st.write('**Beräknat eget kapital:** '+show(equity_multiple/1e6,' M '+str(report_ccy),1))
-                    st.write('**Antal aktier:** '+show(shares/1e6,' miljoner',2))
-                    st.write('**Valutakurs:** '+show(fx,'',4))
+                    st.write('**Antal aktier:** '+show(valuation_shares/1e6,' miljoner',2))
+                    st.write('**Valutakurs:** '+show(valuation_fx,'',4))
                     st.caption('Formel: (EBITA × multipel − nettoskuld) × valutakurs / antal aktier. Kontrollera att EBITA och nettoskuld avser samma verksamhet och jämförbar period.')
                 if ticker=='VOLO.ST':
-                    st.warning('Volati: historiska finansiella data kan omfatta verksamheter som delats ut eller avyttrats. Kontrollera EBITA och nettoskuld för kvarvarande verksamhet innan denna kurs används.')
+                    st.caption('Volati: värderingen använder rapporterad kvarvarande EBITA och nettoskuld per 2026-09-30, inte blandade Yahoo-perioder.')
             st.markdown('#### 3. Reverse DCF')
-            if fcff is not None and fcff>0 and not required and price is not None and price>0:
+            if ticker!='VOLO.ST' and fcff is not None and fcff>0 and not required and price is not None and price>0:
                 rate=wacc_pct/100
                 terminal_growth=0.02
-                target_ev=price*shares/fx+netdebt
+                target_ev=price*valuation_shares/valuation_fx+valuation_debt
                 def enterprise_at_growth(g):
                     projected=[fcff*(1+g)**year for year in range(1,6)]
                     return sum(cf/(1+rate)**year for year,cf in enumerate(projected,1))+projected[-1]*(1+terminal_growth)/(rate-terminal_growth)/(1+rate)**5
