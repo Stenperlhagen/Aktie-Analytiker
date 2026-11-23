@@ -937,6 +937,14 @@ with two:
             st.info('Rapportdata saknas för denna del.')
             continue
         cols = sorted(frame.columns, reverse=True)[:5]
+        # Visa inte 2021 i kassaflöde/balans när året helt saknar data
+        # för de rapportposter som faktiskt presenteras i tabellen.
+        if section_name in ('Kassaflöde','Balansräkning'):
+            visible_labels={key for _,candidates,_ in metrics for key in candidates if key in frame.index}
+            cols=[col for col in cols if not (
+                str(pd.Timestamp(col).year if not pd.isna(pd.to_datetime(col,errors='coerce')) else col) == '2021'
+                and not any(numeric(frame.at[key,col]) is not None for key in visible_labels)
+            )]
         periods = [str(c.date()) if hasattr(c, 'date') else str(c)[:10] for c in cols]
         rows = []
         for label, candidates, unit in metrics:
