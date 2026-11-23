@@ -746,6 +746,25 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
                 out['period']='2026-09-30'
                 out['source']='https://financialfilings.com/filings/aak/interim-quarterly-report/2026/74641045/'
                 out['missing'].append('AAK: separat EBITA och normaliserad FCFF ej verifierade; rapporterad EBIT används endast som konservativ proxy.')
+            # Kontrollera enheter och kapitalstruktur för ALLA bolag, inte bara specialfallen.
+            market_cap=val(info,'marketCap') or val(quick,'market_cap')
+            audit=[]
+            if price and price>0 and shares and shares>0 and market_cap and market_cap>0:
+                ratio=price*shares/market_cap
+                if not 0.8<=ratio<=1.2:
+                    audit.append('Aktieantal × kurs avviker från börsvärdet; kontrollera aktieslag och enheter')
+            else:
+                audit.append('Aktieantal och börsvärde kan inte dubbelkontrolleras')
+            if symbol not in ('AAK.ST','VOLO.ST') and common:
+                sales=row(fin,['Total Revenue','Operating Revenue'],period)
+                if sales is not None and sales>0:
+                    if earnings is not None and abs(earnings)>sales:
+                        audit.append('EBITA överstiger omsättning; kontrollera enheter')
+                    if fcff is not None and abs(fcff)>sales:
+                        audit.append('FCFF överstiger omsättning; kontrollera enheter')
+                else:
+                    audit.append('Omsättning saknas för rimlighetskontroll')
+            out['audit']=audit
             out['inputs']={('EBIT (proxy)' if symbol=='AAK.ST' else 'EBITA'):earnings,'Nettoskuld':debt,'Antal aktier':shares,'FCFF':fcff,'Valutakurs':fx}
             multiple_value=comparable_ev_ebita(earnings,debt,shares,m,fx)
             if multiple_value is not None: out['models']['EV/EBIT (EBITA-proxy)' if symbol=='AAK.ST' else 'EV/EBITA']=multiple_value
@@ -788,7 +807,15 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
     if out['models']:
         out['target']=sum(out['models'].values())/len(out['models'])
         out['method']=' + '.join(out['models'])
+    # Extrema modellutfall är granskningsfall, inte automatiska köp-/säljsignaler.
     target=out['target']
+    if target is not None and price is not None and price>0 and not 0.2<=target/price<=5:
+        out.setdefault('audit',[]).append('Modellvärdet avviker kraftigt från börskursen; kontrollera rapportdata och modell innan signal används')
+    if out.get('audit'):
+        out['missing'].extend(out['audit'])
+        out['unreviewed_target']=target
+        out['target']=None
+        target=None
     if target is not None and price is not None and price>0:
         out['upside']=(target/price-1)*100
         out['buy_limit']=target*0.8
@@ -804,10 +831,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v2':
+if st.session_state.get('screener_model_version')!='unified-v3':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v2'
+    st.session_state['screener_model_version']='unified-v3'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 with st.sidebar:
@@ -832,10 +859,10 @@ with st.sidebar:
     st.caption('Sök bland samtliga bolag. Resultatet visas i huvudfönstret.')
     universe=list(dict.fromkeys(ALL_COMPANIES.values()))
     screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
-    if st.session_state.get('screener_model_version')!='unified-v2':
+    if st.session_state.get('screener_model_version')!='unified-v3':
         st.session_state.screener_results={}
         st.session_state.screener_running=False
-        st.session_state.screener_model_version='unified-v2'
+        st.session_state.screener_model_version='unified-v3'
     if 'screener_results' not in st.session_state:
         st.session_state.screener_results={}
     if 'screener_running' not in st.session_state:
@@ -1999,6 +2026,9 @@ with four:
     st.metric('Reverse DCF – inprisad tillväxt',show(v.get('reverse_growth'),' %',1))
     st.metric('Upp-/nedsida',show(v.get('upside'),' %',1))
     st.metric('Högsta köpkurs – 20 % säkerhetsmarginal',show(v.get('buy_limit'),' '+str(v.get('currency') or ''),2))
+    if v.get('audit'):
+        st.warning('Värderingen behöver granskas: '+'; '.join(v['audit']))
+        st.metric('Preliminärt modellutfall före kontroll',show(v.get('unreviewed_target'),' '+str(v.get('currency') or ''),2))
     if v.get('missing'): st.caption('Underlag som saknas: '+'; '.join(v['missing']))
     st.caption('DCF och EV/EBITA viktas lika när båda kan beräknas. En ensam modell visas separat. Beräkningar är modellscenarier och rapportdata behöver verifieras.')
 
