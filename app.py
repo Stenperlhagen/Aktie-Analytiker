@@ -748,6 +748,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
         if cap and price and price>0 and symbol not in {'VOLO.ST'}: shares=cap/price
     out={'category':category,'profile':profile,'price':price,'currency':currency,'target':None,'method':'','missing':[],'models':{}}
     out['source']=primary_source
+    out['report_currency']=report
     def row(frame,labels,period):
         for label in labels:
             if label in frame.index:
@@ -802,6 +803,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
                 debt=VOLATI_Q3_2026['net_debt']
                 shares=VOLATI_Q3_2026['ordinary_shares']
                 fx=fx_rate('SEK',currency)
+                out['report_currency']='SEK'
                 fcff=None
                 out['period']=VOLATI_Q3_2026['as_of']
                 out['source']=VOLATI_Q3_2026['source']
@@ -813,6 +815,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
                 debt=3_134_000_000.0
                 shares=259_708_000.0
                 fx=fx_rate('SEK',currency)
+                out['report_currency']='SEK'
                 fcff=None
                 out['period']='2026-09-30'
                 out['source']='https://financialfilings.com/filings/aak/interim-quarterly-report/2026/74641045/'
@@ -914,10 +917,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v7':
+if st.session_state.get('screener_model_version')!='unified-v8':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v7'
+    st.session_state['screener_model_version']='unified-v8'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 with st.sidebar:
@@ -942,10 +945,10 @@ with st.sidebar:
     st.caption('Sök bland samtliga bolag. Resultatet visas i huvudfönstret.')
     universe=list(dict.fromkeys(ALL_COMPANIES.values()))
     screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
-    if st.session_state.get('screener_model_version')!='unified-v7':
+    if st.session_state.get('screener_model_version')!='unified-v8':
         st.session_state.screener_results={}
         st.session_state.screener_running=False
-        st.session_state.screener_model_version='unified-v7'
+        st.session_state.screener_model_version='unified-v8'
     if 'screener_results' not in st.session_state:
         st.session_state.screener_results={}
     if 'screener_running' not in st.session_state:
@@ -1805,7 +1808,7 @@ with three:
         # Inga manuella inmatningar: historikbaserade utgångspunkter och öppet redovisade antaganden.
         base_growth=float(suggested_growth)
         base_margin=float(suggested_margin)
-        hurdle=10.0
+        hurdle=10.0 # separat avkastningskrav på eget kapital; WACC avser företagskassaflöde
         base_multiple=valuation_result.get('assumptions',{}).get('EV/EBITA')
         multiple_source='Huvudmodellens branschmultipel'
         st.markdown('#### 2. Så räknar modellen')
@@ -1820,11 +1823,14 @@ with three:
         balance_period = next((x for x in _roic_data.get('balance',[]) if str(x.get('period_end_date') or '')[:10]==forecast_period and x.get('currency')==forecast_currency),None)
         debt_annual = scenario_field(balance_period or {},('bs_total_debt','total_debt','totalDebt'))
         cash_annual = scenario_field(balance_period or {},('bs_cash_and_cash_equivalents','cash_and_cash_equivalents','cash_and_short_term_investments'))
-        annual_netdebt = debt_annual-cash_annual if debt_annual is not None and cash_annual is not None else None
-        market_fx = fx_rate(quote_ccy,forecast_currency) if quote_ccy and forecast_currency else None
-        can_value = all(x is not None for x in (annual_netdebt,market_fx,market_cap,price)) and market_cap>0 and price>0 and market_fx>0
+        same_basis=str(valuation_result.get('period'))==forecast_period and valuation_result.get('report_currency')==forecast_currency
+        annual_netdebt=valuation_debt if same_basis else None
+        market_fx=1/valuation_fx if same_basis and valuation_fx and valuation_fx>0 else None
+        price=valuation_price
+        market_cap=price*valuation_shares if price and valuation_shares else None
+        can_value = not valuation_result.get('audit') and all(x is not None for x in (annual_netdebt,market_fx,market_cap,price)) and market_cap>0 and price>0 and market_fx>0
         if not can_value:
-            st.warning('EBITA-prognosen kan beräknas, men aktievärde och avkastning kräver verifierad nettoskuld från ROIC:s årsbalans, börsvärde, aktiekurs och valutakurs.')
+            st.warning('Aktiepris i scenariot kräver samma rapportperiod och valuta som huvudmodellen, samt aktieantal, nettoskuld och godkända datakontroller.')
         else:
             st.caption('Värderingen antar oförändrad nominell nettoskuld under fem år, oförändrat antal aktier och ingen utdelning. Den inkluderar inte förvärvskostnader eller framtida kapitalanskaffningar.')
         scenarios = [
