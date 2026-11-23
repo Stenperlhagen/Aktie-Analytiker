@@ -680,229 +680,125 @@ def valuation_category(symbol, info=None):
         return 'Ej klassificerad'
     return 'Rörelsedrivande bolag'
 
+def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
+    category=valuation_category(symbol,info)
+    profile=operating_valuation_profile(symbol,info)
+    params=VALUATION_PROFILES.get(profile)
+    price=val(info,'currentPrice','regularMarketPrice')
+    if price is None: price=val(quick,'last_price')
+    if price is None and not hist.empty: price=numeric(hist['Close'].iloc[-1])
+    currency=info.get('currency') or quick.get('currency')
+    report=info.get('financialCurrency')
+    fx=fx_rate(report,currency)
+    shares=val(info,'sharesOutstanding') or val(quick,'shares')
+    out={'category':category,'profile':profile,'price':price,'currency':currency,'target':None,'method':'','missing':[],'models':{}}
+    def row(frame,labels,period):
+        for label in labels:
+            if label in frame.index:
+                value=numeric(frame.at[label,period])
+                if value is not None: return value
+        return None
+    def latest(frame,labels):
+        for period in sorted(frame.columns,reverse=True):
+            value=row(frame,labels,period)
+            if value is not None: return value
+        return None
+    if category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
+        if not params: out['missing'].append('Branschprofil')
+        else:
+            w,g,m=params
+            out['assumptions']={'WACC (%)':w,'FCFF-tillväxt (%)':g,'EV/EBITA':m,'Terminaltillväxt (%)':2,'Prognosår':5}
+            earnings=debt=fcff=None
+            common=sorted(set(fin.columns)&set(balance.columns),reverse=True)
+            if common:
+                period=common[0]
+                earnings=row(fin,['EBITA','Adjusted EBITA','Normalized EBITA'],period)
+                debt=row(balance,['Net Debt'],period)
+                if debt is None:
+                    gross=row(balance,['Total Debt'],period)
+                    liquid=row(balance,['Cash And Cash Equivalents'],period)
+                    if gross is not None and liquid is not None: debt=gross-liquid
+                out['period']=str(period)[:10]
+                if period in cash.columns:
+                    # FCFF via EBIT efter skatt + avskrivningar - investeringar - ökning i rörelsekapital.
+                    ebit=row(fin,['Operating Income','EBIT'],period)
+                    da=row(cash,['Depreciation And Amortization','Depreciation Amortization Depletion'],period)
+                    cap=row(cash,['Capital Expenditure'],period)
+                    wc=row(cash,['Change In Working Capital'],period)
+                    if all(v is not None for v in (ebit,da,cap,wc)):
+                        fcff=ebit*(1-0.206)+da-abs(cap)+wc
+            if symbol=='VOLO.ST':
+                earnings=VOLATI_Q3_2026['ebita_ltm']
+                debt=VOLATI_Q3_2026['net_debt']
+                shares=VOLATI_Q3_2026['ordinary_shares']
+                fx=fx_rate('SEK',currency)
+                fcff=None
+                out['period']=VOLATI_Q3_2026['as_of']
+                out['source']=VOLATI_Q3_2026['source']
+            out['inputs']={'EBITA':earnings,'Nettoskuld':debt,'Antal aktier':shares,'FCFF':fcff,'Valutakurs':fx}
+            multiple_value=comparable_ev_ebita(earnings,debt,shares,m,fx)
+            if multiple_value is not None: out['models']['EV/EBITA']=multiple_value
+            else: out['missing'].append('EV/EBITA: jämförbar EBITA, nettoskuld, aktier eller valuta')
+            if fcff is not None and fcff>0 and debt is not None and shares and shares>0 and fx and fx>0:
+                rate=w/100
+                def ev(growth):
+                    flows=[fcff*(1+growth)**t for t in range(1,6)]
+                    return sum(v/(1+rate)**t for t,v in enumerate(flows,1))+flows[-1]*1.02/(rate-0.02)/(1+rate)**5
+                dcf=(ev(g/100)-debt)*fx/shares
+                if dcf>0: out['models']['DCF']=dcf
+                if price and price>0:
+                    market_ev=price*shares/fx+debt
+                    lo,hi=-0.5,0.5
+                    if ev(lo)<=market_ev<=ev(hi):
+                        for _ in range(60):
+                            mid=(lo+hi)/2
+                            if ev(mid)<market_ev: lo=mid
+                            else: hi=mid
+                        out['reverse_growth']=(lo+hi)*50
+            else: out['missing'].append('DCF/Reverse DCF: jämförbart positivt FCFF och kapitalstruktur')
+    elif category=='Bank / finansiella tjänster':
+        equity=latest(balance,['Common Stock Equity','Stockholders Equity'])
+        roe=val(info,'returnOnEquity')
+        if equity is not None and equity>0 and shares and shares>0 and fx and roe is not None:
+            pb=(roe-0.02)/(0.10-0.02)
+            if pb>0: out['models']['P/B']=equity*fx/shares*pb
+            out['inputs']={'Eget kapital':equity,'Antal aktier':shares,'ROE':roe,'Motiverat P/B':pb}
+        out['assumptions']={'Avkastningskrav (%)':10,'Tillväxt (%)':2}
+        if not out['models']: out['missing'].append('Positivt eget kapital, ROE, aktieantal och valuta')
+    elif category in ('Fastigheter','Investmentbolag / kapitalförvaltning'):
+        nav=REPORTED_NAV.get(symbol)
+        if nav and currency=='SEK':
+            out['models']['Rapporterat NAV']=nav['nav']
+            out['period']=nav['date']
+            out['source']=nav['source']
+        else: out['missing'].append('Rapporterat NAV eller verifierat driftnetto och direktavkastningskrav' if category=='Fastigheter' else 'Rapporterat substansvärde')
+    elif category=='Forskningsbolag': out['missing'].append('rNPV: projektkassaflöden, sannolikheter, nettokassa och utspädning')
+    else: out['missing'].append('Sektorspecifikt värderingsunderlag')
+    if out['models']:
+        out['target']=sum(out['models'].values())/len(out['models'])
+        out['method']=' + '.join(out['models'])
+    target=out['target']
+    if target is not None and price is not None and price>0:
+        out['upside']=(target/price-1)*100
+        out['buy_limit']=target*0.8
+        out['status']='Undervärderad enligt modellen' if out['upside']>=20 else 'Övervärderad enligt modellen' if out['upside']<=-20 else 'Rimligt värderad enligt modellen'
+    else: out['status']='Saknat underlag'
+    return out
+
 @st.cache_data(ttl=21600,show_spinner=False)
 def screener_snapshot(symbol):
-    """En bolagsobservation med samma P/E-metod som Värderingskontroll."""
     try:
-        obj=yf.Ticker(symbol)
-        info=obj.info or {}
-        category=valuation_category(symbol,info)
-        # Gratisläge: inga betalda API:er anropas vid screening.
-        report_count=0
+        info,hist,fin,cash,balance,quick,errors=fetch(symbol)
+        return valuation_engine(symbol,info,fin,cash,balance,quick,hist)
+    except Exception as exc:
+        return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-        if category!='Rörelsedrivande bolag':
-            # Använd sektorsrelevanta nyckeltal men ge inte falska substansrabatter.
-            pb=numeric(info.get('priceToBook'))
-            roe=numeric(info.get('returnOnEquity'))
-            book=numeric(info.get('bookValue'))
-            price=numeric(info.get('currentPrice') or info.get('regularMarketPrice'))
-            data={'category':category,'currency':info.get('currency'),
-                  'pb':pb if pb is not None and pb>0 else None,
-                  'roe':roe*100 if roe is not None else None,
-                  'book_value':book,'price':price}
-            if category=='Investmentbolag / kapitalförvaltning':
-                data['method']='NAV / substansrabatt'
-                reported=REPORTED_NAV.get(symbol)
-                if reported and price is not None and price>0 and info.get('currency')=='SEK':
-                    data['nav']=reported['nav']
-                    data['nav_date']=reported['date']
-                    data['nav_source']=reported['source']
-                    data['gap']=(price/reported['nav']-1)*100
-                    data['status']='Rapporterad substansrabatt' if data['gap']<0 else 'Rapporterad substanspremie'
-                else:
-                    data['status']='Substansvärde krävs'
-            elif category=='Fastigheter':
-                data['status']='Fastighets-NAV krävs'
-                data['method']='EPRA NRV/NTA + driftnetto'
-            elif category in ('Bank / finansiella tjänster','Försäkring'):
-                data['status']='Nyckeltal tillgängliga' if data['pb'] is not None and data['roe'] is not None else 'Otillräckliga sektordata'
-                data['method']='P/B + ROE' if category=='Bank / finansiella tjänster' else 'P/B + ROE + solvens'
-            else:
-                data['status']='Ej klassificerad'
-                data['method']='Granskning krävs'
-            data['secondary_report_periods']=report_count
-            return data
-        growth=numeric(info.get('revenueGrowth'))
-        margin=numeric(info.get('operatingMargins'))
-        cashflow=numeric(info.get('operatingCashflow'))
-        debt=numeric(info.get('totalDebt'))
-        cash_assets=numeric(info.get('totalCash'))
-        ebitda_value=numeric(info.get('ebitda'))
-        leverage=((debt-cash_assets)/ebitda_value
-                  if None not in (debt,cash_assets,ebitda_value) and ebitda_value>0 else None)
-        quality_data={
-            'revenue_growth':growth*100 if growth is not None else None,
-            'operating_margin':margin*100 if margin is not None else None,
-            'operating_cashflow':cashflow,
-            'leverage':leverage,
-        }
-        # Komplettera nyckeltal från faktiska årsrapporter när profilfälten saknas.
-        # Dessa jämförs bara inom samma rapportvaluta och rapportperiod.
-        if any(v is None for v in (growth,margin,cashflow,leverage)):
-            try:
-                annual_income=obj.income_stmt
-                annual_cash=obj.cashflow
-                annual_balance=obj.balance_sheet
-                def annual_series(frame,labels):
-                    if not isinstance(frame,pd.DataFrame) or frame.empty:
-                        return pd.Series(dtype='float64')
-                    for label in labels:
-                        if label in frame.index:
-                            series=pd.to_numeric(frame.loc[label],errors='coerce').dropna()
-                            if len(series): return series.sort_index()
-                    return pd.Series(dtype='float64')
-                revenues=annual_series(annual_income,['Total Revenue','Operating Revenue'])
-                operating=annual_series(annual_income,['Operating Income','EBIT'])
-                ocf_series=annual_series(annual_cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'])
-                if growth is None and len(revenues)>=2 and revenues.iloc[-2]>0:
-                    growth=float(revenues.iloc[-1]/revenues.iloc[-2]-1)
-                if margin is None:
-                    common=revenues.index.intersection(operating.index)
-                    if len(common)>0 and revenues.loc[common[-1]]>0:
-                        margin=float(operating.loc[common[-1]]/revenues.loc[common[-1]])
-                if cashflow is None and len(ocf_series)>0:
-                    cashflow=float(ocf_series.iloc[-1])
-                if leverage is None:
-                    debt_series=annual_series(annual_balance,['Total Debt'])
-                    cash_series=annual_series(annual_balance,['Cash And Cash Equivalents','Cash Cash Equivalents And Short Term Investments'])
-                    ebitda_series=annual_series(annual_income,['Normalized EBITDA','EBITDA'])
-                    dates=debt_series.index.intersection(cash_series.index).intersection(ebitda_series.index)
-                    if len(dates)>0 and ebitda_series.loc[dates[-1]]>0:
-                        leverage=float((debt_series.loc[dates[-1]]-cash_series.loc[dates[-1]])/ebitda_series.loc[dates[-1]])
-                quality_data.update({
-                    'revenue_growth':growth*100 if growth is not None else None,
-                    'operating_margin':margin*100 if margin is not None else None,
-                    'operating_cashflow':cashflow,'leverage':leverage
-                })
-            except Exception:
-                pass
-        tests=[
-            (growth is not None,growth is not None and growth>0.03),
-            (margin is not None,margin is not None and margin>0.08),
-            (cashflow is not None,cashflow is not None and cashflow>0),
-            (leverage is not None,leverage is not None and leverage<2.5)
-        ]
-        quality_data['quality_coverage']=sum(available for available,_ in tests)
-        quality_data['quality_score']=sum(passed for available,passed in tests if available)
-        current_pe=numeric(info.get('trailingPE'))
-        price=numeric(info.get('currentPrice') or info.get('regularMarketPrice'))
-        if price is None or price<=0:
-            try: price=numeric(obj.fast_info.get('last_price'))
-            except Exception: pass
-        if current_pe is None or not 0<current_pe<=80:
-            eps=numeric(info.get('trailingEps'))
-            if eps is not None and eps>0 and price is not None and price>0:
-                current_pe=price/eps
-        if current_pe is None or not 0<current_pe<=80 or price is None or price<=0:
-            missing=[]
-            if price is None or price<=0: missing.append('aktuell kurs')
-            if current_pe is None or not 0<current_pe<=80: missing.append('positiv vinst per aktie (TTM)')
-            return {'status':'Otillräckliga börsdata','category':category,'missing':', '.join(missing),**quality_data}
-        try:
-            history=obj.get_valuation_measures(freq='quarterly',periods=12)
-        except Exception:
-            history=pd.DataFrame()
-        pe_values=[]
-        if isinstance(history,pd.DataFrame) and not history.empty:
-            pe_labels=('PeRatio','PE Ratio','Trailing P/E','Trailing PE','peRatio','trailingPE','TrailingPeRatio')
-            for field in pe_labels:
-                if field in history.index:
-                    observations=history.loc[field]
-                    if isinstance(observations,pd.Series):
-                        observations=observations.drop(labels=['Current'],errors='ignore')
-                        pe_values+=pd.to_numeric(observations,errors='coerce').dropna().tolist()
-                elif field in history.columns:
-                    observations=history[field]
-                    if isinstance(observations,pd.Series):
-                        observations=observations.drop(labels=['Current'],errors='ignore')
-                        pe_values+=pd.to_numeric(observations,errors='coerce').dropna().tolist()
-        pe_values=[float(v) for v in pe_values if numeric(v) is not None and 0<float(v)<=80]
-        pe_method='Yahoo historiska P/E-tal'
-        if len(pe_values)<3:
-            # Samma rapportbaserade rekonstruktion som bolagsvyn.
-            try:
-                annual_income=obj.income_stmt
-                annual_prices=obj.history(period='5y',auto_adjust=False)
-                financial_ccy=info.get('financialCurrency')
-                trading_ccy=info.get('currency')
-                reconstructed=reconstructed_pe_history(annual_income,annual_prices,financial_ccy,trading_ccy)
-            except Exception:
-                reconstructed=[]
-            if len(reconstructed)>=2:
-                pe_values=reconstructed
-                pe_method='Års-EPS och observerade historiska aktiekurser'
-        if len(pe_values)<2:
-            return {'status':'Historisk värdering saknas','pe':current_pe,'price':price,
-                    'observations':len(pe_values),'category':category,
-                    'missing':'minst två jämförbara historiska P/E-observationer',**quality_data}
-        median=float(pd.Series(pe_values).median())
-        gap=(current_pe/median-1)*100
-        return {'status':'Intressant att analysera vidare' if gap<=-20 else 'Högt värderad' if gap>=20 else 'Avvakta',
-                'pe':current_pe,'median':median,'gap':gap,'price':price,
-                'indicative_price':price*median/current_pe,'observations':len(pe_values),
-                'currency':info.get('currency'),'category':category,'method':pe_method,
-                'secondary_report_periods':report_count,**quality_data}
-    except Exception:
-        return {'status':'Kunde inte hämtas'}
-
-if st.session_state.get('screener_results',{}):
-    screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
-    st.subheader('Resultat från aktiescreenern')
-    scan_rows=[]
-    for symbol,result in st.session_state.screener_results.items():
-        scan_rows.append({
-            'Bolag':screener_names.get(symbol,symbol),'Ticker':symbol,
-            'Värderingskategori':result.get('category',valuation_category(symbol)),
-            'Kvalitet (uppfyllda/testade)':str(result.get('quality_score'))+'/'+str(result.get('quality_coverage')) if result.get('quality_coverage') else 'Ej bedömd',
-            'Omsättningstillväxt (%)':round(result['revenue_growth'],1) if result.get('revenue_growth') is not None else None,
-            'Rörelsemarginal (%)':round(result['operating_margin'],1) if result.get('operating_margin') is not None else None,
-            'Nettoskuld/EBITDA':round(result['leverage'],2) if result.get('leverage') is not None else None,
-            'Datakälla':'Yahoo Finance / bolagsrapporter där tillgängliga',
-            'Metod':result.get('method','P/E-historik' if result.get('category')=='Rörelsedrivande bolag' else 'Ej fastställd'),
-            'P/B':round(result['pb'],2) if result.get('pb') is not None else None,
-            'Rapporterat substansvärde/aktie':result.get('nav'),
-            'Substansvärdets datum':result.get('nav_date',''),
-            'Källa till substansvärde':result.get('nav_source',''),
-            'ROE (%)':round(result['roe'],1) if result.get('roe') is not None else None,
-            'Signal':result.get('status','Saknas'),
-            'Behöver kompletteras':result.get('missing','' if result.get('nav') is not None else 'Rapporterat substansvärde per aktie' if result.get('category')=='Investmentbolag / kapitalförvaltning' else 'EPRA-substansvärde per aktie' if result.get('category')=='Fastigheter' else 'Solvens- och kapitalkrav' if result.get('category')=='Försäkring' else ''),
-            'Rabatt mot historisk P/E (%)':round(-result['gap'],1) if result.get('gap') is not None else None,
-            'Nuvarande P/E':round(result['pe'],1) if result.get('pe') is not None else None,
-            'Historisk median P/E':round(result['median'],1) if result.get('median') is not None else None,
-            'Aktiekurs':round(result['price'],2) if result.get('price') is not None else None,
-            'Indikativ kurs vid historisk P/E':round(result['indicative_price'],2) if result.get('indicative_price') is not None else None,
-            'Valuta':result.get('currency',''),
-            'P/E-observationer':result.get('observations',0)
-        })
-    scan_df=pd.DataFrame(scan_rows)
-    screened_count=len(st.session_state.screener_results)
-    interested_count=sum(x.get('status')=='Intressant att analysera vidare' for x in st.session_state.screener_results.values())
-    comparable_count=sum(x.get('status') in ('Intressant att analysera vidare','Avvakta','Högt värderad') for x in st.session_state.screener_results.values())
-    st.caption(f'Granskade: {screened_count} · P/E-värderbara: {comparable_count} · Intressanta enligt P/E: {interested_count}. Övriga saknar jämförbart underlag eller kräver annan metod.')
-    filter_choice=st.radio('Visa', ['Intressanta','Alla resultat','Andra värderingsmetoder','Saknade uppgifter'],horizontal=True,key='screener_filter')
-    if filter_choice=='Intressanta':
-        scan_df=scan_df[scan_df['Signal']=='Intressant att analysera vidare']
-        if scan_df.empty:
-            st.info('Inga verifierade träffar med minst 20 % historisk P/E-rabatt bland de bolag som hittills kunnat värderas. Kontrollera hur många som faktiskt är P/E-värderbara ovan.')
-    elif filter_choice=='Andra värderingsmetoder':
-        scan_df=scan_df[scan_df['Värderingskategori']!='Rörelsedrivande bolag']
-    elif filter_choice=='Saknade uppgifter':
-        scan_df=scan_df[scan_df['Signal'].isin(['Otillräckliga börsdata','P/E-historik saknas','Historisk värdering saknas','Kunde inte hämtas','Ej klassificerad','Otillräckliga sektordata','Substansvärde krävs','Fastighets-NAV krävs'])]
-    scan_df=scan_df.sort_values('Rabatt mot historisk P/E (%)',ascending=False,na_position='last')
-    st.dataframe(scan_df,hide_index=True,use_container_width=True)
-    st.caption('För investmentbolag krävs rapporterat substansvärde per aktie för substansrabatt. För fastigheter krävs rapporterat EPRA-substansvärde. P/B är inte samma sak som substansrabatt. Banker och försäkringsbolag visas med P/B och ROE, men får ingen automatisk köp-/säljsignal utan kapital- och riskkontroll.')
-    st.caption('Beräkningen bygger på senaste hämtade Yahoo-data. Positiv rabatt = lägre nuvarande P/E än historisk median. P/E-historik och aktuell P/E kan ha olika definitioner eller perioder; resultaten måste granskas. Saknade uppgifter ger ingen investeringssignal.')
-    st.download_button('Exportera sökresultat (CSV)',data=scan_df.to_csv(index=False).encode('utf-8-sig'),file_name='equitylab_aktiescreener.csv',mime='text/csv')
-if st.session_state.get('screener_running',False):
-    st.rerun()
-if st.session_state.get('screener_results',{}):
-    st.divider()
-
-# Screener-state initieras före rendering, även när Streamlit återställer en session.
-if not isinstance(st.session_state.get('screener_results'),dict):
+if st.session_state.get('screener_model_version')!='unified-v1':
     st.session_state['screener_results']={}
-if not isinstance(st.session_state.get('screener_running'),bool):
     st.session_state['screener_running']=False
+    st.session_state['screener_model_version']='unified-v1'
+if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
+if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 with st.sidebar:
     st.header('Välj bolag')
     st.caption('Sök genom att skriva i listan eller öppna den och skrolla bland alla bolag.')
@@ -925,10 +821,10 @@ with st.sidebar:
     st.caption('Sök bland samtliga bolag. Resultatet visas i huvudfönstret.')
     universe=list(dict.fromkeys(ALL_COMPANIES.values()))
     screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
-    if st.session_state.get('screener_model_version')!='free-v2':
+    if st.session_state.get('screener_model_version')!='unified-v1':
         st.session_state.screener_results={}
         st.session_state.screener_running=False
-        st.session_state.screener_model_version='free-v2'
+        st.session_state.screener_model_version='unified-v1'
     if 'screener_results' not in st.session_state:
         st.session_state.screener_results={}
     if 'screener_running' not in st.session_state:
@@ -949,6 +845,17 @@ with st.sidebar:
             st.session_state.screener_running=False
     completed=len(st.session_state.screener_results)
     st.progress(completed/max(1,len(universe)),text=f'Genomsökta: {completed} av {len(universe)}')
+if st.session_state.get('screener_results',{}):
+    st.subheader('Resultat från aktiescreenern')
+    names={v:k for k,v in ALL_COMPANIES.items()}
+    rows=[{'Bolag':names.get(sym,sym),'Ticker':sym,'Kategori':v.get('category'),'Metod':v.get('method'),'Riktkurs':v.get('target'),'Aktiekurs':v.get('price'),'Potential (%)':v.get('upside'),'Signal':v.get('status'),'Saknas':'; '.join(v.get('missing',[]))} for sym,v in st.session_state['screener_results'].items()]
+    results=pd.DataFrame(rows)
+    st.caption(f"Värderade: {results['Riktkurs'].notna().sum()} av {len(results)} genomsökta.")
+    choice=st.radio('Visa',['Intressanta','Alla resultat','Saknade riktkurser'],horizontal=True,key='unified_filter')
+    visible=results[results['Signal']=='Undervärderad enligt modellen'] if choice=='Intressanta' else results[results['Riktkurs'].isna()] if choice=='Saknade riktkurser' else results
+    st.dataframe(visible.sort_values('Potential (%)',ascending=False,na_position='last'),hide_index=True,use_container_width=True)
+    st.download_button('Exportera samtliga resultat',results.to_csv(index=False).encode('utf-8-sig'),'equitylab.csv')
+if st.session_state.get('screener_running',False): st.rerun()
 if not ticker:st.stop()
 with st.spinner(f'Hämtar data för {name or ticker}…'):
     try: info,hist,fin,cash,balance,quick,fetch_errors=fetch(ticker)
@@ -1320,132 +1227,13 @@ global_combined=None
 global_display_value=None
 global_display_method='Historisk P/E-jämförelse'
 # Visas bredvid bolagsnamnet men beräknas först när värderingshistoriken finns.
+valuation_result=screener_snapshot(ticker)
 with target_slot.container():
-    header_price=price if price is not None and price>0 else None
-    header_pe=pe if pe is not None and 0<pe<=80 else None
-    if header_pe is None and header_price is not None:
-        trailing_eps=numeric(info.get('trailingEps'))
-        if trailing_eps is not None and trailing_eps>0:
-            header_pe=header_price/trailing_eps
-    header_history=global_pe_median if global_pe_median is not None and len(global_pe_samples)>=2 else None
-    header_target=(header_price*header_history/header_pe
-                   if header_price is not None and header_pe is not None and header_history is not None else None)
-    target_method='Historiskt P/E'
-    # Reservmodell för lönsamma bolag utan P/E-historik:
-    # använd senaste RAPPORTERADE EPS med öppet antagen multipel, inte påhittad riktkurs.
-    if header_target is None and header_price is not None:
-        eps_candidate=numeric(info.get('trailingEps'))
-        eps_period='senaste 12 månaderna'
-        eps_currency=quote_ccy
-        if eps_candidate is None or eps_candidate<=0:
-            eps_candidate=None
-            if isinstance(fin,pd.DataFrame) and not fin.empty:
-                for column in sorted(fin.columns,reverse=True):
-                    for label in ('Diluted EPS','Basic EPS'):
-                        if label in fin.index:
-                            candidate=numeric(fin.at[label,column])
-                            if candidate is not None and candidate>0:
-                                eps_candidate=candidate
-                                eps_period=str(column)[:10]
-                                eps_currency=report_ccy
-                                break
-                    if eps_candidate is not None: break
-        if eps_candidate is not None and eps_candidate>0 and eps_currency and quote_ccy:
-            eps_conversion=fx_rate(eps_currency,quote_ccy)
-            if eps_conversion is not None and eps_conversion>0:
-                scenario_eps=eps_candidate*eps_conversion
-                scenario_multiple=12.0
-                header_target=scenario_eps*scenario_multiple
-                target_method='EPS-scenario'
-                scenario_description='Antagande: P/E 12 × positiv EPS ('+eps_period+'). Inte en historiskt observerad värdering.'
-    header_category=valuation_category(ticker,info)
-    if header_category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
-        header_profile=operating_valuation_profile(ticker,info)
-        header_params=VALUATION_PROFILES.get(header_profile)
-        if ticker=='VOLO.ST':
-            header_ebita=VOLATI_Q3_2026['ebita_ltm']
-            header_debt=VOLATI_Q3_2026['net_debt']
-            header_shares=VOLATI_Q3_2026['ordinary_shares']
-            header_fx=fx_rate('SEK',quote_ccy) if quote_ccy else None
-        else:
-            header_ebita=ebita
-            header_debt=netdebt
-            header_shares=shares_count
-            header_fx=fx_rate(report_ccy,quote_ccy) if report_ccy and quote_ccy else None
-        header_target=(comparable_ev_ebita(header_ebita,header_debt,header_shares,header_params[2],header_fx)
-                       if header_params else None)
-        target_method='EV/EBITA branschmodell'
-    # Sekundär metod för rörelsedrivande bolag när EBITA saknas:
-    # historisk P/E används bara med observerad historik, aldrig en godtycklig multipel.
-    if header_category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') and header_target is None:
-        if header_price is not None and header_pe is not None and header_pe>0 and header_history is not None:
-            header_target=header_price*header_history/header_pe
-            target_method='Historiskt P/E'
-    # Banker: sektorvärdering enligt P/B och normaliserad ROE.
-    if header_category=='Bank / finansiella tjänster':
-        bank_equity_value=statement_value(balance,['Stockholders Equity','Common Stock Equity'])
-        bank_roe_value=val(info,'returnOnEquity')
-        bank_conversion=fx_rate(report_ccy,quote_ccy) if report_ccy and quote_ccy else None
-        if (bank_equity_value is not None and bank_equity_value>0 and
-            shares_count is not None and shares_count>0 and
-            bank_roe_value is not None and bank_conversion is not None):
-            justified_bank_pb=(bank_roe_value-0.02)/(0.10-0.02)
-            header_target=(bank_equity_value*bank_conversion/shares_count)*justified_bank_pb if justified_bank_pb>0 else None
-        else:
-            header_target=None
-        target_method='Bank P/B och ROE'
-    # Specialbolag får aldrig en missvisande generell P/E-riktkurs.
-    if header_category=='Investmentbolag / kapitalförvaltning':
-        nav_data=REPORTED_NAV.get(ticker)
-        header_target=nav_data['nav'] if nav_data and quote_ccy=='SEK' else None
-        target_method='Rapporterat NAV'
-    elif header_category not in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag','Bank / finansiella tjänster'):
-        header_target=None
-        target_method='Sektormodell saknas'
-    if header_target is None:
-        missing_target=[]
-        if header_price is None: missing_target.append('aktuell aktiekurs')
-        if header_category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
-            missing_target.append('jämförbar EBITA, nettoskuld, aktieantal eller valutakurs')
-        elif header_category=='Investmentbolag / kapitalförvaltning':
-            missing_target.append('senast rapporterat substansvärde per aktie')
-        elif header_category=='Fastigheter':
-            missing_target.append('normaliserat driftnetto, direktavkastningskrav och jämförbart NAV')
-        elif header_category=='Bank / finansiella tjänster':
-            missing_target.append('verifierat bokfört värde och normaliserad ROE')
-        elif header_category=='Forskningsbolag':
-            missing_target.append('projektspecifika kassaflöden och kliniska sannolikheter')
-        else:
-            missing_target.append('sektorspecifikt värderingsunderlag')
-        target_explanation='Saknas: '+', '.join(missing_target)+'.'
-        st.markdown(
-            '<div style="padding:18px;border-radius:15px;background:#f1f5f9;border:1px solid #cbd5e1;">'
-            '<div style="font-weight:650;font-size:1rem;">Indikativ riktkurs</div>'
-            '<div style="font-size:1.6rem;font-weight:750;color:#475569;">Ej beräknad</div>'
-            '<div style="font-size:.85rem;color:#475569;">'+target_explanation+'</div></div>',
-            unsafe_allow_html=True)
-    else:
-        header_gap=((header_pe/header_history-1)*100 if target_method=='Historiskt P/E'
-                    else (header_price/header_target-1)*100 if header_price is not None and header_target>0 else 0)
-        if target_method=='Rapporterat NAV':
-            header_signal='SUBSTANSVÄRDE – EJ RIKTKURS'
-            header_bg,header_border,header_ink='#f1f5f9','#cbd5e1','#334155'
-        elif target_method=='EV/EBITA branschmodell':
-            header_signal='BRANSCHVÄRDERING – KONTROLLERA UNDERLAG'
-            header_bg,header_border,header_ink='#f1f5f9','#cbd5e1','#334155'
-        elif header_gap<=-20:
-            header_bg,header_border,header_ink,header_signal='#ecfdf3','#86efac','#166534','INTRESSANT ATT GRANSKA'
-        elif header_gap>=20:
-            header_bg,header_border,header_ink,header_signal='#fef2f2','#fca5a5','#991b1b','HÖGT VÄRDERAD'
-        else:
-            header_bg,header_border,header_ink,header_signal='#fffbeb','#fcd34d','#92400e','AVVAKTA'
-        st.markdown(
-            '<div style="padding:18px;border-radius:15px;background:'+header_bg+';border:1px solid '+header_border+';">'
-            '<div style="font-size:.85rem;font-weight:650;color:'+header_ink+';">'+('EV/EBITA · '+str(header_profile) if target_method=='EV/EBITA branschmodell' else 'BANK · P/B OCH ROE' if target_method=='Bank P/B och ROE' else 'RAPPORTERAT SUBSTANSVÄRDE (NAV)' if target_method=='Rapporterat NAV' else 'INDIKATIV KURS · HISTORISKT P/E' if target_method=='Historiskt P/E' else 'SCENARIOKURS · ANTAGET P/E 12')+'</div>'
-            '<div style="font-size:2rem;font-weight:800;color:'+header_ink+';">'+show(header_target,' '+str(quote_ccy or ''),2)+'</div>'
-            '<div style="font-size:.95rem;font-weight:700;color:'+header_ink+';">'+header_signal+'</div>'
-            '<div style="font-size:.8rem;color:#475569;margin-top:7px;">'+('Beräknad jämförelsekurs från historiskt P/E ('+str(len(global_pe_samples))+' observationer).' if target_method=='Historiskt P/E' else 'P/B beräknat med ROE, 10 % avkastningskrav och 2 % långsiktig tillväxt.' if target_method=='Bank P/B och ROE' else 'Senast rapporterat substansvärde per aktie; inte en prognos.' if target_method=='Rapporterat NAV' else 'Branschmultipel × EBITA minus nettoskuld, delat på aktier. Kontrollera rapportperiod.' if target_method=='EV/EBITA branschmodell' else scenario_description)+'</div></div>',
-            unsafe_allow_html=True)
+    target=valuation_result.get('target')
+    potential=valuation_result.get('upside')
+    color='#166534' if potential is not None and potential>=20 else '#991b1b' if potential is not None and potential<=-20 else '#92400e' if potential is not None else '#475569'
+    bg='#ecfdf3' if color=='#166534' else '#fef2f2' if color=='#991b1b' else '#fffbeb' if color=='#92400e' else '#f1f5f9'
+    st.markdown('<div style="padding:18px;border-radius:15px;background:'+bg+';color:'+color+';"><div>Motiverad aktiekurs · '+valuation_result.get('method','')+'</div><div style="font-size:2rem;font-weight:800;">'+show(target,' '+str(valuation_result.get('currency') or ''),2)+'</div><div>'+valuation_result['status']+'</div><div>Potential: '+show(potential,' %',1)+'</div></div>',unsafe_allow_html=True)
 one,two,three,four=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering'])
 with one:
     if not hist.empty:
@@ -2187,481 +1975,21 @@ with three:
 
 
 with four:
-    st.subheader(f'Bolagsvärdering – {company}')
-    st.markdown('### Värderingskontroll')
-    valid_price=price is not None and price>0
-    valid_current_pe=pe is not None and 0<pe<=80
-    valid_history=global_pe_median is not None and len(global_pe_samples)>=3
-    if valid_price and valid_current_pe and valid_history:
-        # Jämför multiplar på samma skala. Detta kräver inte osäkra omräkningar
-        # av historisk års-EPS till aktuell aktiekurs.
-        relative_gap=(pe/global_pe_median-1)*100
-        indicative_value=price*global_pe_median/pe
-        global_fair=indicative_value
-        global_display_value=indicative_value
-        status='Dyrare än historiskt' if relative_gap>0 else 'Billigare än historiskt' if relative_gap<0 else 'I nivå med historiken'
-        v1,v2,v3,v4=st.columns(4)
-        v1.metric('Aktuell aktiekurs',show(price,' '+str(quote_ccy),2))
-        v2.metric('Nuvarande P/E',show(pe,'×',1))
-        v3.metric('Historisk median P/E',show(global_pe_median,'×',1))
-        signal_color='#15803d' if relative_gap<0 else '#b42332' if relative_gap>0 else '#64748b'
-        v4.markdown(
-            '<div style="background:#f3f5f9;border:1px solid #e3e8f0;border-radius:15px;padding:15px;min-height:112px;">'
-            '<div style="font-size:0.95rem;color:#374151;margin-bottom:8px;">'+status+'</div>'
-            '<div style="font-size:2.15rem;font-weight:700;line-height:1.25;color:'+signal_color+';">'
-            +show(abs(relative_gap),' %',1)+'</div></div>',
-            unsafe_allow_html=True
-        )
-        st.markdown('#### Slutsats utifrån värderingen')
-        if relative_gap<=-20:
-            st.success('**INTRESSANT ATT ANALYSERA VIDARE** – Aktien handlas med minst 20 % lägre P/E än sin historiska median. Undersök om vinsten är hållbar och om bolagets risker motiverar rabatten.')
-        elif relative_gap>=20:
-            st.error('**AVVAKTA NYA KÖP** – Aktien handlas med minst 20 % högre P/E än historiskt. Det krävs starkare framtida vinsttillväxt för att motivera priset.')
-        elif relative_gap>0:
-            st.info('**AVVAKTA** – Aktien är något dyrare än normalt. Ingen tydlig värderingsrabatt finns. En lägre kurs eller förbättrade vinstutsikter skulle göra aktien mer intressant.')
-        elif relative_gap<0:
-            st.info('**BEVAKA** – Aktien är något billigare än normalt, men rabatten är ännu mindre än vår gräns på 20 %. Kontrollera bolagets kvalitet och vinstutsikter.')
-        else:
-            st.info('**AVVAKTA** – Aktien värderas i nivå med sin historiska P/E-median.')
-        price_difference=(price/indicative_value-1)*100 if indicative_value>0 else None
-        st.write('**Kurs vid historiskt P/E:** '+show(indicative_value,' '+str(quote_ccy),2)+
-                 ' · **Dagens kurs:** '+show(price,' '+str(quote_ccy),2))
-        st.caption('Kursen vid historiskt P/E är en jämförelsenivå med dagens vinst, inte en kursprognos. P/E-jämförelsen är ett första filter, inte en fullständig investeringsbedömning.')
-        with st.expander('Visa metod, indikativt pris och säkerhetsmarginal'):
-            st.write('**Indikativt pris vid historisk P/E:** '+show(indicative_value,' '+str(quote_ccy),2))
-            st.write('**Pris med 20 % säkerhetsmarginal:** '+show(indicative_value*0.8,' '+str(quote_ccy),2))
-            st.write('**Antal historiska P/E-observationer:** '+str(len(global_pe_samples)))
-            st.caption('Indikativt pris = dagens kurs × historisk median-P/E / aktuellt P/E. Beräkningen antar oförändrad vinstnivå och jämförbara P/E-definitioner. Ingen prognos för aktiekursen.')
-            st.caption('P/E kan påverkas av engångsposter och skillnader i perioddefinition. Kontrollera bolagets rapporter innan investeringsbeslut.')
-    else:
-        v1,v2,v3=st.columns(3)
-        v1.metric('Aktuell aktiekurs',show(price,' '+str(quote_ccy),2) if valid_price else 'Saknas')
-        v2.metric('Nuvarande P/E',show(pe,'×',1) if valid_current_pe else 'Saknas')
-        v3.metric('Historisk P/E-median',show(global_pe_median,'×',1) if valid_history else 'Saknas')
-        missing=[]
-        if not valid_price: missing.append('aktuell aktiekurs')
-        if not valid_current_pe: missing.append('positivt aktuellt P/E')
-        if not valid_history: missing.append('minst tre historiska P/E-observationer')
-        st.info('**INGEN INVESTERINGSSIGNAL** – Otillräckligt underlag. Saknas: '+', '.join(missing)+'.')
-    st.caption('Detta är en historisk multipeljämförelse, inte en fullständig bolagsvärdering. DCF och sammanvägd köp-/säljsignal är pausade tills de har validerats.')
-    st.divider()
-
-    st.markdown('### Automatisk bolagsvärdering')
-    model_category=valuation_category(ticker,info)
-    st.caption('EquityLab använder rapporterade siffror och dina tidigare branschspecifika antaganden. Inga manuella inmatningar krävs. Saknade uppgifter ersätts inte med noll.')
-    if model_category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
-        profile=operating_valuation_profile(ticker,info)
-        params=VALUATION_PROFILES.get(profile)
-        if params is None:
-            st.info('Branschprofil saknas. Ingen godtycklig WACC, tillväxt eller multipel används.')
-        else:
-            wacc_pct,growth_pct,multiple=params
-            st.write('**Branschprofil:** '+profile+' · **WACC:** '+show(wacc_pct,' %',1)+' · **FCFF-tillväxt:** '+show(growth_pct,' %',1)+' · **EV/EBITA:** '+show(multiple,'×',1))
-            st.caption('Detta är dina tidigare modellantaganden, inte rapporterade prognoser. Terminaltillväxt: 2 %. Prognoshorisont: 5 år.')
-            fx=fx_rate(report_ccy,quote_ccy) if report_ccy and quote_ccy else None
-            shares=shares_count if shares_count is not None and shares_count>0 else None
-            # FCFF = operativt kassaflöde minus investeringar plus ränta efter skatt
-            # ENDAST om räntebetalningar ingår i CFO enligt kassaflödesrapporten.
-            ocf_report=statement_value(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'])
-            capex_report=statement_value(cash,['Capital Expenditure'])
-            interest_report=statement_value(cash,['Interest Paid Supplemental Data','Interest Paid'])
-            fcff=None
-            if all(v is not None for v in (ocf_report,capex_report,interest_report)):
-                fcff=ocf_report-abs(capex_report)+abs(interest_report)*(1-0.206)
-            ebit_a=ebita if ebita is not None and ebita>0 else None
-            valuation_debt=netdebt
-            valuation_shares=shares
-            valuation_fx=fx
-            if ticker=='VOLO.ST':
-                ebit_a=VOLATI_Q3_2026['ebita_ltm']
-                valuation_debt=VOLATI_Q3_2026['net_debt']
-                valuation_shares=VOLATI_Q3_2026['ordinary_shares']
-                valuation_fx=1.0 if quote_ccy=='SEK' else fx_rate('SEK',quote_ccy)
-                st.caption('Volati: EBITA R12 245 Mkr, nettoskuld 1 331 Mkr, 79 406 571 stamaktier. Källa: delårsrapport Q3 2026. Värdena uppdateras när nästa rapport har verifierats.')
-            required=[]
-            if valuation_shares is None: required.append('antal aktier')
-            if valuation_fx is None: required.append('verifierad rapport- och handelsvaluta')
-            if valuation_debt is None: required.append('nettoskuld')
-            st.markdown('#### 1. DCF – FCFF / WACC')
-            dcf_target=None
-            if ticker=='VOLO.ST':
-                st.info('Volatis FCFF kan inte härledas säkert ur det generiska Yahoo-kassaflödet efter utdelningen av Salix. DCF pausas tills ett jämförbart FCFF har verifierats.')
-            elif fcff is None or fcff<=0:
-                st.info('DCF kan inte beräknas utan positiv FCFF och verifierad hantering av räntebetalningar i kassaflödet.')
-            elif required:
-                st.info('DCF saknar: '+', '.join(required)+'.')
-            else:
-                rate=wacc_pct/100
-                growth=growth_pct/100
-                terminal_growth=0.02
-                flows=[fcff*(1+growth)**year for year in range(1,6)]
-                enterprise=sum(cf/(1+rate)**year for year,cf in enumerate(flows,1))
-                enterprise+=flows[-1]*(1+terminal_growth)/(rate-terminal_growth)/(1+rate)**5
-                dcf_target=(enterprise-valuation_debt)*valuation_fx/valuation_shares
-                st.metric('DCF – beräknad kurs',show(dcf_target,' '+str(quote_ccy),2))
-                st.caption('FCFF bygger på rapporterad CFO, investeringar och räntebetalningar med antagen 20,6 % skatt. Kontrollera om räntan faktiskt ingår i CFO.')
-            st.markdown('#### 2. EV/EBITA')
-            multiple_target=None
-            if ebit_a is None:
-                st.info('Rapporterad EBITA saknas. EBIT eller EBITDA används inte som ersättning.')
-            elif required:
-                st.info('EV/EBITA saknar: '+', '.join(required)+'.')
-            else:
-                enterprise_multiple=ebit_a*multiple
-                equity_multiple=enterprise_multiple-valuation_debt
-                multiple_target=comparable_ev_ebita(ebit_a,valuation_debt,valuation_shares,multiple,valuation_fx)
-                st.metric('EV/EBITA – beräknad kurs',show(multiple_target,' '+str(quote_ccy),2) if multiple_target is not None else 'Ej positivt värde')
-                with st.expander('Kontrollera EV/EBITA-beräkningen och indata'):
-                    st.write('**Rapporterad EBITA:** '+show(ebit_a/1e6,' M '+str(report_ccy),1))
-                    st.write('**Vald EV/EBITA:** '+show(multiple,'×',1))
-                    st.write('**Företagsvärde (EV):** '+show(enterprise_multiple/1e6,' M '+str(report_ccy),1))
-                    st.write('**Avdragen nettoskuld:** '+show(valuation_debt/1e6,' M '+str(report_ccy),1))
-                    st.write('**Beräknat eget kapital:** '+show(equity_multiple/1e6,' M '+str(report_ccy),1))
-                    st.write('**Antal aktier:** '+show(valuation_shares/1e6,' miljoner',2))
-                    st.write('**Valutakurs:** '+show(valuation_fx,'',4))
-                    st.caption('Formel: (EBITA × multipel − nettoskuld) × valutakurs / antal aktier. Kontrollera att EBITA och nettoskuld avser samma verksamhet och jämförbar period.')
-                if ticker=='VOLO.ST':
-                    st.caption('Volati: värderingen använder rapporterad kvarvarande EBITA och nettoskuld per 2026-09-30, inte blandade Yahoo-perioder.')
-            st.markdown('#### 3. Reverse DCF')
-            if ticker!='VOLO.ST' and fcff is not None and fcff>0 and not required and price is not None and price>0:
-                rate=wacc_pct/100
-                terminal_growth=0.02
-                target_ev=price*valuation_shares/valuation_fx+valuation_debt
-                def enterprise_at_growth(g):
-                    projected=[fcff*(1+g)**year for year in range(1,6)]
-                    return sum(cf/(1+rate)**year for year,cf in enumerate(projected,1))+projected[-1]*(1+terminal_growth)/(rate-terminal_growth)/(1+rate)**5
-                lo,hi=-0.5,0.5
-                if enterprise_at_growth(lo)<=target_ev<=enterprise_at_growth(hi):
-                    for _ in range(55):
-                        mid=(lo+hi)/2
-                        if enterprise_at_growth(mid)<target_ev: lo=mid
-                        else: hi=mid
-                    st.metric('Inprisad FCFF-tillväxt per år',show((lo+hi)*50,' %',1))
-                else:
-                    st.info('Inprisad tillväxt ligger utanför modellens intervall −50 till +50 %.')
-            else:
-                st.info('Reverse DCF kräver samma verifierade FCFF-underlag som vanlig DCF samt aktuell aktiekurs.')
-            st.markdown('#### Samlad värderingsöversikt')
-            available_models=[(label,value) for label,value in [('DCF (FCFF/WACC)',dcf_target),('EV/EBITA',multiple_target)] if value is not None and value>0]
-            if len(available_models)==2:
-                combined_value=(dcf_target+multiple_target)/2
-                st.metric('Sammanvägt modellvärde – 50 % DCF / 50 % EV/EBITA',show(combined_value,' '+str(quote_ccy),2))
-                if price is not None and price>0:
-                    st.metric('Upp-/nedsida mot dagens kurs',show((combined_value/price-1)*100,' %',1))
-                st.caption('Likaviktat modellscenario, inte en verifierad riktkurs. Reverse DCF ingår inte som ett tredje prisvärde; den testar marknadens inprisade tillväxt.')
-            elif len(available_models)==1:
-                st.metric('Tillgänglig modell – '+available_models[0][0],show(available_models[0][1],' '+str(quote_ccy),2))
-                st.caption('Endast en värderingsmetod har tillräckligt underlag. Ingen sammanvägd riktkurs beräknas.')
-            else:
-                st.info('Ingen sammanvägd värdering: DCF och EV/EBITA saknar tillräckligt jämförbart underlag.')
-            st.markdown('#### 4–6. Upp-/nedsida, säkerhetsmarginal och årlig avkastning')
-            targets=[(label,value) for label,value in [('DCF',dcf_target),('EV/EBITA',multiple_target)] if value is not None and value>0]
-            if targets and price is not None and price>0:
-                for label,target in targets:
-                    upside=(target/price-1)*100
-                    buy_limit=target*0.8
-                    dividend=numeric(info.get('dividendRate'))
-                    dividend=dividend if dividend is not None and dividend>=0 else 0
-                    annualized=((target+dividend*5)/price)**(1/5)-1
-                    st.write('**'+label+'**')
-                    c1,c2,c3=st.columns(3)
-                    c1.metric('Upp-/nedsida',show(upside,' %',1))
-                    c2.metric('Köpkurs med 20 % marginal',show(buy_limit,' '+str(quote_ccy),2))
-                    c3.metric('Årlig totalavkastning, 5 år',show(annualized*100,' %',1))
-                st.caption('Årsavkastningen antar att modellvärdet nås om fem år. Senast tillgänglig utdelning används som konstant antagande, annars 0; det är inte en utdelningsprognos.')
-            else:
-                st.info('Upp-/nedsida och avkastning kräver en positiv beräknad kurs och en aktuell aktiekurs.')
-    elif model_category=='Fastigheter':
-        st.markdown('#### Fastigheter – NAV')
-        st.info('NAV kräver normaliserat driftnetto, relevant direktavkastningskrav, övriga tillgångar och samtliga skulder från samma rapportperiod. Utan dessa kan en automatiskt beräknad riktkurs bli missvisande.')
-        reported=REPORTED_NAV.get(ticker)
-        if reported:
-            st.metric('Rapporterat substansvärde per aktie',show(reported['nav'],' '+str(quote_ccy),2))
-    elif model_category=='Bank / finansiella tjänster':
-        st.markdown('#### Banker – P/B och ROE')
-        equity_value=statement_value(balance,['Stockholders Equity','Common Stock Equity'])
-        roe=val(info,'returnOnEquity')
-        fx=fx_rate(report_ccy,quote_ccy) if report_ccy and quote_ccy else None
-        if equity_value is not None and equity_value>0 and shares_count and fx is not None and roe is not None:
-            book_value=equity_value*fx/shares_count
-            ke,g=0.10,0.02
-            justified_pb=(roe-g)/(ke-g)
-            if justified_pb>0:
-                fair=book_value*justified_pb
-                st.metric('Motiverad kurs – P/B',show(fair,' '+str(quote_ccy),2))
-                if price is not None and price>0: st.metric('Upp-/nedsida',show((fair/price-1)*100,' %',1))
-                st.caption('Avkastningskrav 10 % och långsiktig tillväxt 2 % är modellantaganden. ROE och bokfört eget kapital kommer från tillgängliga bolagsuppgifter.')
-            else: st.info('ROE ger inget positivt motiverat P/B med dessa antaganden.')
-        else: st.info('Saknar jämförbart eget kapital, ROE, aktieantal eller valutakurs.')
-    elif model_category=='Investmentbolag / kapitalförvaltning':
-        st.markdown('#### Investmentbolag – substansvärde')
-        reported=REPORTED_NAV.get(ticker)
-        if reported and quote_ccy=='SEK':
-            nav_value=reported['nav']
-            st.metric('Senast rapporterat substansvärde per aktie',show(nav_value,' SEK',2))
-            if price is not None and price>0:
-                st.metric('Substansrabatt / premie',show((1-price/nav_value)*100,' %',1))
-            st.caption('Rapportdatum: '+reported['date']+' · Källa: '+reported['source']+'. Substansvärdet kan ha förändrats sedan dess.')
-        else:
-            st.info('Rapporterat substansvärde per aktie saknas i anslutna källor. P/E och EV/EBITA ersätter inte substansvärdering.')
-    elif model_category=='Försäkring':
-        st.markdown('#### Försäkringsbolag – kapital och lönsamhet')
-        insurance_pb=val(info,'priceToBook')
-        insurance_roe=val(info,'returnOnEquity')
-        c1,c2=st.columns(2)
-        c1.metric('P/B',show(insurance_pb,'×',2))
-        c2.metric('ROE',show(insurance_roe*100,' %',1) if insurance_roe is not None else 'Saknas')
-        st.info('Ingen automatisk riktkurs utan verifierad solvens, försäkringstekniska reserver och normaliserad avkastning på eget kapital.')
-    elif model_category=='Forskningsbolag':
-        st.markdown('#### Forskningsbolag – rNPV')
-        st.info('rNPV kräver projektspecifika kliniska sannolikheter, kassaflödesprognoser och utspätt aktieantal. Vanliga årsrapportsdata räcker inte. Ingen godtycklig projektprognos används.')
-    else:
-        st.info('Denna bolagskategori kräver en särskild värderingsmetod eller ytterligare verifierat underlag.')
-    st.divider()
-
-    st.caption('Automatiska historikbaserade antaganden och öppet redovisade modellpolicyer. Inga manuella reglage. Resultaten är inte riktkurser eller köprekommendationer.')
-    if price is None or price<=0 or not quote_ccy:
-        st.warning('Aktuell aktiekurs och handelsvaluta krävs för att jämföra värderingarna.')
-    else:
-        st.metric('Aktuell aktiekurs',show(price,' '+quote_ccy,2))
-        st.markdown('#### 1. P/E-värdering')
-        st.caption('Motiverat pris = vinst per aktie × antaget P/E-tal. Års-EPS och dagens kurs måste vara i samma valuta.')
-        valuation_eps=None
-        valuation_eps_note='Ingen verifierad års-EPS'
-        if _roic_income:
-            first_report=_roic_income[0]
-            eps_report_ccy=first_report.get('currency')
-            for field in ('eps_diluted','eps_basic','eps','is_eps_diluted','is_eps_basic','is_earnings_per_share_diluted','is_earnings_per_share_basic'):
-                candidate=numeric(first_report.get(field))
-                if candidate is not None and candidate>0:
-                    valuation_eps=candidate
-                    valuation_eps_note='ROIC års-EPS '+str(first_report.get('period_end_date') or '')
-                    break
-            if valuation_eps is None and fin is not None and not fin.empty and eps_report_ccy and report_ccy==eps_report_ccy:
-                report_year=str(first_report.get('period_end_date') or '')[:4]
-                for column in fin.columns:
-                    try: same_year=str(pd.Timestamp(column).year)==report_year
-                    except (ValueError,TypeError): same_year=False
-                    if not same_year: continue
-                    for label in ('Diluted EPS','Basic EPS'):
-                        if label in fin.index:
-                            candidate=numeric(fin.loc[label,column])
-                            if candidate is not None and candidate>0:
-                                valuation_eps=candidate
-                                valuation_eps_note='Yahoo års-EPS '+report_year
-                                break
-                    if valuation_eps is not None: break
-            if valuation_eps is not None:
-                eps_rate=fx_rate(eps_report_ccy,quote_ccy)
-                valuation_eps=valuation_eps*eps_rate if eps_rate is not None and eps_rate>0 else None
-                valuation_eps_note+='; omräknad '+str(eps_report_ccy)+' till '+quote_ccy
-        elif report_ccy==quote_ccy and eps is not None and eps>0:
-            valuation_eps=eps
-            valuation_eps_note='Yahoo EPS i handelsvaluta; kontrollera rapportperiod'
-        default_pe=max(5.0,min(35.0,round(float(pe),1))) if pe is not None and pe>0 else 15.0
-        valuation_frame=extended.get('valuation_history',pd.DataFrame())
-        pe_samples=[]
-        if isinstance(valuation_frame,pd.DataFrame) and not valuation_frame.empty:
-            for label in ('PeRatio','PE Ratio','Trailing P/E','Trailing PE','peRatio','trailingPE','TrailingPeRatio'):
-                if label in valuation_frame.index:
-                    pe_samples+=pd.to_numeric(valuation_frame.loc[label],errors='coerce').dropna().tolist()
-                if label in valuation_frame.columns:
-                    pe_samples+=pd.to_numeric(valuation_frame[label],errors='coerce').dropna().tolist()
-        pe_samples=[float(v) for v in pe_samples if 0<float(v)<=80]
-        pe_multiple=float(pd.Series(pe_samples).median()) if len(pe_samples)>=3 else None
-        st.caption('P/E-antagande: median av minst tre observerade historiska P/E-tal. Saknas historik beräknas inget motiverat P/E-värde.')
-        if valuation_eps is None or pe_multiple is None:
-            st.info('P/E-värdering kräver verifierbar EPS och minst tre historiska P/E-observationer.')
-            pe_fair=None
-        else:
-            pe_fair=valuation_eps*pe_multiple
-            c1,c2,c3=st.columns(3)
-            c1.metric('Vinst per aktie',show(valuation_eps,' '+quote_ccy,2))
-            c2.metric('Motiverat pris enligt P/E',show(pe_fair,' '+quote_ccy,2))
-            c3.metric('Skillnad mot kurs',show((pe_fair/price-1)*100,' %',1))
-            st.caption('EPS-källa: '+valuation_eps_note+'. Historisk median P/E: '+show(pe_multiple,'×',1)+'. Historisk värdering är ingen garanti för framtida rimligt P/E.')
-        st.markdown('#### 2. Reverse DCF – vad kräver dagens aktiekurs?')
-        st.caption('Omvänd DCF med kassaflöde till aktieägarna (FCFE). Visar den årliga FCFE-tillväxt som krävs för att motivera dagens kurs, givet fem års prognos och 2 % terminaltillväxt. Inga prognoser hittas på.')
-        if valuation_category(ticker,info)!='Rörelsedrivande bolag':
-            st.info('Reverse DCF för rörelsedrivande bolag visas inte för denna bolagskategori. Använd en sektoranpassad värderingsmetod.')
-        else:
-            cf_frame=cash if isinstance(cash,pd.DataFrame) else pd.DataFrame()
-            oc_label=next((x for x in ('Operating Cash Flow','Cash Flow From Continuing Operating Activities') if x in cf_frame.index),None)
-            cap_label=next((x for x in ('Capital Expenditure',) if x in cf_frame.index),None)
-            borrow_label=next((x for x in ('Net Issuance Payments Of Debt','Net Long Term Debt Issuance') if x in cf_frame.index),None)
-            rev_missing=[]
-            if not oc_label or not cap_label or not borrow_label: rev_missing.append('kassaflöde, investeringar och nettoupplåning')
-            if shares_count is None or shares_count<=0: rev_missing.append('antal aktier')
-            if quote_ccy!='SEK': rev_missing.append('SEK-handelsvaluta')
-            reverse_rf,_=swedish_ten_year_yield() if quote_ccy=='SEK' else (None,None)
-            reverse_beta=numeric(info.get('beta'))
-            if reverse_beta is None or not 0<reverse_beta<5: reverse_beta=calculated_stock_beta(ticker)
-            if reverse_rf is None or reverse_beta is None or not 0<reverse_beta<5: rev_missing.append('riskfri ränta och beta')
-            reverse_fx=fx_rate(report_ccy,quote_ccy) if report_ccy and quote_ccy else None
-            if reverse_fx is None: rev_missing.append('valutakurs för kassaflöde')
-            reverse_fcfe=None
-            if not rev_missing:
-                op=pd.to_numeric(cf_frame.loc[oc_label],errors='coerce')
-                cap=pd.to_numeric(cf_frame.loc[cap_label],errors='coerce')
-                borrow=pd.to_numeric(cf_frame.loc[borrow_label],errors='coerce')
-                common=op.dropna().index.intersection(cap.dropna().index).intersection(borrow.dropna().index)
-                if len(common)>=2:
-                    last=sorted(common)[-1]
-                    reverse_fcfe=(float(op[last])-abs(float(cap[last]))+float(borrow[last]))*reverse_fx
-                if reverse_fcfe is None or reverse_fcfe<=0: rev_missing.append('positivt FCFE från jämförbara årsrapporter')
-            if rev_missing:
-                st.info('Kan inte beräknas säkert: '+', '.join(rev_missing)+'.')
-            else:
-                ke=(reverse_rf+reverse_beta*5.5)/100
-                terminal_g=0.02
-                equity_market_value=price*shares_count
-                if ke<=terminal_g+0.01:
-                    st.info('Avkastningskravet är för nära terminaltillväxten för en stabil modell.')
-                else:
-                    def reverse_equity_value(growth):
-                        amounts=[reverse_fcfe*(1+growth)**yr for yr in range(1,6)]
-                        terminal=amounts[-1]*(1+terminal_g)/(ke-terminal_g)
-                        return sum(v/(1+ke)**yr for yr,v in enumerate(amounts,1))+terminal/(1+ke)**5
-                    lower,upper=-0.5,0.5
-                    if not reverse_equity_value(lower)<=equity_market_value<=reverse_equity_value(upper):
-                        st.info('Dagens pris kräver tillväxt utanför modellintervallet −50 % till +50 % per år. Ingen tillväxtprognos presenteras.')
-                    else:
-                        for _ in range(65):
-                            mid=(lower+upper)/2
-                            if reverse_equity_value(mid)<equity_market_value: lower=mid
-                            else: upper=mid
-                        required_growth=(lower+upper)/2
-                        r1,r2,r3=st.columns(3)
-                        r1.metric('Inprisad FCFE-tillväxt/år',show(required_growth*100,' %',1))
-                        r2.metric('Senaste beräknade FCFE',show(reverse_fcfe/1e6,' M '+quote_ccy,1))
-                        r3.metric('Antaget avkastningskrav',show(ke*100,' %',1))
-                        st.caption('Antaganden: fem år, konstant årlig FCFE-tillväxt, terminaltillväxt 2 %, CAPM med antagen riskpremie 5,5 %. Modellen är känslig för nettoupplåning och ett enskilt basår. Använd som förväntningsanalys, inte köpsignal.')
-        st.markdown('#### 3. DCF – diskonterat fritt kassaflöde')
-        st.warning('DCF-beräkningen nedan är preliminär och inte kvalitetssäkrad för investeringsbeslut. Den används inte i den övergripande värderingsindikatorn.')
-        st.caption('Förenklad aktieägar-DCF: prognostiserat fritt kassaflöde diskonteras till idag, inklusive ett terminalvärde. Modellen kräver kassaflöde och antal aktier i verifierbar valuta.')
-        fcf_annual=statement_value(cash,['Free Cash Flow'])
-        if fcf_annual is None:
-            cash_operating=statement_value(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'])
-            cash_capex=statement_value(cash,['Capital Expenditure'])
-            if cash_operating is not None and cash_capex is not None:
-                fcf_annual=cash_operating-abs(cash_capex)
-        fcf_currency=report_ccy
-        fcf_fx=fx_rate(fcf_currency,quote_ccy) if fcf_currency and quote_ccy else None
-        valid_shares=shares_count if shares_count is not None and shares_count>0 else (market_cap/price if market_cap is not None and market_cap>0 else None)
-        fcf_series=pd.Series(dtype='float64')
-        if cash is not None and not cash.empty:
-            if 'Free Cash Flow' in cash.index:
-                fcf_series=pd.to_numeric(cash.loc['Free Cash Flow'],errors='coerce').dropna().sort_index()
-            elif 'Operating Cash Flow' in cash.index and 'Capital Expenditure' in cash.index:
-                ocf=pd.to_numeric(cash.loc['Operating Cash Flow'],errors='coerce')
-                capex=pd.to_numeric(cash.loc['Capital Expenditure'],errors='coerce')
-                fcf_series=(ocf-capex.abs()).dropna().sort_index()
-        dcf_growth=None
-        if len(fcf_series)>=2 and fcf_series.iloc[0]>0 and fcf_series.iloc[-1]>0:
-            dcf_growth=max(-10.0,min(12.0,((float(fcf_series.iloc[-1])/float(fcf_series.iloc[0]))**(1/(len(fcf_series)-1))-1)*100))
-        # CAPM för SEK: Riksbankens tioårsränta + observerad beta × antagen aktieriskpremie.
-        # Använd inte ränta i fel valuta och ersätt inte saknad beta med 1,0.
-        riskfree,rate_date=swedish_ten_year_yield() if quote_ccy=='SEK' else (None,None)
-        beta=numeric(info.get('beta'))
-        beta_source='Yahoo Finance'
-        if beta is None or not 0<beta<5:
-            beta=calculated_stock_beta(ticker)
-            beta_source='Beräknad veckobeta mot OMX Stockholm 30 (3 år)'
-        equity_risk_premium=5.5  # Öppen modellpolicy, inte observerad aktuell marknadsriskpremie.
-        discount_rate=(riskfree+beta*equity_risk_premium) if riskfree is not None and beta is not None and 0<beta<5 else None
-        terminal_growth=2.0
-        st.markdown('**Bolagets avkastningskrav (CAPM)**')
-        if discount_rate is None:
-            st.caption('Riskbaserat avkastningskrav är inte tillgängligt för detta bolag. Se saknade uppgifter nedan.')
-        else:
-            risk_a,risk_b,risk_c=st.columns(3)
-            risk_a.metric('Riskfri ränta',show(riskfree,' %',2))
-            risk_b.metric('Beta – börskänslighet',show(beta,'',2))
-            risk_c.metric('Avkastningskrav',show(discount_rate,' %',2))
-            st.markdown(directional_indicator(beta<=1.0,'Lägre eller normal marknadskänslighet' if beta<=1.0 else 'Högre marknadskänslighet'),unsafe_allow_html=True)
-            st.caption('Här visar linjen endast om beta ligger över eller under 1,0 – inte om aktien är bra eller dålig. Högre avkastningskrav är inte i sig ett dåligt resultat.')
-            st.caption('Beta mäter hur känslig aktien historiskt varit för börsens rörelser. Beta 1,0 ≈ samma känslighet som marknaden; 1,5 ≈ 50 % större; 0,5 ≈ hälften. Det är ett statistiskt mått, inte en prognos.')
-            with st.expander('Vad betyder beta och varför påverkar det värderingen?'):
-                st.write('**Beta 1,0:** aktien har historiskt rört sig ungefär i takt med marknaden. **Beta 1,5:** aktien har i genomsnitt reagerat cirka 50 % mer på marknadsrörelser. **Beta 0,5:** aktien har reagerat cirka hälften så mycket. Sambanden gäller inte vid varje enskild börsrörelse.')
-                st.write('I CAPM innebär högre beta ett högre avkastningskrav. Ett högre avkastningskrav minskar normalt det beräknade DCF-värdet, eftersom framtida kassaflöden diskonteras hårdare.')
-                st.write('**Bolagets beta:** '+show(beta,'',2)+' · **Källa:** '+beta_source+'.')
-                st.write('**Beräkning:** '+show(riskfree,' %',2)+' riskfri ränta + '+show(beta,'',2)+' × 5,5 % aktieriskpremie = '+show(discount_rate,' %',2)+' avkastningskrav.')
-                st.caption('Beta mäter marknadskänslighet, inte alla affärs- eller finansieringsrisker. 5,5 % aktieriskpremie är ett modellantagande.')
-            st.caption('Riskfri ränta: Riksbanken '+str(rate_date)+'. Beta: '+beta_source+'. CAPM-avkastningskrav: '+show(discount_rate,' %',2)+'.')
-        st.caption('DCF använder historisk FCF-tillväxt från minst två jämförbara årsperioder (begränsad till −10–12 %) och terminaltillväxt 2 % (modellantagande).')
-        dcf_missing=[]
-        if fcf_annual is None or fcf_annual<=0: dcf_missing.append('Positivt fritt kassaflöde')
-        if dcf_growth is None: dcf_missing.append('Minst två jämförbara år med positivt FCF')
-        if fcf_fx is None: dcf_missing.append('Verifierad rapportvaluta och valutakurs')
-        if valid_shares is None: dcf_missing.append('Antal aktier')
-        if quote_ccy!='SEK': dcf_missing.append('CAPM-ränta i rätt handelsvaluta (endast SEK stöds)')
-        elif riskfree is None: dcf_missing.append('Svensk tioårig statsobligationsränta')
-        if beta is None or not 0<beta<5: dcf_missing.append('Aktiebeta')
-        if discount_rate is not None and discount_rate<=terminal_growth: dcf_missing.append('Avkastningskrav högre än terminaltillväxt')
-        if dcf_missing:
-            dcf_fair=None
-            st.warning('DCF kan inte beräknas ännu. Saknas: '+', '.join(dcf_missing)+'.')
-        else:
-            fcf_quote=fcf_annual*fcf_fx
-            projected=[fcf_quote*(1+dcf_growth/100)**year for year in range(1,6)]
-            r=discount_rate/100
-            g=terminal_growth/100
-            terminal=projected[-1]*(1+g)/(r-g)
-            equity_value=sum(amount/(1+r)**year for year,amount in enumerate(projected,1))+terminal/(1+r)**5
-            dcf_fair=equity_value/valid_shares
-            d1,d2,d3=st.columns(3)
-            d1.metric('Fritt kassaflöde, basår',show(fcf_quote/1e6,' M '+quote_ccy,1))
-            d2.metric('DCF-värde per aktie',show(dcf_fair,' '+quote_ccy,2))
-            d3.metric('Skillnad mot kurs',show((dcf_fair/price-1)*100,' %',1))
-            st.caption('DCF utgår från senast tillgängligt Yahoo-års-FCF ('+str(fcf_currency)+'). Modellen behandlar det som kassaflöde till aktieägarna och gör därför inget extra avdrag för nettoskuld. Klassificering av räntor i kassaflödet kan påverka jämförbarheten. Terminalvärdet är särskilt känsligt för avkastningskravet.')
-        st.markdown('#### 3. Framtida totalavkastning – fem år')
-        st.caption('Kursutveckling från framtida EPS och P/E plus uppskattade kontantutdelningar. Årlig totalavkastning beräknas som CAGR för kurs plus utdelningar, utan återinvestering.')
-        earnings_growth=None
-        if len(_roic_income)>=2:
-            def get_report_eps(record):
-                for k in ('eps_diluted','eps_basic','eps','is_eps_diluted','is_eps_basic'):
-                    value=numeric(record.get(k))
-                    if value is not None: return value
-                return None
-            eps_new=get_report_eps(_roic_income[0])
-            eps_old=get_report_eps(_roic_income[1])
-            try:
-                year_gap=(pd.Timestamp(_roic_income[0]['period_end_date'])-pd.Timestamp(_roic_income[1]['period_end_date'])).days/365.25
-                if eps_new is not None and eps_old is not None and eps_new>0 and eps_old>0 and year_gap>=0.8 and _roic_income[0].get('currency')==_roic_income[1].get('currency'):
-                    earnings_growth=max(-15.0,min(20.0,((eps_new/eps_old)**(1/year_gap)-1)*100))
-            except (ValueError,TypeError,KeyError,OverflowError):
-                pass
-        exit_pe=pe_multiple
-        dividend_growth=0.0
-        st.caption('Historisk EPS-tillväxt (begränsad till −15–20 %), historisk median P/E och oförändrad utdelning används automatiskt. Dessa är modellantaganden, inte bolagets prognoser.')
-        dividend_per_share=(price*dividend_yield/100) if dividend_yield is not None and dividend_yield>=0 else None
-        if valuation_eps is None or dividend_per_share is None or earnings_growth is None or exit_pe is None:
-            total_cagr=None
-            st.info('Totalavkastning kräver verifierbar EPS och utdelningsdata. Om någon del saknas visas ingen fullständig totalavkastning.')
-        else:
-            future_eps=valuation_eps*(1+earnings_growth/100)**5
-            exit_price=future_eps*exit_pe
-            total_dividends=sum(dividend_per_share*(1+dividend_growth/100)**year for year in range(1,6))
-            total_end_value=exit_price+total_dividends
-            total_cagr=((total_end_value/price)**(1/5)-1)*100 if total_end_value>0 else -100.0
-            t1,t2,t3=st.columns(3)
-            t1.metric('Beräknad kurs år fem',show(exit_price,' '+quote_ccy,2))
-            t2.metric('Utdelningar under fem år',show(total_dividends,' '+quote_ccy,2))
-            t3.metric('Årlig totalavkastning',show(total_cagr,' %',1))
-            st.caption('Utdelningen utgår från nuvarande/historisk direktavkastning och växer enligt valt antagande. Inga utdelningar återinvesteras och ingen skatt ingår.')
-        st.markdown('#### 4. Säkerhetsmarginal')
-        st.caption('Visar ett möjligt inköpspris med rabatt mot respektive metods motiverade värde.')
-        discount=20
-        st.caption('Fast säkerhetsmarginal: 20 %.')
-        rows=[]
-        for method,fair in [('P/E',pe_fair),('DCF',dcf_fair)]:
-            if fair is not None and fair>0:
-                rows.append({'Metod':method,'Beräknat värde':show(fair,' '+quote_ccy,2),'Köppris med rabatt':show(fair*(1-discount/100),' '+quote_ccy,2),'Kurs jämfört med värde':show((price/fair-1)*100,' %',1)})
-        if rows:
-            st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
-        else:
-            st.info('Ingen verifierbar värdering finns för att beräkna säkerhetsmarginal.')
-        st.caption('Metoderna kan ge olika resultat. Ingen sammanvägd riktkurs skapas automatiskt eftersom kassaflödes- och vinstvärdering bygger på olika antaganden.')
+    st.subheader('Bolagsvärdering – '+company)
+    v=valuation_result
+    st.caption('Samma automatiska modell som riktkursrutan och aktiescreenern. Inga analytikerriktkurser.')
+    st.write('**Kategori:** '+v['category']+' · '+str(v.get('profile') or 'Sektormodell'))
+    if v.get('assumptions'): st.write(v['assumptions'])
+    if v.get('period'): st.caption('Rapportperiod: '+v['period'])
+    if v.get('source'): st.caption('Källa: '+v['source'])
+    if v.get('inputs'): st.write(v['inputs'])
+    for method,value in v.get('models',{}).items(): st.metric(method,show(value,' '+str(v.get('currency') or ''),2))
+    st.metric('Motiverad aktiekurs',show(v.get('target'),' '+str(v.get('currency') or ''),2))
+    st.metric('Reverse DCF – inprisad tillväxt',show(v.get('reverse_growth'),' %',1))
+    st.metric('Upp-/nedsida',show(v.get('upside'),' %',1))
+    st.metric('Högsta köpkurs – 20 % säkerhetsmarginal',show(v.get('buy_limit'),' '+str(v.get('currency') or ''),2))
+    if v.get('missing'): st.caption('Underlag som saknas: '+'; '.join(v['missing']))
+    st.caption('DCF och EV/EBITA viktas lika när båda kan beräknas. En ensam modell visas separat. Beräkningar är modellscenarier och rapportdata behöver verifieras.')
 
 st.divider()
 st.caption('Källor: Yahoo Finance via yfinance för nyckeltal och historik; Google News RSS för nyhetssökning; användarens egna uppladdade dokument. Inga automatiska AI-slutsatser påstås ha gjorts. Appen körs på egen Streamlit-server och filerna behandlas i den sessionen.')
