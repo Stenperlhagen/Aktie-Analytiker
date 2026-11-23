@@ -38,13 +38,27 @@ def val(info,*keys):
 
 @st.cache_data(ttl=1800,show_spinner=False)
 def fetch(ticker):
-    obj=yf.Ticker(ticker)
-    info=obj.info or {}
-    history=obj.history(period='5y',auto_adjust=False)
-    fin=obj.income_stmt
-    cash=obj.cashflow
-    balance=obj.balance_sheet
-    return info,history,fin,cash,balance
+    """Hämta varje datatyp oberoende så ett fel inte slår ut hela analysen."""
+    obj = yf.Ticker(ticker)
+    errors = {}
+    def attempt(label, getter, fallback):
+        try:
+            result = getter()
+            if result is None:
+                errors[label] = 'Datakällan lämnade inget svar.'
+                return fallback
+            return result
+        except Exception as exc:
+            errors[label] = f'{type(exc).__name__}: {str(exc)[:250]}'
+            return fallback
+    info = attempt('Bolagsprofil', lambda: obj.info, {})
+    history = attempt('Kurshistorik', lambda: obj.history(period='5y', auto_adjust=False), pd.DataFrame())
+    fin = attempt('Resultaträkning', lambda: obj.income_stmt, pd.DataFrame())
+    cash = attempt('Kassaflöde', lambda: obj.cashflow, pd.DataFrame())
+    balance = attempt('Balansräkning', lambda: obj.balance_sheet, pd.DataFrame())
+    # Yahoo fast_info kan fungera även när den större bolagsprofilen blockeras.
+    quick = attempt('Snabbkursdata', lambda: dict(obj.fast_info), {})
+    return info or {}, history, fin, cash, balance, quick or {}, errors
 
 @st.cache_data(ttl=3600,show_spinner=False)
 def news(company):
@@ -124,16 +138,23 @@ with st.sidebar:
         st.rerun()
 if not ticker:st.stop()
 with st.spinner(f'Hämtar data för {name or ticker}…'):
-    try: info,hist,fin,cash,balance=fetch(ticker)
+    try: info,hist,fin,cash,balance,quick,fetch_errors=fetch(ticker)
     except Exception as ex:
         st.error(f'Datakällan kunde inte hämtas: {ex}. Försök igen senare eller välj annan ticker.');st.stop()
-if not info and hist.empty:
-    st.error('Ingen data hittades för den tickern. Kontrollera bolaget eller prova igen.');st.stop()
+if not info and hist.empty and all(f.empty for f in (fin,cash,balance)) and not quick:
+    st.error('Ingen data kunde hämtas från Yahoo Finance. Det kan vara ett tillfälligt API-fel eller en begränsning på Streamlit-servern.')
+    with st.expander('Visa teknisk felsökning'):
+        st.json(fetch_errors)
+    st.stop()
+if fetch_errors:
+    with st.expander('Datakällans status – visa eventuella fel'):
+        st.json(fetch_errors)
 company=info.get('longName') or name or ticker
 st.subheader(company)
 st.caption(f'{ticker} · Valuta: {info.get("currency","okänd")} · Börsdata hämtad {dt.datetime.now().strftime("%Y-%m-%d %H:%M")} · Yahoo Finance')
 
 price=val(info,'currentPrice','regularMarketPrice','previousClose')
+if price is None: price=val(quick,'last_price','previous_close')
 if price is None and not hist.empty:price=numeric(hist['Close'].iloc[-1])
 revenue=val(info,'totalRevenue');ebitda=val(info,'ebitda');margin=val(info,'operatingMargins');debt=val(info,'totalDebt');cash_val=val(info,'totalCash');opcf=val(info,'operatingCashflow');eps=val(info,'trailingEps');pe=val(info,'trailingPE')
 netdebt=debt-cash_val if debt is not None and cash_val is not None else None
@@ -171,7 +192,7 @@ if pe is None and eps is not None and eps>0 and price is not None: pe=price/eps
 
 st.markdown('### Finansiell översikt')
 cols=st.columns(4)
-for col,(label,value) in zip(cols,[('Aktiekurs',show(price,' '+info.get('currency',''),2)),('Omsättning (LTM/helår)',show(revenue/1e6,' M',0) if revenue is not None else 'Saknas'),('Rörelsemarginal',show(margin*100,' %') if margin is not None else 'Saknas'),('P/E',show(pe,'×') if pe is not None else 'Saknas')]):col.metric(label,value)
+for col,(label,value) in zip(cols,[('Aktiekurs',show(price,' '+info.get('currency') or quick.get('currency') or '',2)),('Omsättning (LTM/helår)',show(revenue/1e6,' M',0) if revenue is not None else 'Saknas'),('Rörelsemarginal',show(margin*100,' %') if margin is not None else 'Saknas'),('P/E',show(pe,'×') if pe is not None else 'Saknas')]):col.metric(label,value)
 cols=st.columns(4)
 for col,(label,value) in zip(cols,[('EBITDA (LTM/helår)',show(ebitda/1e6,' M',0) if ebitda is not None else 'Saknas'),('Nettoskuld',show(netdebt/1e6,' M',0) if netdebt is not None else 'Saknas'),('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),('EPS senaste 12 mån',show(eps,'',2))]):col.metric(label,value)
 st.caption('Omsättning kan avse senaste rapporterade helår när LTM saknas; kontrollera perioderna i rapporttabellerna. M = miljoner i angiven rapporteringsvaluta. Rörelsemarginal är inte samma sak som EBITA-marginal. Nettoskuld = rapporterade skulder minus likvida medel (förenklad beräkning). LTM-perioder kan skilja sig mellan fält.')
