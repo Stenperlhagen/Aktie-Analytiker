@@ -2095,8 +2095,50 @@ with four:
     st.markdown('### Tre värderingsmodeller – egna antaganden')
     st.caption('DCF och Reverse DCF använder FCFF/WACC och nettoskuld. EV/EBITA använder rapporterad EBITA och en vald multipel. Alla värden ska anges i samma valuta och beloppen i miljoner. Inga analytikerriktkurser används.')
     model_category=valuation_category(ticker,info)
-    if model_category!='Rörelsedrivande bolag':
-        st.info('Modellerna nedan är anpassade för rörelsedrivande bolag. För '+model_category.lower()+' krävs sektorsanpassad värdering.')
+    if model_category=='Fastigheter':
+        st.markdown('#### Fastighetsbolag – substansvärde (NAV)')
+        st.caption('Fastighetsvärde = normaliserat årligt driftnetto / direktavkastningskrav. NAV = fastighetsvärde + övriga tillgångar − samtliga skulder. Ange värden från samma rapportperiod och valuta. Modellen är ett förenklat scenario och ersätter inte rapporterat EPRA NTA.')
+        prop_ccy=report_ccy or quote_ccy or 'SEK'
+        prop_fx=fx_rate(prop_ccy,quote_ccy) if prop_ccy and quote_ccy else None
+        prop_shares=shares_count if shares_count is not None and shares_count>0 else None
+        with st.expander('Indata – fastighetsvärdering',expanded=True):
+            p1,p2=st.columns(2)
+            prop_noi=p1.number_input('Årligt driftnetto (miljoner '+prop_ccy+')',min_value=0.0,value=0.0,step=10.0,key='property_noi_'+ticker,
+                help='Normaliserat driftnetto för hela fastighetsbeståndet, inte bolagets omsättning eller EBIT.')
+            prop_yield=p2.number_input('Direktavkastningskrav (%)',min_value=0.1,max_value=25.0,value=6.0,step=0.25,key='property_yield_'+ticker,
+                help='Eget scenarioantagande. Standard 6 % är inte ett observerat marknadsavkastningskrav.')
+            p3,p4=st.columns(2)
+            prop_other=p3.number_input('Övriga tillgångar (miljoner '+prop_ccy+')',min_value=0.0,value=0.0,step=10.0,key='property_assets_'+ticker,
+                help='Endast tillgångar utanför det fastighetsbestånd som driftnettot avser. Undvik dubbelräkning.')
+            prop_liabilities=p4.number_input('Totala skulder (miljoner '+prop_ccy+')',min_value=0.0,value=0.0,step=10.0,key='property_liabilities_'+ticker,
+                help='Samtliga relevanta skulder, inte bara nettoskuld. Beakta uppskjuten skatt och minoritetsintressen separat vid behov.')
+            p5,p6=st.columns(2)
+            prop_shares_input=p5.number_input('Antal aktier (miljoner)',min_value=0.0,value=float(prop_shares/1e6) if prop_shares is not None else 0.0,step=1.0,key='property_shares_'+ticker)
+            prop_margin=p6.slider('Säkerhetsmarginal (%)',min_value=0,max_value=50,value=20,step=5,key='property_margin_'+ticker)
+        if prop_noi<=0 or prop_shares_input<=0 or prop_fx is None:
+            st.info('Fyll i verifierat driftnetto, antal aktier och säkerställ rapportvaluta för att beräkna NAV. Skulder och övriga tillgångar måste också kontrolleras mot bolagets rapport.')
+        else:
+            prop_value=prop_noi/(prop_yield/100)
+            prop_nav=prop_value+prop_other-prop_liabilities
+            prop_nav_share=prop_nav*prop_fx/prop_shares_input
+            q1,q2,q3=st.columns(3)
+            q1.metric('Beräknat fastighetsvärde',show(prop_value,' M '+prop_ccy,1))
+            q2.metric('Beräknat NAV',show(prop_nav,' M '+prop_ccy,1))
+            q3.metric('NAV per aktie',show(prop_nav_share,' '+str(quote_ccy),2))
+            if prop_nav_share>0 and price is not None and price>0:
+                prop_discount=(1-price/prop_nav_share)*100
+                prop_upside=(prop_nav_share/price-1)*100
+                prop_buy=prop_nav_share*(1-prop_margin/100)
+                q4,q5,q6=st.columns(3)
+                q4.metric('Substansrabatt / premie',show(prop_discount,' %',1),delta=show(prop_discount,' %',1))
+                q5.metric('Upp- eller nedsida',show(prop_upside,' %',1),delta=show(prop_upside,' %',1))
+                q6.metric('Högsta köpkurs med säkerhetsmarginal',show(prop_buy,' '+str(quote_ccy),2))
+                st.caption('Positiv substansrabatt betyder att aktien handlas under beräknat NAV. Negativt värde betyder substanspremie.')
+            else:
+                st.warning('NAV är noll eller negativt, alternativt saknas aktuell aktiekurs. Ingen substansrabatt kan beräknas.')
+            st.caption('Modellen bortser från eventuell värdeförändring i derivat, uppskjuten skatt och andra substansjusteringar om de inte anges i skulder/tillgångar.')
+    elif model_category!='Rörelsedrivande bolag':
+        st.info('För '+model_category.lower()+' behövs en särskild värderingsmodell. FCFF/EV/EBITA är inte automatiskt tillämplig.')
     else:
         profile_name=operating_valuation_profile(ticker,info)
         profile_values=VALUATION_PROFILES.get(profile_name)
