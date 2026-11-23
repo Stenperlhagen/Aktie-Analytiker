@@ -2,6 +2,9 @@ import ast
 import pathlib
 import csv
 import math
+import os
+import requests
+import urllib.parse
 import datetime as dt
 import pandas as pd
 import yfinance as yf
@@ -9,7 +12,7 @@ from functools import lru_cache
 
 # Load exact production definitions without executing Streamlit UI.
 tree=ast.parse(pathlib.Path('app.py').read_text(encoding='utf-8'))
-names={'GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
+names={'roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
 nodes=[]
 for node in tree.body:
     if isinstance(node,ast.FunctionDef) and node.name in names:
@@ -21,6 +24,9 @@ for node in tree.body:
         nodes.append(node)
 exec(compile(ast.Module(body=nodes,type_ignores=[]),'app.py','exec'))
 fx_rate=lru_cache(maxsize=128)(fx_rate)
+roic_company_data=lru_cache(maxsize=256)(roic_company_data)
+def roic_key():
+    return os.environ.get('ROIC_API_KEY','').strip()
 
 def tests():
     assert abs(comparable_ev_ebita(245e6,1331e6,79406571,12,1)-20.263)<0.01
@@ -35,6 +41,9 @@ def tests():
     assert abs(v['models']['EV/EBITA']-90)<1e-8
     assert abs(v['inputs']['FCFF']-61.46e6)<1
     assert abs(v['target']-sum(v['models'].values())/len(v['models']))<1e-8
+    assert valuation_category('AAK.ST')=='Rörelsedrivande bolag'
+    assert operating_valuation_profile('AAK.ST')=='Tillverkningsindustri'
+    assert comparable_ev_ebita(4777e6,3134e6,259708000,11,1)>0
     print('Mathematical regression tests passed')
 
 if __name__=='__main__':
@@ -44,9 +53,9 @@ if __name__=='__main__':
         try:
             info,hist,fin,cash,balance,quick,errors=fetch(symbol)
             v=valuation_engine(symbol,info,fin,cash,balance,quick,hist)
-            rows.append({'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Yahoo Finance – not independently verified'),'fetch_errors':str(list(errors)),'report_verified':False})
+            rows.append({'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Yahoo Finance – not independently verified'),'fetch_errors':str(list(errors)),'report_verified':False,'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
         except Exception as e:
-            rows.append({'ticker':symbol,'missing':type(e).__name__,'report_verified':False})
+            rows.append({'ticker':symbol,'missing':type(e).__name__+': '+str(e),'report_verified':False})
         print(symbol,rows[-1].get('target'),flush=True)
         pd.DataFrame(rows).to_csv('valuation-audit.csv',index=False)
     print('Total:',len(rows),'With target:',sum(r.get('target') is not None for r in rows))
