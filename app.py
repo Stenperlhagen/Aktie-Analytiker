@@ -2137,6 +2137,57 @@ with four:
             else:
                 st.warning('NAV är noll eller negativt, alternativt saknas aktuell aktiekurs. Ingen substansrabatt kan beräknas.')
             st.caption('Modellen bortser från eventuell värdeförändring i derivat, uppskjuten skatt och andra substansjusteringar om de inte anges i skulder/tillgångar.')
+    elif model_category=='Bank / finansiella tjänster':
+        st.markdown('#### Banker och finansbolag – P/B och ROE')
+        st.caption('BVPS = eget kapital / antal aktier. Motiverat P/B = (ROE − långsiktig tillväxt) / (avkastningskrav på eget kapital − långsiktig tillväxt). Modellen förutsätter stabil ROE och långsiktig utdelnings-/kapitalpolicy.')
+        bank_ccy=report_ccy or quote_ccy
+        bank_fx=fx_rate(bank_ccy,quote_ccy) if bank_ccy and quote_ccy else None
+        bank_equity=statement_value(balance,['Stockholders Equity','Common Stock Equity','Total Equity Gross Minority Interest'])
+        bank_shares=shares_count if shares_count is not None and shares_count>0 else None
+        bank_roe=val(info,'returnOnEquity')
+        if bank_roe is None and bank_equity is not None and bank_equity>0:
+            bank_profit=statement_value(fin,['Net Income Common Stockholders','Net Income'])
+            if bank_profit is not None: bank_roe=bank_profit/bank_equity
+        st.caption('Förifyllda värden hämtas från tillgänglig balans- och resultaträkning. Kontrollera att eget kapital, ROE och aktieantal är jämförbara och avser rätt aktieslag.')
+        with st.expander('Indata – P/B-värdering',expanded=True):
+            bk1,bk2=st.columns(2)
+            bank_equity_input=bk1.number_input('Eget kapital (miljoner '+str(bank_ccy or 'rapportvaluta')+')',
+                min_value=0.0,value=float(bank_equity/1e6) if bank_equity is not None and bank_equity>0 else 0.0,
+                step=100.0,key='bank_equity_'+ticker)
+            bank_shares_input=bk2.number_input('Antal aktier (miljoner)',min_value=0.0,
+                value=float(bank_shares/1e6) if bank_shares is not None else 0.0,
+                step=1.0,key='bank_shares_'+ticker)
+            bk3,bk4,bk5=st.columns(3)
+            bank_roe_input=bk3.number_input('Normaliserad ROE (%)',min_value=-30.0,max_value=60.0,
+                value=float(bank_roe*100) if bank_roe is not None and -0.3<=bank_roe<=0.6 else 10.0,
+                step=0.5,key='bank_roe_'+ticker)
+            bank_ke=bk4.number_input('Avkastningskrav på eget kapital (%)',min_value=1.0,max_value=35.0,
+                value=10.0,step=0.5,key='bank_ke_'+ticker)
+            bank_g=bk5.number_input('Långsiktig tillväxt g (%)',min_value=-2.0,max_value=8.0,
+                value=2.0,step=0.5,key='bank_g_'+ticker)
+            bank_mos=st.slider('Säkerhetsmarginal (%)',0,50,20,5,key='bank_mos_'+ticker)
+        st.caption('10 % avkastningskrav, 2 % långsiktig tillväxt och 10 % ROE om ROE saknas är modellantaganden – inte verifierade bolagsprognoser.')
+        if bank_equity_input<=0 or bank_shares_input<=0 or bank_fx is None:
+            st.info('Beräkningen kräver positivt rapporterat eget kapital, antal aktier och en känd valutakurs. Ange kontrollerade uppgifter.')
+        elif bank_ke<=bank_g:
+            st.warning('Avkastningskravet måste vara högre än den långsiktiga tillväxten.')
+        else:
+            bvps=bank_equity_input*bank_fx/bank_shares_input
+            justified_pb=((bank_roe_input-bank_g)/(bank_ke-bank_g))
+            justified_price=bvps*justified_pb
+            b1,b2,b3=st.columns(3)
+            b1.metric('Bokfört värde per aktie (BVPS)',show(bvps,' '+str(quote_ccy),2))
+            b2.metric('Motiverat P/B',show(justified_pb,'×',2))
+            b3.metric('Motiverad aktiekurs',show(justified_price,' '+str(quote_ccy),2) if justified_price>0 else 'Ej positivt värde')
+            if justified_price>0 and price is not None and price>0:
+                bank_upside=(justified_price/price-1)*100
+                b4,b5=st.columns(2)
+                b4.metric('Upp-/nedsida',show(bank_upside,' %',1),delta=show(bank_upside,' %',1))
+                b5.metric('Högsta köpkurs med säkerhetsmarginal',
+                    show(justified_price*(1-bank_mos/100),' '+str(quote_ccy),2))
+            else:
+                st.info('Ingen positiv uppsida kan beräknas från dessa antaganden.')
+            st.caption('Modellen är känslig för normaliserad ROE och kapitalkrav. Den ersätter inte kontroll av CET1, kreditförluster, finansieringskostnader eller kapitaldistribution.')
     elif model_category!='Rörelsedrivande bolag':
         st.info('För '+model_category.lower()+' behövs en särskild värderingsmodell. FCFF/EV/EBITA är inte automatiskt tillämplig.')
     else:
