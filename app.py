@@ -60,20 +60,47 @@ def fetch(ticker):
     quick = attempt('Snabbkursdata', lambda: dict(obj.fast_info), {})
     return info or {}, history, fin, cash, balance, quick or {}, errors
 
-@st.cache_data(ttl=3600,show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def news(company):
-    since=dt.datetime.now(dt.timezone.utc)-dt.timedelta(days=183)
-    q=urllib.parse.quote(f'"{company}" (kvartalsrapport OR förvärv OR pressmeddelande OR resultat) when:6m')
-    url=f'https://news.google.com/rss/search?q={q}&hl=sv&gl=SE&ceid=SE:sv'
-    feed=feedparser.parse(requests.get(url,timeout=12).content)
-    out=[]
-    for entry in feed.entries:
-        published=entry.get('published_parsed')
-        if not published:continue
-        date=dt.datetime(*published[:6],tzinfo=dt.timezone.utc)
-        if date<since:continue
-        out.append({'Datum':date.date().isoformat(),'Rubrik':entry.get('title',''),'Länk':entry.get('link','')})
-    return out[:35]
+    """Prova breda Google News RSS-sökningar och redovisa anslutningsfel."""
+    since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=183)
+    search_name = re.sub(r'\\s+[AB]$', '', company, flags=re.I).strip()
+    searches = [
+        f'"{search_name}" when:6m',
+        f'{search_name} aktie OR rapport OR förvärv when:6m',
+    ]
+    out, seen, errors = [], set(), []
+    for query in searches:
+        url = 'https://news.google.com/rss/search?' + urllib.parse.urlencode({
+            'q': query, 'hl': 'sv', 'gl': 'SE', 'ceid': 'SE:sv'
+        })
+        try:
+            response = requests.get(url, timeout=15, headers={
+                'User-Agent': 'Mozilla/5.0 (compatible; EquityLab/1.0)'
+            })
+            response.raise_for_status()
+            feed = feedparser.parse(response.content)
+            if feed.bozo and not feed.entries:
+                raise ValueError(str(feed.bozo_exception))
+            for entry in feed.entries:
+                published = entry.get('published_parsed')
+                if not published:
+                    continue
+                date = dt.datetime(*published[:6], tzinfo=dt.timezone.utc)
+                if date < since or date > dt.datetime.now(dt.timezone.utc):
+                    continue
+                title = entry.get('title', '').strip()
+                link = entry.get('link', '').strip()
+                if not title or not link or link in seen:
+                    continue
+                seen.add(link)
+                out.append({'Datum': date.date().isoformat(), 'Rubrik': title, 'Länk': link})
+        except Exception as exc:
+            errors.append(f'{type(exc).__name__}: {str(exc)[:200]}')
+        if len(out) >= 20:
+            break
+    out.sort(key=lambda item: item['Datum'], reverse=True)
+    return out[:35], errors
 
 def parse_file(upload):
     raw=upload.getvalue(); name=upload.name.lower()
@@ -283,14 +310,26 @@ with two:
             raw_table.columns = [str(c.date()) if hasattr(c, 'date') else str(c) for c in raw_table.columns]
             st.dataframe(raw_table, use_container_width=True)
 with three:
-    st.caption('Google News RSS, filtrerat till publiceringsdatum inom sex månader. Rubriker är inte verifierade bolagsmeddelanden och kan innehålla andra bolag.')
-    if st.button('Hämta senaste nyheter'):
-        try:
-            items=news(company)
-            if not items:st.warning('Inga träffar kunde hämtas.')
-            for item in items:st.markdown(f'**{item["Datum"]}** · [{item["Rubrik"]}]({item["Länk"]})')
-        except Exception as ex:st.error(f'Nyheter kunde inte hämtas: {ex}')
-    st.markdown(f'[Sök bolagets pressmeddelanden](https://www.google.com/search?q={urllib.parse.quote(company+" investor relations press releases")})')
+    st.caption('Publicerade artiklar de senaste sex månaderna via Google News RSS. Artiklar kan handla om andra bolag med liknande namn.')
+    if st.button('Uppdatera nyheter', key='refresh_news'):
+        news.clear()
+        st.rerun()
+    with st.spinner('Söker nyheter…'):
+        items, news_errors = news(company)
+    if items:
+        st.success(f'{len(items)} artiklar hittades.')
+        for item in items:
+            st.markdown(f'**{item["Datum"]}** · [{item["Rubrik"]}]({item["Länk"]})')
+    else:
+        st.warning('Inga artiklar kunde hämtas. Det betyder inte att bolaget saknar nyheter.')
+    if news_errors:
+        with st.expander('Visa fel från nyhetskällan'):
+            for err in news_errors:
+                st.code(err)
+    search_link = 'https://www.google.com/search?' + urllib.parse.urlencode({
+        'q': f'{company} pressmeddelanden senaste sex månaderna'
+    })
+    st.markdown(f'[Sök pressmeddelanden i webbläsaren]({search_link})')
 with four:
     st.markdown('#### Dokumentbibliotek för denna analys')
     uploads=st.file_uploader('Ladda upp årsredovisningar, kvartalsrapporter och egna kalkyler',type=['pdf','docx','xlsx','csv','txt'],accept_multiple_files=True)
