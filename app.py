@@ -2155,6 +2155,33 @@ with four:
         st.warning('Värderingen behöver granskas: '+'; '.join(v['audit']))
         st.metric('Preliminärt modellutfall före kontroll',show(v.get('unreviewed_target'),' '+str(v.get('currency') or ''),2))
     if v.get('missing'): st.caption('Underlag som saknas: '+'; '.join(v['missing']))
+    st.markdown('#### Investeringsslutsats')
+    if v.get('target') is None:
+        st.info('Motiverat värde saknas. Ingen värderingsbaserad investeringsslutsats kan dras.')
+    elif v.get('audit'):
+        st.warning('Modellvärdet är preliminärt. Ingen köpindikator ges när datakontrollen visar avvikelser.')
+    elif v.get('price') and v.get('buy_limit') is not None:
+        if v['price']<=v['buy_limit']:
+            st.write('Aktien handlas inom modellens säkerhetsmarginal på 20 %. Kandidat för fördjupad analys.')
+        elif v['price']<=v['target']:
+            st.write('Aktien handlas under modellvärdet men uppfyller inte säkerhetsmarginalen på 20 %.')
+        else:
+            st.write('Aktien handlas över modellvärdet. Modellen ger inte stöd för köp till aktuell kurs.')
+        st.caption('Bedömningen gäller modellens antaganden, inte en garanti för avkastning.')
+    st.markdown('#### Ägarstruktur och insidertransaktioner')
+    if st.button('Hämta ägar- och insideruppgifter',key='load_ownership'):
+        try:
+            obj=yf.Ticker(ticker)
+            for title,attribute in [('Större ägare','major_holders'),('Institutionella ägare','institutional_holders'),('Insidertransaktioner','insider_transactions')]:
+                st.write('**'+title+'**')
+                try:
+                    frame=getattr(obj,attribute)
+                    if isinstance(frame,pd.DataFrame) and not frame.empty:
+                        st.dataframe(frame,use_container_width=True)
+                    else: st.caption('Datakällan saknar uppgifter.')
+                except Exception: st.caption('Uppgifterna kunde inte hämtas.')
+            st.caption('Källa: Yahoo Finance. Täckning för svenska insidertransaktioner är inte fullständig; kontrollera mot Finansinspektionens insynsregister.')
+        except Exception: st.info('Ägaruppgifter är inte tillgängliga just nu.')
     st.caption('DCF och EV/EBITA viktas lika när båda kan beräknas. En ensam modell visas separat. Beräkningar är modellscenarier och rapportdata behöver verifieras.')
 
 st.divider()
