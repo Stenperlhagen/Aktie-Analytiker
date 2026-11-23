@@ -564,7 +564,7 @@ if _roic_income:
     # EV/EBITA kräver samma period och valuta; blandning med Yahoo-värden undviks.
 st.markdown('### Finansiell översikt')
 overview_items = [
-    ('Bolagsvärde (börsvärde)',show(market_cap/1e9,' md '+(quote_ccy or ''),2) if market_cap is not None else 'Saknas'),
+    ('Börsvärde',show(market_cap/1e9,' mdkr',2) if market_cap is not None and quote_ccy=='SEK' else (show(market_cap/1e9,' md '+(quote_ccy or ''),2) if market_cap is not None else 'Saknas')),
     ('Aktiekurs',show(price,' '+(quote_ccy or ''),2)),
     ('Omsättning (LTM/helår)',show(revenue/1e6,' M',0) if revenue is not None else 'Saknas'),
     ('Omsättningstillväxt',show(sales_growth_pct,' %/år',1) if sales_growth_pct is not None else 'Saknas'),
