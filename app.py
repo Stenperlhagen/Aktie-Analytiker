@@ -1142,11 +1142,16 @@ with target_slot.container():
     header_target=(header_price*header_history/header_pe
                    if header_price is not None and header_pe is not None and header_history is not None else None)
     if header_target is None:
+        missing_target=[]
+        if header_price is None: missing_target.append('aktuell aktiekurs')
+        if header_pe is None: missing_target.append('positivt aktuellt P/E')
+        if header_history is None: missing_target.append('minst tre historiska P/E-tal')
+        target_explanation='Saknas: '+', '.join(missing_target)+'.'
         st.markdown(
             '<div style="padding:18px;border-radius:15px;background:#f1f5f9;border:1px solid #cbd5e1;">'
             '<div style="font-weight:650;font-size:1rem;">Indikativ riktkurs</div>'
             '<div style="font-size:1.6rem;font-weight:750;color:#475569;">Ej beräknad</div>'
-            '<div style="font-size:.85rem;color:#475569;">P/E-historik eller aktiekurs saknas.</div></div>',
+            '<div style="font-size:.85rem;color:#475569;">'+target_explanation+'</div></div>',
             unsafe_allow_html=True)
     else:
         header_gap=(header_pe/header_history-1)*100
