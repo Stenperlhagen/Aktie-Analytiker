@@ -515,8 +515,6 @@ if eps is None:
     eps=statement_value(fin,['Diluted EPS','Basic EPS'])
 eps_source = 'Yahoo Finance – trailingEps' if info.get('trailingEps') is not None else ('Yahoo Finance – resultaträkning' if eps is not None else 'Saknas')
 eps_currency = report_ccy or (info.get('currency') if info.get('trailingEps') is not None else None)
-if eps_currency is None and _roic_data.get('income'):
-    eps_currency = _roic_data['income'][0].get('currency')
 eps_in_quote_currency = None
 eps_fx_rate = None
 if eps is not None and eps>0 and quote_ccy and eps_currency:
