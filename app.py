@@ -2203,5 +2203,72 @@ with four:
         except Exception: st.info('Ägaruppgifter är inte tillgängliga just nu.')
     st.caption('DCF och EV/EBITA viktas lika när båda kan beräknas. En ensam modell visas separat. Beräkningar är modellscenarier och rapportdata behöver verifieras.')
 
+    with st.expander('Rapportkalender och rapportbevakning'):
+        if st.button('Hämta rapportdatum',key='report_calendar_load'):
+            try:
+                calendar=yf.Ticker(ticker).calendar
+                if isinstance(calendar,dict) and calendar:
+                    st.dataframe(pd.DataFrame([{'Händelse':k,'Uppgift':str(x)} for k,x in calendar.items()]),hide_index=True)
+                elif isinstance(calendar,pd.DataFrame) and not calendar.empty: st.dataframe(calendar)
+                else: st.info('Inga rapportdatum tillgängliga.')
+            except Exception: st.info('Rapportkalendern kunde inte hämtas.')
+        st.caption('Yahoo Finance; datum kan ändras. Ingen automatisk avisering utanför appen.')
+    with st.expander('Portföljanalys'):
+        st.caption('Ange innehav i SEK. Portföljens modellpotential beräknas endast för innehav med tillgängligt modellvärde och utan granskningsavvikelse.')
+        holdings=st.data_editor(pd.DataFrame([{'Bolag':name,'Marknadsvärde SEK':0.0}]),num_rows='dynamic',key='portfolio_holdings',column_config={'Bolag':st.column_config.SelectboxColumn(options=sorted(ALL_COMPANIES)),'Marknadsvärde SEK':st.column_config.NumberColumn(min_value=0.0)},hide_index=True)
+        if st.button('Analysera portfölj',key='portfolio_run'):
+            portfolio=[]
+            for _,holding in holdings.iterrows():
+                sym=ALL_COMPANIES.get(holding['Bolag'])
+                amount=numeric(holding['Marknadsvärde SEK'])
+                if not sym or not amount or amount<=0: continue
+                result=screener_snapshot(sym)
+                potential=result.get('upside') if not result.get('audit') else None
+                portfolio.append({'Bolag':holding['Bolag'],'Marknadsvärde SEK':amount,'Kategori':result.get('category'),'Modellpotential %':potential})
+            if portfolio:
+                pf=pd.DataFrame(portfolio)
+                total=pf['Marknadsvärde SEK'].sum()
+                pf['Portföljvikt %']=pf['Marknadsvärde SEK']/total*100
+                st.metric('Portföljvärde',show(total,' SEK',0))
+                st.dataframe(pf,hide_index=True)
+                st.bar_chart(pf.groupby('Kategori')['Marknadsvärde SEK'].sum()/total*100)
+                valid=pf.dropna(subset=['Modellpotential %'])
+                covered=valid['Marknadsvärde SEK'].sum()
+                st.metric('Värderingstäckning',show(covered/total*100,' %'))
+                if covered>0:
+                    st.metric('Viktad modellpotential för täckta innehav',show((valid['Marknadsvärde SEK']*valid['Modellpotential %']).sum()/covered,' %'))
+    with st.expander('Historisk avkastning – jämförelse mot index'):
+        st.caption('Historisk köp-och-behåll-jämförelse, inte backtest av värderingsstrategin. Ett sådant test kräver historiska rapporter med publiceringsdatum.')
+        if st.button('Beräkna historisk jämförelse',key='historical_compare'):
+            try:
+                asset=yf.Ticker(ticker).history(period='5y',auto_adjust=True)['Close']
+                benchmark=yf.Ticker('^OMXSPI').history(period='5y',auto_adjust=True)['Close']
+                asset.index=asset.index.tz_localize(None).normalize()
+                benchmark.index=benchmark.index.tz_localize(None).normalize()
+                aligned=pd.concat([asset.rename('Aktie (justerad)'),benchmark.rename('OMXSPI (prisindex)')],axis=1).dropna()
+                if len(aligned)>1:
+                    st.line_chart(aligned/aligned.iloc[0]*100)
+                    st.caption('Index 100 vid gemensam start. Aktien är utdelningsjusterad, indexet är ett prisindex; jämförelsen är därför inte likvärdig totalavkastning.')
+                else: st.info('Otillräcklig gemensam historik.')
+            except Exception: st.info('Historiken kunde inte hämtas.')
+    with st.expander('Exportera bolagsanalys'):
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet
+        from xml.sax.saxutils import escape
+        buffer=io.BytesIO()
+        styles=getSampleStyleSheet()
+        story=[Paragraph(escape(company)+' – Bolagsanalys',styles['Title'])]
+        sections=[('Rapportperiod',v.get('period')),('Datakälla',v.get('source')),('Kategori',v.get('category')),('Aktiekurs',show(v.get('price'),' '+str(v.get('currency') or ''),2)),('Motiverad aktiekurs',show(v.get('target'),' '+str(v.get('currency') or ''),2)),('Modellstatus',v.get('status')),('Investeringsbetyg',show(score,' / 100',0))]
+        sections.extend((k,show(x,'',2)) for k,x in v.get('inputs',{}).items())
+        sections.extend((k,show(x,'',2)) for k,x in v.get('assumptions',{}).items())
+        sections.extend((k,show(x,'',2)) for k,x in v.get('models',{}).items())
+        for k,x in sections:
+            story.append(Paragraph('<b>'+escape(str(k))+'</b>: '+escape(str(x if x is not None else 'Saknas')),styles['BodyText']))
+            story.append(Spacer(1,6))
+        for x in v.get('missing',[]): story.append(Paragraph(escape(str(x)),styles['BodyText']))
+        story.append(Paragraph('Modellantaganden är inte garanterade prognoser. Rapportdata kan vara ofullständiga.',styles['BodyText']))
+        SimpleDocTemplate(buffer).build(story)
+        st.download_button('Ladda ner värderingsrapport (PDF)',buffer.getvalue(),file_name=ticker+'-analys.pdf',mime='application/pdf')
+
 st.divider()
 st.caption('Källor: Yahoo Finance via yfinance för nyckeltal och historik; Google News RSS för nyhetssökning; användarens egna uppladdade dokument. Inga automatiska AI-slutsatser påstås ha gjorts. Appen körs på egen Streamlit-server och filerna behandlas i den sessionen.')
