@@ -939,7 +939,7 @@ with two:
         cols = sorted(frame.columns, reverse=True)[:5]
         # Visa inte 2021 i kassaflöde/balans när året helt saknar data
         # för de rapportposter som faktiskt presenteras i tabellen.
-        if section_name in ('Kassaflöde','Balansräkning'):
+        if section_name in ('Resultaträkning','Kassaflöde','Balansräkning'):
             visible_labels={key for _,candidates,_ in metrics for key in candidates if key in frame.index}
             cols=[col for col in cols if not (
                 str(pd.Timestamp(col).year if not pd.isna(pd.to_datetime(col,errors='coerce')) else col) == '2021'
