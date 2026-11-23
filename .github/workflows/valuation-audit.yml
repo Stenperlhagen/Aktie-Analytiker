@@ -1,0 +1,23 @@
+name: EquityLab full valuation audit
+on:
+  push:
+    paths:
+      - 'valuation_audit.py'
+      - '.github/workflows/valuation-audit.yml'
+  workflow_dispatch:
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas yfinance
+      - run: python valuation_audit.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: valuation-audit
+          path: valuation-audit.csv
