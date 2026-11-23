@@ -584,6 +584,7 @@ PROFILE_TICKERS={
 PROFILE_BY_SYMBOL={symbol:category for category,symbols in PROFILE_TICKERS.items() for symbol in symbols}
 def operating_valuation_profile(symbol,info=None):
     """Returnera profil bara när kategorin är identifierad; aldrig godtycklig 9/3/12-reserv."""
+    if symbol=='AAK.ST': return 'Tillverkningsindustri'
     if symbol in PROFILE_BY_SYMBOL: return PROFILE_BY_SYMBOL[symbol]
     industry=str((info or {}).get('industry') or '').lower()
     sector=str((info or {}).get('sector') or '').lower()
@@ -735,9 +736,19 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
                 fcff=None
                 out['period']=VOLATI_Q3_2026['as_of']
                 out['source']=VOLATI_Q3_2026['source']
-            out['inputs']={'EBITA':earnings,'Nettoskuld':debt,'Antal aktier':shares,'FCFF':fcff,'Valutakurs':fx}
+            if symbol=='AAK.ST':
+                # Q3 2026: rapporterad EBIT R12, inte EBITA. Konservativ separat proxy.
+                earnings=4_777_000_000.0
+                debt=3_134_000_000.0
+                shares=259_708_000.0
+                fx=fx_rate('SEK',currency)
+                fcff=None
+                out['period']='2026-09-30'
+                out['source']='https://financialfilings.com/filings/aak/interim-quarterly-report/2026/74641045/'
+                out['missing'].append('AAK: separat EBITA och normaliserad FCFF ej verifierade; rapporterad EBIT används endast som konservativ proxy.')
+            out['inputs']={('EBIT (proxy)' if symbol=='AAK.ST' else 'EBITA'):earnings,'Nettoskuld':debt,'Antal aktier':shares,'FCFF':fcff,'Valutakurs':fx}
             multiple_value=comparable_ev_ebita(earnings,debt,shares,m,fx)
-            if multiple_value is not None: out['models']['EV/EBITA']=multiple_value
+            if multiple_value is not None: out['models']['EV/EBIT (EBITA-proxy)' if symbol=='AAK.ST' else 'EV/EBITA']=multiple_value
             else: out['missing'].append('EV/EBITA: jämförbar EBITA, nettoskuld, aktier eller valuta')
             if fcff is not None and fcff>0 and debt is not None and shares and shares>0 and fx and fx>0:
                 rate=w/100
@@ -793,10 +804,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v1':
+if st.session_state.get('screener_model_version')!='unified-v2':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v1'
+    st.session_state['screener_model_version']='unified-v2'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 with st.sidebar:
@@ -821,10 +832,10 @@ with st.sidebar:
     st.caption('Sök bland samtliga bolag. Resultatet visas i huvudfönstret.')
     universe=list(dict.fromkeys(ALL_COMPANIES.values()))
     screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
-    if st.session_state.get('screener_model_version')!='unified-v1':
+    if st.session_state.get('screener_model_version')!='unified-v2':
         st.session_state.screener_results={}
         st.session_state.screener_running=False
-        st.session_state.screener_model_version='unified-v1'
+        st.session_state.screener_model_version='unified-v2'
     if 'screener_results' not in st.session_state:
         st.session_state.screener_results={}
     if 'screener_running' not in st.session_state:
