@@ -115,6 +115,25 @@ def roic_company_data(ticker, api_key):
     except (ValueError,TypeError) as exc:
         return {},'ROIC svarade i oväntat format: '+type(exc).__name__
 
+@st.cache_data(ttl=21600,show_spinner=False)
+def roic_quarterly_income(identifier, api_key):
+    """Kompletterande rapporterade kvartal, med samma identifierare som årsdata."""
+    if not identifier or ':' not in identifier or not api_key:
+        return [],'ROIC-instrument eller API-nyckel saknas'
+    try:
+        url='https://api.roic.ai/v3.0.0/fundamental/income-statement/'+urllib.parse.quote(identifier,safe=':')
+        response=requests.get(url,params={'period_type':'quarterly','limit':12,'order':'desc'},
+                              headers={'Authorization':'Bearer '+api_key},timeout=12)
+        if not response.ok:
+            return [],'ROIC kvartalsdata: HTTP '+str(response.status_code)
+        payload=response.json()
+        records=payload.get('data',[]) if isinstance(payload,dict) else []
+        records=[v for v in records if isinstance(v,dict) and v.get('symbol')==identifier and v.get('period_type')=='quarterly' and v.get('period_end_date')]
+        records.sort(key=lambda v:str(v.get('period_end_date')),reverse=True)
+        return records,None if records else 'ROIC API lämnade inga kvartalsrapporter för instrumentet'
+    except (requests.RequestException,ValueError,TypeError):
+        return [],'ROIC kvartalsdata kunde inte hämtas'
+
 @st.cache_data(ttl=1800,show_spinner=False)
 def fetch(ticker):
     """Hämta varje datatyp oberoende så ett fel inte slår ut hela analysen."""
@@ -966,6 +985,17 @@ with two:
         ('Räntebärande skulder',quarterly_balance,('Total Debt',),'M'),
         ('Likvida medel',quarterly_balance,('Cash And Cash Equivalents','Cash Cash Equivalents And Short Term Investments'),'M'),
     ]
+    # Komplettera enbart saknade årsjämförelser med ROIC:s rapporterade kvartal.
+    roic_quarters=[]
+    roic_quarter_error=None
+    if roic_key() and _roic_data.get('symbol'):
+        roic_quarters,roic_quarter_error=roic_quarterly_income(_roic_data['symbol'],roic_key())
+    roic_quarter_fields={
+        'Omsättning':('is_sales_revenue_turnover','revenue','total_revenue'),
+        'EBIT':('is_operating_income','operating_income','ebit'),
+        'Nettoresultat':('is_net_income','net_income','net_income_common_stockholders'),
+        'Resultat per aktie':('eps_diluted','eps_basic','eps','is_eps_diluted','is_eps_basic')
+    }
     quarterly_rows=[]
     for label,frame,aliases,unit in quarterly_definitions:
         if frame is None or frame.empty: continue
@@ -992,6 +1022,27 @@ with two:
             prior_value=float(candidates.loc[prior_date])
         yoy=None
         reason=''
+        yoy_source='Yahoo Finance'
+        # ROIC får endast fylla en lucka om både period och valuta kan verifieras.
+        if prior_value is None and label in roic_quarter_fields and roic_quarters and report_ccy:
+            def roic_quarter_value(record):
+                if record.get('currency')!=report_ccy: return None
+                for field in roic_quarter_fields[label]:
+                    value=numeric(record.get(field))
+                    if value is not None: return value
+                return None
+            current_match=next((record for record in roic_quarters
+                if abs((pd.Timestamp(record['period_end_date'])-latest_date).days)<=45
+                and roic_quarter_value(record) is not None),None)
+            past_match=next((record for record in roic_quarters
+                if abs((pd.Timestamp(record['period_end_date'])-target_date).days)<=45
+                and roic_quarter_value(record) is not None),None)
+            if current_match is not None and past_match is not None:
+                latest_value=roic_quarter_value(current_match)
+                prior_value=roic_quarter_value(past_match)
+                prior_date=pd.Timestamp(past_match['period_end_date'])
+                latest_date=pd.Timestamp(current_match['period_end_date'])
+                yoy_source='ROIC AI · rapporterade kvartal'
         if prior_value is None:
             reason='Föregående års motsvarande kvartal saknas i datakällan'
         elif label in ('Räntebärande skulder','Likvida medel'):
@@ -1007,13 +1058,18 @@ with two:
             'Värde föregående år':(show(prior_value/1e6,' M',1) if unit=='M' else show(prior_value,'',2)) if prior_value is not None else 'Saknas',
             'Förändring mot samma kvartal föregående år':show(yoy,' %',1) if yoy is not None else 'Saknas',
             'Kommentar':reason,
-            'Datakälla':'Yahoo Finance · kvartalsrapport'
+            'Datakälla':yoy_source+' / Yahoo Finance'
         })
     if quarterly_rows:
         st.dataframe(pd.DataFrame(quarterly_rows),hide_index=True,use_container_width=True)
         st.caption('Årsjämförelsen använder närmaste rapportperiod inom 45 dagar från motsvarande kvartal föregående år. Om datakällan bara har fyra kvartal kan jämförelsen inte beräknas. Procentuell förändring visas även för negativa aktuella värden när föregående års värde är positivt. Balansposter redovisas separat.')
     else:
         st.info('Kvartalsrapporter saknas hos den anslutna datakällan för detta bolag.')
+
+    if roic_quarter_error:
+        st.caption('Kompletterande ROIC-kvartal: '+roic_quarter_error+'. Årsjämförelser kan fortfarande saknas.')
+    elif roic_quarters:
+        st.caption('ROIC AI levererade '+str(len(roic_quarters))+' rapporterade kvartal. Dessa används endast när motsvarande Yahoo-jämförelse saknas och valuta och period överensstämmer.')
 
     st.markdown('#### Fullständiga kvartalsrapporter')
     st.caption('Samtliga tillgängliga originalposter från dataleverantören visas nedan, inte bara de utvalda nyckeltalen i sammanfattningen. Rapportperioder och saknade värden bevaras.')
