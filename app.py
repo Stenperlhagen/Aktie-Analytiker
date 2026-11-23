@@ -603,6 +603,42 @@ RESEARCH_TICKERS={'BIOA-B.ST','ACE.ST','HNSA.ST','SYNACT.ST'}
 ESTABLISHED_PHARMA_TICKERS={'AZN.ST','SOBI.ST','CAMX.ST'}
 # Medicinteknik och diagnostik (t.ex. Surgical Science, Senzime, Bactiguard)
 # klassificeras inte automatiskt som kliniska läkemedelsprojekt.
+# Reservklassificering för hela den kända aktielistan när Yahoo saknar sektor.
+# Branschgrupp är bredare än en värderingsprofil; använd inte en godtycklig multipel.
+KNOWN_GROUP_BY_TICKER={
+    ticker:group for group,companies in GROUPS.items()
+    for ticker in companies.values()
+}
+ADDITIONAL_GROUP_FALLBACK={
+    'BOKUS.ST':'Konsument och övrigt','ATT.ST':'Hälsovård','HUM.ST':'Hälsovård',
+    'BMAX.ST':'Konsument och övrigt','RUSTA.ST':'Konsument och övrigt',
+    'RVRC.ST':'Konsument och övrigt','ACAD.ST':'Konsument och övrigt',
+    'BHG.ST':'Konsument och övrigt','BOOZT.ST':'Konsument och övrigt',
+    'CLA-B.ST':'Konsument och övrigt','DUNI.ST':'Konsument och övrigt',
+    'FOI-B.ST':'Konsument och övrigt','NELLY.ST':'Konsument och övrigt',
+    'SCST.ST':'Konsument och övrigt','MSON-B.ST':'Konsument och övrigt',
+    'STG.CO':'Konsument och övrigt','KAR.ST':'Teknik och telekom',
+    'MAHA-A.ST':'Material och skog','SES.ST':'Material och skog',
+    'SVIK.ST':'Industri','CTT.ST':'Industri','ELAN-B.ST':'Industri',
+    'ENGCON-B.ST':'Industri','GARO.ST':'Industri','INSTAL.ST':'Industri',
+    'INWI.ST':'Industri','MILDEF.ST':'Industri','NOLA-B.ST':'Industri',
+    'SINT.ST':'Industri','TROAX.ST':'Industri','VBG-B.ST':'Industri',
+    'XANO-B.ST':'Industri','WBGR-B.ST':'Industri','VESTUM.ST':'Industri',
+    'SUS.ST':'Hälsovård','SEZI.ST':'Hälsovård','ARJO-B.ST':'Hälsovård',
+    'ACE.ST':'Hälsovård','BACTI-B.ST':'Hälsovård','COALA.ST':'Hälsovård',
+    'HNSA.ST':'Hälsovård','SYNACT.ST':'Hälsovård','MCAP.ST':'Hälsovård',
+    'ADDV-B.ST':'Hälsovård','SFAB.ST':'Bank och finans',
+    'TFBANK.ST':'Bank och finans','DIOS.ST':'Fastigheter',
+    'PLAZ-B.ST':'Fastigheter','STEF-B.ST':'Fastigheter',
+    'SLP-B.ST':'Fastigheter','CIBUS.ST':'Fastigheter','EAST.ST':'Fastigheter',
+    'HEBA-B.ST':'Fastigheter','FNOX.ST':'Teknik och telekom',
+    'KNOW.ST':'Teknik och telekom','LIME.ST':'Teknik och telekom',
+    'SOF-B.ST':'Teknik och telekom','SLEEP.ST':'Teknik och telekom',
+    'STORY-B.ST':'Teknik och telekom','SF.ST':'Teknik och telekom',
+    'TDVOX.ST':'Teknik och telekom','BERG-B.ST':'Industri',
+    'MMGR-B.ST':'Industri','OEM-B.ST':'Industri','SDIP-B.ST':'Industri'
+}
+KNOWN_GROUP_BY_TICKER.update(ADDITIONAL_GROUP_FALLBACK)
 def valuation_category(symbol, info=None):
     """Konservativ kategorisering: särskilda affärsmodeller kräver andra metoder."""
     if symbol in INVESTMENT_TICKERS: return 'Investmentbolag / kapitalförvaltning'
@@ -624,7 +660,15 @@ def valuation_category(symbol, info=None):
         return 'Forskningsbolag'
     if 'asset management' in combined or 'investment holding' in combined: return 'Investmentbolag / kapitalförvaltning'
     if 'financial services' in sector or 'financial data' in industry: return 'Bank / finansiella tjänster'
-    if not sector and not industry: return 'Ej klassificerad'
+    if not sector and not industry:
+        if symbol in PROFILE_BY_SYMBOL: return 'Rörelsedrivande bolag'
+        group=KNOWN_GROUP_BY_TICKER.get(symbol)
+        if group=='Fastigheter': return 'Fastigheter'
+        if group=='Bank och finans': return 'Bank / finansiella tjänster'
+        if group=='Hälsovård': return 'Rörelsedrivande bolag'
+        if group in ('Industri','Teknik och telekom','Konsument och övrigt','Material och skog','Övriga bolag'):
+            return 'Rörelsedrivande bolag'
+        return 'Ej klassificerad'
     return 'Rörelsedrivande bolag'
 
 @st.cache_data(ttl=21600,show_spinner=False)
@@ -885,7 +929,7 @@ with company_col:
     st.subheader(company)
     company_type=valuation_category(ticker,info)
     if company_type=='Rörelsedrivande bolag':
-        company_type=operating_valuation_profile(ticker,info) or 'Rörelsedrivande bolag'
+        company_type=operating_valuation_profile(ticker,info) or KNOWN_GROUP_BY_TICKER.get(ticker) or 'Rörelsedrivande bolag'
     st.markdown('<div style="font-size:0.92rem;color:#64748b;margin-top:-8px;margin-bottom:10px;">'+company_type+'</div>',unsafe_allow_html=True)
     st.caption(f'{ticker} · Valuta: {info.get("currency","okänd")} · Börsdata hämtad {dt.datetime.now().strftime("%Y-%m-%d %H:%M")} · Yahoo Finance')
 with target_col:
