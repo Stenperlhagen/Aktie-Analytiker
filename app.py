@@ -850,7 +850,7 @@ with five:
             'ROIC rapportvaluta':_roic_data.get('income',[{}])[0].get('currency') if _roic_data.get('income') else None,
             'P/E från Yahoo':info.get('trailingPE'),
             'P/E som visas':pe,
-            'ROIC status':_roic_status
+            'ROIC status':_roic_error or ('Rapportdata hämtad' if _roic_data.get('income') else 'Inga rapportdata')
         })
     if _assessment_rows:
         st.dataframe(pd.DataFrame(_assessment_rows),hide_index=True,use_container_width=True)
