@@ -693,6 +693,53 @@ elif _roic_income:
     st.caption('Kompletterande rapportdata från ROIC AI (årsperiod: '+str(_roic_income[0].get('period_end_date','okänd'))+', valuta: '+str(_roic_income[0].get('currency','okänd'))+').')
 st.caption('Omsättning och kassaflöde kan avse olika perioder. Omsättningstillväxt = CAGR över tillgängliga rapporterade årsperioder. EBITA visas bara om det finns som separat rapporterad post; EBIT och EBITDA används aldrig som ersättning. EV/EBITA visas endast när rapport- och handelsvaluta matchar. ROE bygger på senaste rapporterade nettoresultat och eget kapital och är en förenklad kvot, inte ett genomsnittligt eget kapital. M = miljoner.')
 
+@st.cache_data(ttl=86400,show_spinner=False)
+def swedish_ten_year_yield():
+    """Senast publicerad svensk tioårig statsobligationsränta, i procent."""
+    try:
+        response=requests.get('https://api.riksbank.se/swea/v1/Observations/Latest/SEGVB10YC',timeout=12)
+        response.raise_for_status()
+        payload=response.json()
+        records=payload if isinstance(payload,list) else [payload]
+        for record in records:
+            if not isinstance(record,dict): continue
+            raw=record.get('value',record.get('Value'))
+            value=numeric(raw)
+            date=str(record.get('date',record.get('Date','')))
+            if value is not None and -5<value<20 and date:
+                try:
+                    if (pd.Timestamp.now()-pd.Timestamp(date).tz_localize(None)).days>14:
+                        return None,None
+                except (ValueError,TypeError):
+                    return None,None
+                return float(value),date
+    except (requests.RequestException,ValueError,TypeError,KeyError):
+        pass
+    return None,None
+
+@st.cache_data(ttl=86400,show_spinner=False)
+def calculated_stock_beta(ticker):
+    """Veckobeta mot OMX Stockholm 30, minst 52 gemensamma veckor."""
+    try:
+        stock=yf.Ticker(ticker).history(period='3y',interval='1wk',auto_adjust=True)
+        index=yf.Ticker('^OMX').history(period='3y',interval='1wk',auto_adjust=True)
+        if stock.empty or index.empty: return None
+        a=stock['Close'].copy()
+        b=index['Close'].copy()
+        a.index=pd.to_datetime(a.index,utc=True).tz_localize(None).to_period('W').to_timestamp()
+        b.index=pd.to_datetime(b.index,utc=True).tz_localize(None).to_period('W').to_timestamp()
+        weekly=pd.concat([a.groupby(level=0).last().rename('stock'),b.groupby(level=0).last().rename('market')],axis=1).dropna()
+        returns=weekly.pct_change().dropna()
+        if len(returns)<52: return None
+        variance=returns['market'].var()
+        if variance<=0: return None
+        result=float(returns['stock'].cov(returns['market'])/variance)
+        return result if 0<result<5 else None
+    except (ValueError,TypeError,KeyError,OverflowError):
+        return None
+    except Exception:
+        return None
+
 # Gemensam värderingsindikator ovanför alla flikar.
 # Baseras på verifierbar års-EPS och historisk P/E-median, aldrig enbart dagens P/E.
 global_pe_samples=[]
@@ -1273,53 +1320,6 @@ with four:
         st.info('Kurshistorik saknas.')
     st.caption('Detta är en transparent indikatoranalys, inte en statistiskt kalibrerad sannolikhet för uppgång eller nedgång. Tröskelvärdena är metodval, inte empiriskt fastställda prognoser. Värdering kräver dessutom jämförelse mot bransch och historiska multiplar. Banken, investmentbolag och fastighetsbolag behöver andra nyckeltal.')
 
-
-@st.cache_data(ttl=86400,show_spinner=False)
-def swedish_ten_year_yield():
-    """Senast publicerad svensk tioårig statsobligationsränta, i procent."""
-    try:
-        response=requests.get('https://api.riksbank.se/swea/v1/Observations/Latest/SEGVB10YC',timeout=12)
-        response.raise_for_status()
-        payload=response.json()
-        records=payload if isinstance(payload,list) else [payload]
-        for record in records:
-            if not isinstance(record,dict): continue
-            raw=record.get('value',record.get('Value'))
-            value=numeric(raw)
-            date=str(record.get('date',record.get('Date','')))
-            if value is not None and -5<value<20 and date:
-                try:
-                    if (pd.Timestamp.now()-pd.Timestamp(date).tz_localize(None)).days>14:
-                        return None,None
-                except (ValueError,TypeError):
-                    return None,None
-                return float(value),date
-    except (requests.RequestException,ValueError,TypeError,KeyError):
-        pass
-    return None,None
-
-@st.cache_data(ttl=86400,show_spinner=False)
-def calculated_stock_beta(ticker):
-    """Veckobeta mot OMX Stockholm 30, minst 52 gemensamma veckor."""
-    try:
-        stock=yf.Ticker(ticker).history(period='3y',interval='1wk',auto_adjust=True)
-        index=yf.Ticker('^OMX').history(period='3y',interval='1wk',auto_adjust=True)
-        if stock.empty or index.empty: return None
-        a=stock['Close'].copy()
-        b=index['Close'].copy()
-        a.index=pd.to_datetime(a.index,utc=True).tz_localize(None).to_period('W').to_timestamp()
-        b.index=pd.to_datetime(b.index,utc=True).tz_localize(None).to_period('W').to_timestamp()
-        weekly=pd.concat([a.groupby(level=0).last().rename('stock'),b.groupby(level=0).last().rename('market')],axis=1).dropna()
-        returns=weekly.pct_change().dropna()
-        if len(returns)<52: return None
-        variance=returns['market'].var()
-        if variance<=0: return None
-        result=float(returns['stock'].cov(returns['market'])/variance)
-        return result if 0<result<5 else None
-    except (ValueError,TypeError,KeyError,OverflowError):
-        return None
-    except Exception:
-        return None
 
 with five:
     st.subheader(f'Bolagsvärdering – {company}')
