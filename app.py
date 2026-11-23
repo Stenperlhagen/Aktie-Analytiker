@@ -515,6 +515,8 @@ if eps is None:
     eps=statement_value(fin,['Diluted EPS','Basic EPS'])
 eps_source = 'Yahoo Finance – trailingEps' if info.get('trailingEps') is not None else ('Yahoo Finance – resultaträkning' if eps is not None else 'Saknas')
 eps_currency = report_ccy or (info.get('currency') if info.get('trailingEps') is not None else None)
+if eps_currency is None and _roic_income:
+    eps_currency = _roic_income[0].get('currency')
 eps_in_quote_currency = None
 eps_fx_rate = None
 if eps is not None and eps>0 and quote_ccy and eps_currency:
@@ -555,6 +557,10 @@ if market_cap is None: market_cap=val(quick,'market_cap')
 if market_cap is None and shares_count is not None and price is not None: market_cap=shares_count*price
 quote_ccy = info.get('currency') or quick.get('currency')
 report_ccy = info.get('financialCurrency')
+_roic_data, _roic_error = {}, None
+if roic_key():
+    _roic_data,_roic_error = roic_company_data(ticker,roic_key())
+_roic_income=_roic_data.get('income',[])
 # Enterprise value and EBITA must use the same currency.
 ev_ebita = ((market_cap+netdebt)/ebita if market_cap is not None and netdebt is not None and ebita is not None and ebita>0 and quote_ccy and report_ccy and quote_ccy==report_ccy else None)
 # Tre kompletterande nyckeltal: kassagenerering, kapitalavkastning och utdelning.
@@ -574,10 +580,6 @@ if dividend_yield is not None:
 if dividend_yield is None:
     dividend_yield = trailing_dividend_yield(ticker, price)
 # ROIC kompletterar endast verifierade, saknade värden.
-_roic_data, _roic_error = {}, None
-if roic_key():
-    _roic_data,_roic_error = roic_company_data(ticker,roic_key())
-_roic_income=_roic_data.get('income',[])
 if _roic_income:
     latest=_roic_income[0]
     roic_currency=latest.get('currency')
