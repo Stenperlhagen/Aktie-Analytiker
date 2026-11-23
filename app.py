@@ -692,6 +692,9 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
     report=info.get('financialCurrency')
     fx=fx_rate(report,currency)
     shares=val(info,'sharesOutstanding') or val(quick,'shares')
+    if not shares:
+        cap=val(info,'marketCap') or val(quick,'market_cap')
+        if cap and price and price>0 and symbol not in {'VOLO.ST'}: shares=cap/price
     out={'category':category,'profile':profile,'price':price,'currency':currency,'target':None,'method':'','missing':[],'models':{}}
     def row(frame,labels,period):
         for label in labels:
@@ -710,10 +713,17 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
             w,g,m=params
             out['assumptions']={'WACC (%)':w,'FCFF-tillväxt (%)':g,'EV/EBITA':m,'Terminaltillväxt (%)':2,'Prognosår':5}
             earnings=debt=fcff=None
+            earnings_label='EBITA'
             common=sorted(set(fin.columns)&set(balance.columns),reverse=True)
             if common:
                 period=common[0]
                 earnings=row(fin,['EBITA','Adjusted EBITA','Normalized EBITA'],period)
+                if earnings is None:
+                    ebit=row(fin,['Operating Income','EBIT'],period)
+                    amort=row(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period) if period in cash.columns else None
+                    if ebit is not None:
+                        earnings=ebit+abs(amort) if amort is not None else ebit
+                        earnings_label='EBITA (beräknad)' if amort is not None else 'EBIT (proxy)'
                 debt=row(balance,['Net Debt'],period)
                 if debt is None:
                     gross=row(balance,['Total Debt'],period)
@@ -728,6 +738,11 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
                     wc=row(cash,['Change In Working Capital'],period)
                     if all(v is not None for v in (ebit,da,cap,wc)):
                         fcff=ebit*(1-0.206)+da-abs(cap)+wc
+                    else:
+                        ocf=row(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'],period)
+                        interest=row(fin,['Interest Expense'],period)
+                        if all(v is not None for v in (ocf,cap,interest)):
+                            fcff=ocf-abs(cap)+abs(interest)*(1-0.206)
             if symbol=='VOLO.ST':
                 currency=currency or 'SEK'
                 out['currency']=currency
@@ -769,9 +784,9 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
                 else:
                     audit.append('Omsättning saknas för rimlighetskontroll')
             out['audit']=audit
-            out['inputs']={('EBIT (proxy)' if symbol=='AAK.ST' else 'EBITA'):earnings,'Nettoskuld':debt,'Antal aktier':shares,'FCFF':fcff,'Valutakurs':fx}
+            out['inputs']={('EBIT (proxy)' if symbol=='AAK.ST' else earnings_label):earnings,'Nettoskuld':debt,'Antal aktier':shares,'FCFF':fcff,'Valutakurs':fx}
             multiple_value=comparable_ev_ebita(earnings,debt,shares,m,fx)
-            if multiple_value is not None: out['models']['EV/EBIT (EBITA-proxy)' if symbol=='AAK.ST' else 'EV/EBITA']=multiple_value
+            if multiple_value is not None: out['models']['EV/EBIT (EBITA-proxy)' if symbol=='AAK.ST' or earnings_label=='EBIT (proxy)' else 'EV/EBITA']=multiple_value
             else: out['missing'].append('EV/EBITA: jämförbar EBITA, nettoskuld, aktier eller valuta')
             if fcff is not None and fcff>0 and debt is not None and shares and shares>0 and fx and fx>0:
                 rate=w/100
@@ -808,6 +823,18 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
         else: out['missing'].append('Rapporterat NAV eller verifierat driftnetto och direktavkastningskrav' if category=='Fastigheter' else 'Rapporterat substansvärde')
     elif category=='Forskningsbolag': out['missing'].append('rNPV: projektkassaflöden, sannolikheter, nettokassa och utspädning')
     else: out['missing'].append('Sektorspecifikt värderingsunderlag')
+    if not out['models'] and category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') and params and shares and shares>0 and fx and fx>0 and symbol not in ('VOLO.ST','AAK.ST'):
+        # Reservmodell: normaliserad vinst till stamaktieägare, inte analytikerriktkurs.
+        profits=[]
+        for p in sorted(fin.columns,reverse=True)[:3]:
+            profit=row(fin,['Net Income Common Stockholders','Net Income Applicable To Common Shares'],p)
+            if profit is not None: profits.append(profit)
+        if len(profits)>=2 and min(profits)>0:
+            normal_profit=sum(profits)/len(profits)
+            pe=(1+params[1]/100)/(params[0]/100-0.02)
+            out['models']['Normaliserad P/E (reservmodell)']=normal_profit*fx/shares*pe
+            out['inputs']={'Normaliserad stamaktievinst':normal_profit,'Antal aktier':shares,'Valutakurs':fx,'Modell-P/E':pe}
+            out['period']=str(sorted(fin.columns,reverse=True)[0])[:10]
     if out['models']:
         out['target']=sum(out['models'].values())/len(out['models'])
         out['method']=' + '.join(out['models'])
@@ -835,10 +862,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v4':
+if st.session_state.get('screener_model_version')!='unified-v5':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v4'
+    st.session_state['screener_model_version']='unified-v5'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 with st.sidebar:
@@ -863,10 +890,10 @@ with st.sidebar:
     st.caption('Sök bland samtliga bolag. Resultatet visas i huvudfönstret.')
     universe=list(dict.fromkeys(ALL_COMPANIES.values()))
     screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
-    if st.session_state.get('screener_model_version')!='unified-v4':
+    if st.session_state.get('screener_model_version')!='unified-v5':
         st.session_state.screener_results={}
         st.session_state.screener_running=False
-        st.session_state.screener_model_version='unified-v4'
+        st.session_state.screener_model_version='unified-v5'
     if 'screener_results' not in st.session_state:
         st.session_state.screener_results={}
     if 'screener_running' not in st.session_state:
