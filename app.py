@@ -2230,8 +2230,21 @@ with four:
             elif required:
                 st.info('EV/EBITA saknar: '+', '.join(required)+'.')
             else:
-                multiple_target=(ebit_a*multiple-netdebt)*fx/shares
+                enterprise_multiple=ebit_a*multiple
+                equity_multiple=enterprise_multiple-netdebt
+                multiple_target=equity_multiple*fx/shares
                 st.metric('EV/EBITA – beräknad kurs',show(multiple_target,' '+str(quote_ccy),2))
+                with st.expander('Kontrollera EV/EBITA-beräkningen och indata'):
+                    st.write('**Rapporterad EBITA:** '+show(ebit_a/1e6,' M '+str(report_ccy),1))
+                    st.write('**Vald EV/EBITA:** '+show(multiple,'×',1))
+                    st.write('**Företagsvärde (EV):** '+show(enterprise_multiple/1e6,' M '+str(report_ccy),1))
+                    st.write('**Avdragen nettoskuld:** '+show(netdebt/1e6,' M '+str(report_ccy),1))
+                    st.write('**Beräknat eget kapital:** '+show(equity_multiple/1e6,' M '+str(report_ccy),1))
+                    st.write('**Antal aktier:** '+show(shares/1e6,' miljoner',2))
+                    st.write('**Valutakurs:** '+show(fx,'',4))
+                    st.caption('Formel: (EBITA × multipel − nettoskuld) × valutakurs / antal aktier. Kontrollera att EBITA och nettoskuld avser samma verksamhet och jämförbar period.')
+                if ticker=='VOLO.ST':
+                    st.warning('Volati: historiska finansiella data kan omfatta verksamheter som delats ut eller avyttrats. Kontrollera EBITA och nettoskuld för kvarvarande verksamhet innan denna kurs används.')
             st.markdown('#### 3. Reverse DCF')
             if fcff is not None and fcff>0 and not required and price is not None and price>0:
                 rate=wacc_pct/100
