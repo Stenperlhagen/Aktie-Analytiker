@@ -720,24 +720,66 @@ if _roic_income and quote_ccy:
         eps_fx=fx_rate(annual_ccy,quote_ccy)
         global_eps=global_eps*eps_fx if eps_fx is not None and eps_fx>0 else None
 global_fair=global_eps*global_pe_median if global_eps is not None and global_pe_median is not None else None
-st.markdown('### Värdering jämfört med dagens aktiekurs')
-if global_fair is not None and global_fair>0 and price is not None and price>0:
-    # Rabatt/premie uttrycks som hur mycket marknadspriset avviker från beräknat värde.
-    deviation=(price/global_fair-1)*100
-    relation=('Premie' if deviation>0 else 'Rabatt' if deviation<0 else 'I nivå med modellvärdet')
+# Beräkna en separat DCF-indikation med samma grundantaganden som DCF-fliken.
+# CFO minus investeringar är inte nödvändigtvis FCFE; kräv även verifierat nettoupplåningsflöde.
+global_dcf_fair=None
+global_dcf_note='DCF saknar verifierat kassaflöde till aktieägarna (FCFE) eller riskdata.'
+if price is not None and price>0 and quote_ccy=='SEK' and report_ccy and cash is not None and not cash.empty:
+    op_label=next((k for k in ('Operating Cash Flow','Cash Flow From Continuing Operating Activities') if k in cash.index),None)
+    cap_label=next((k for k in ('Capital Expenditure',) if k in cash.index),None)
+    borrow_label=next((k for k in ('Net Issuance Payments Of Debt','Net Long Term Debt Issuance','Net Short Term Debt Issuance') if k in cash.index),None)
+    if op_label and cap_label and borrow_label:
+        oc=pd.to_numeric(cash.loc[op_label],errors='coerce')
+        cap=pd.to_numeric(cash.loc[cap_label],errors='coerce')
+        borrow=pd.to_numeric(cash.loc[borrow_label],errors='coerce')
+        fcfe=(oc-cap.abs()+borrow).dropna().sort_index()
+        fcfe=fcfe[~fcfe.index.duplicated(keep='first')]
+        shares_for_dcf=shares_count if shares_count is not None and shares_count>0 else (market_cap/price if market_cap is not None and market_cap>0 else None)
+        beta_for_dcf=numeric(info.get('beta'))
+        if beta_for_dcf is None or not 0<beta_for_dcf<5:
+            beta_for_dcf=calculated_stock_beta(ticker)
+        riskfree_for_dcf,_=swedish_ten_year_yield()
+        fx_for_dcf=fx_rate(report_ccy,quote_ccy)
+        if len(fcfe)>=2 and fcfe.iloc[0]>0 and fcfe.iloc[-1]>0 and shares_for_dcf and fx_for_dcf and riskfree_for_dcf is not None and beta_for_dcf is not None and 0<beta_for_dcf<5:
+            growth_for_dcf=max(-10.0,min(12.0,((float(fcfe.iloc[-1])/float(fcfe.iloc[0]))**(1/(len(fcfe)-1))-1)*100))/100
+            cost_equity=(riskfree_for_dcf+beta_for_dcf*5.5)/100
+            terminal_rate=0.02
+            if cost_equity>terminal_rate+0.01:
+                cashflow0=float(fcfe.iloc[-1])*fx_for_dcf
+                future=[cashflow0*(1+growth_for_dcf)**year for year in range(1,6)]
+                terminal_value=future[-1]*(1+terminal_rate)/(cost_equity-terminal_rate)
+                dcf_equity=sum(v/(1+cost_equity)**year for year,v in enumerate(future,1))+terminal_value/(1+cost_equity)**5
+                if dcf_equity>0:
+                    global_dcf_fair=dcf_equity/shares_for_dcf
+                    global_dcf_note='FCFE från kassaflöde, investeringar och nettoupplåning; CAPM med 5,5 % antagen riskpremie och 2 % terminaltillväxt.'
+# Visa en sammanvägd värdering endast om båda oberoende metoderna har underlag.
+# Lika vikt är en transparent policy, inte en empiriskt optimerad fördelning.
+global_combined=(global_fair+global_dcf_fair)/2 if global_fair is not None and global_fair>0 and global_dcf_fair is not None and global_dcf_fair>0 else None
+global_display_value=global_combined if global_combined is not None else global_fair if global_fair is not None and global_fair>0 else global_dcf_fair
+global_display_method='P/E + FCFE-DCF (50/50)' if global_combined is not None else 'P/E-indikation' if global_fair is not None and global_fair>0 else 'FCFE-DCF-indikation' if global_dcf_fair is not None else 'Underlag saknas'
+st.markdown('### Är aktien billig eller dyr?')
+if global_display_value is not None and global_display_value>0 and price is not None and price>0:
+    deviation=(price/global_display_value-1)*100
+    status='Rabatt' if deviation<0 else 'Premie' if deviation>0 else 'I nivå med värderingen'
     v1,v2,v3=st.columns(3)
     v1.metric('Aktuell aktiekurs',show(price,' '+str(quote_ccy),2))
-    v2.metric('Beräknat värde (P/E)',show(global_fair,' '+str(quote_ccy),2))
-    v3.metric(relation,show(abs(deviation),' %',1) if deviation!=0 else '0,0 %')
-    if deviation>0:
-        st.caption('Premie: aktien handlas '+show(deviation,' %',1)+' ÖVER modellens P/E-värde. Det betyder inte automatiskt att den bör säljas.')
-    elif deviation<0:
-        st.caption('Rabatt: aktien handlas '+show(abs(deviation),' %',1)+' UNDER modellens P/E-värde. Det betyder inte automatiskt att den bör köpas.')
+    v2.metric('Beräknat värde',show(global_display_value,' '+str(quote_ccy),2))
+    v3.metric(status,show(abs(deviation),' %',1))
+    if deviation< -20:
+        st.markdown('**Indikation: attraktivt prissatt enligt modellen.** Kursen ligger mer än 20 % under det beräknade värdet.')
+    elif deviation>20:
+        st.markdown('**Indikation: högt värderad enligt modellen.** Kursen ligger mer än 20 % över det beräknade värdet.')
     else:
-        st.caption('Aktiekursen motsvarar modellens P/E-värde.')
-    st.caption('Underlag: rapporterad års-EPS '+str(global_eps_period)+' och medianen av '+str(len(global_pe_samples))+' historiska P/E-observationer. Detta är en indikativ P/E-värdering, inte ett sammanvägt DCF-värde.')
+        st.markdown('**Indikation: nära modellvärdet.** Skillnaden mot beräknat värde är högst 20 %.')
+    st.caption('Metod: '+global_display_method+'. Rabatt/premie = (aktiekurs / modellvärde − 1). Ett modellvärde är osäkert och ingen köprekommendation.')
+    with st.expander('Visa värderingsunderlag och säkerhetsmarginal'):
+        st.write('P/E-värde: '+(show(global_fair,' '+str(quote_ccy),2) if global_fair is not None else 'Saknas'))
+        st.write('FCFE-DCF-värde: '+(show(global_dcf_fair,' '+str(quote_ccy),2) if global_dcf_fair is not None else 'Saknas'))
+        st.write('Pris med 20 % säkerhetsmarginal: '+show(global_display_value*0.8,' '+str(quote_ccy),2))
+        st.caption('P/E använder historisk median och rapporterad EPS. '+global_dcf_note)
+        st.caption('Om bara en metod finns används endast den, utan att den felaktigt presenteras som en sammanvägd värdering.')
 else:
-    st.caption('Rabatt eller premie kan inte fastställas: jämförbar års-EPS, historisk P/E-median eller aktiekurs saknas. Inget värde uppskattas.')
+    st.caption('Rabatt eller premie kan inte beräknas med verifierbara underlag. P/E och FCFE-DCF saknar tillräckliga uppgifter.')
 st.divider()
 
 one,two,three,four,five=st.tabs(['Kurs och historik','Finansiella rapporter','Nyheter – 6 månader','Investeringsanalys','Bolagsvärdering'])
