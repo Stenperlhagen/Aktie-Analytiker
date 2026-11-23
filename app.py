@@ -564,6 +564,7 @@ if _roic_income:
     # EV/EBITA kräver samma period och valuta; blandning med Yahoo-värden undviks.
 st.markdown('### Finansiell översikt')
 overview_items = [
+    ('Bolagsvärde (börsvärde)',show(market_cap/1e9,' md '+(quote_ccy or ''),2) if market_cap is not None else 'Saknas'),
     ('Aktiekurs',show(price,' '+(quote_ccy or ''),2)),
     ('Omsättning (LTM/helår)',show(revenue/1e6,' M',0) if revenue is not None else 'Saknas'),
     ('Omsättningstillväxt',show(sales_growth_pct,' %/år',1) if sales_growth_pct is not None else 'Saknas'),
@@ -571,7 +572,6 @@ overview_items = [
     ('EBITA (helår)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas'),
     ('Avkastning på eget kapital (ROE)',show(roe_overview,' %',1) if roe_overview is not None else 'Saknas'),
     ('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),
-    ('Fritt kassaflöde',show(free_cash_flow/1e6,' M',0) if free_cash_flow is not None else 'Saknas'),
     ('P/E',show(pe,'×') if pe is not None else 'Saknas'),
     ('EV/EBITA',show(ev_ebita,'×',1) if ev_ebita is not None else 'Saknas'),
     ('Nettoskuld/EBITDA',show(netdebt_ebitda,'×',2) if netdebt_ebitda is not None else 'Saknas'),
