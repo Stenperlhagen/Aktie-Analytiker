@@ -107,12 +107,43 @@ if price is None and not hist.empty:price=numeric(hist['Close'].iloc[-1])
 revenue=val(info,'totalRevenue');ebitda=val(info,'ebitda');margin=val(info,'operatingMargins');debt=val(info,'totalDebt');cash_val=val(info,'totalCash');opcf=val(info,'operatingCashflow');eps=val(info,'trailingEps');pe=val(info,'trailingPE')
 netdebt=debt-cash_val if debt is not None and cash_val is not None else None
 
+# Fallback: derive missing fundamentals from reported annual statements.
+def statement_value(frame, labels):
+    if frame is None or frame.empty: return None
+    for label in labels:
+        if label in frame.index:
+            for item in frame.loc[label].tolist():
+                n=numeric(item)
+                if n is not None: return n
+    return None
+
+revenue_source='Yahoo Finance – bolagsprofil'
+if revenue is None:
+    revenue=statement_value(fin,['Total Revenue','Operating Revenue'])
+    if revenue is not None: revenue_source='Yahoo Finance – senaste tillgängliga årsredovisningsperiod'
+if ebitda is None:
+    ebitda=statement_value(fin,['EBITDA','Normalized EBITDA'])
+if opcf is None:
+    opcf=statement_value(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'])
+if debt is None:
+    debt=statement_value(balance,['Total Debt','Long Term Debt And Capital Lease Obligation'])
+if cash_val is None:
+    cash_val=statement_value(balance,['Cash And Cash Equivalents','Cash Cash Equivalents And Short Term Investments'])
+if netdebt is None and debt is not None and cash_val is not None: netdebt=debt-cash_val
+if margin is None and revenue:
+    operating_income=statement_value(fin,['Operating Income','EBIT'])
+    if operating_income is not None: margin=operating_income/revenue
+if eps is None:
+    eps=statement_value(fin,['Diluted EPS','Basic EPS'])
+if pe is None and eps is not None and eps>0 and price is not None: pe=price/eps
+
+
 st.markdown('### Finansiell översikt')
 cols=st.columns(4)
-for col,(label,value) in zip(cols,[('Aktiekurs',show(price,' '+info.get('currency',''),2)),('Omsättning LTM',show(revenue/1e6,' M',0) if revenue is not None else 'Saknas'),('Rörelsemarginal',show(margin*100,' %') if margin is not None else 'Saknas'),('P/E',show(pe,'×') if pe is not None else 'Saknas')]):col.metric(label,value)
+for col,(label,value) in zip(cols,[('Aktiekurs',show(price,' '+info.get('currency',''),2)),('Omsättning (LTM/helår)',show(revenue/1e6,' M',0) if revenue is not None else 'Saknas'),('Rörelsemarginal',show(margin*100,' %') if margin is not None else 'Saknas'),('P/E',show(pe,'×') if pe is not None else 'Saknas')]):col.metric(label,value)
 cols=st.columns(4)
-for col,(label,value) in zip(cols,[('EBITDA LTM',show(ebitda/1e6,' M',0) if ebitda is not None else 'Saknas'),('Nettoskuld',show(netdebt/1e6,' M',0) if netdebt is not None else 'Saknas'),('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),('EPS senaste 12 mån',show(eps,'',2))]):col.metric(label,value)
-st.caption('M = miljoner i angiven rapporteringsvaluta. Rörelsemarginal är inte samma sak som EBITA-marginal. Nettoskuld = rapporterade skulder minus likvida medel (förenklad beräkning). LTM-perioder kan skilja sig mellan fält.')
+for col,(label,value) in zip(cols,[('EBITDA (LTM/helår)',show(ebitda/1e6,' M',0) if ebitda is not None else 'Saknas'),('Nettoskuld',show(netdebt/1e6,' M',0) if netdebt is not None else 'Saknas'),('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),('EPS senaste 12 mån',show(eps,'',2))]):col.metric(label,value)
+st.caption('Omsättning kan avse senaste rapporterade helår när LTM saknas; kontrollera perioderna i rapporttabellerna. M = miljoner i angiven rapporteringsvaluta. Rörelsemarginal är inte samma sak som EBITA-marginal. Nettoskuld = rapporterade skulder minus likvida medel (förenklad beräkning). LTM-perioder kan skilja sig mellan fält.')
 
 one,two,three,four=st.tabs(['Kurs och historik','Rapporterade data','Nyheter – 6 månader','Ladda upp dokument och värdera'])
 with one:
