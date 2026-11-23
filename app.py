@@ -951,6 +951,61 @@ with two:
             raw_table = frame.copy()
             raw_table.columns = [str(c.date()) if hasattr(c, 'date') else str(c) for c in raw_table.columns]
             st.dataframe(raw_table, use_container_width=True)
+    st.markdown('#### Kvartalsutveckling – rapporterade siffror')
+    st.caption('Senaste tillgängliga kvartal från Yahoo Finance. Jämför samma kvartal föregående år när sådana uppgifter finns. Belopp i miljoner av rapportvalutan.')
+    quarterly_income=extended.get('quarterly_income',pd.DataFrame())
+    quarterly_cash=extended.get('quarterly_cash',pd.DataFrame())
+    quarterly_balance=extended.get('quarterly_balance',pd.DataFrame())
+    quarterly_definitions=[
+        ('Omsättning',quarterly_income,('Total Revenue','Operating Revenue'),'M'),
+        ('EBIT',quarterly_income,('Operating Income','EBIT'),'M'),
+        ('Nettoresultat',quarterly_income,('Net Income','Net Income Common Stockholders'),'M'),
+        ('Resultat per aktie',quarterly_income,('Diluted EPS','Basic EPS'),'EPS'),
+        ('Operativt kassaflöde',quarterly_cash,('Operating Cash Flow','Cash Flow From Continuing Operating Activities'),'M'),
+        ('Fritt kassaflöde',quarterly_cash,('Free Cash Flow',),'M'),
+        ('Räntebärande skulder',quarterly_balance,('Total Debt',),'M'),
+        ('Likvida medel',quarterly_balance,('Cash And Cash Equivalents','Cash Cash Equivalents And Short Term Investments'),'M'),
+    ]
+    quarterly_rows=[]
+    for label,frame,aliases,unit in quarterly_definitions:
+        if frame is None or frame.empty: continue
+        matched=next((k for k in aliases if k in frame.index),None)
+        if matched is None: continue
+        series=pd.to_numeric(frame.loc[matched],errors='coerce').dropna()
+        if series.empty: continue
+        try:
+            series.index=pd.to_datetime(series.index)
+            series=series.sort_index(ascending=False)
+        except (ValueError,TypeError):
+            continue
+        latest_date=series.index[0]
+        latest_value=float(series.iloc[0])
+        previous_year=series[(series.index>=latest_date-pd.Timedelta(days=410)) & (series.index<=latest_date-pd.Timedelta(days=320))]
+        yoy=None
+        if len(previous_year) and previous_year.iloc[0]>0 and latest_value>=0 and unit=='M' and label in ('Omsättning','EBIT','Nettoresultat','Operativt kassaflöde','Fritt kassaflöde'):
+            yoy=(latest_value/float(previous_year.iloc[0])-1)*100
+        quarterly_rows.append({
+            'Nyckeltal':label,'Senaste kvartal':str(latest_date.date()),
+            'Rapporterat värde':show(latest_value/1e6,' M',1) if unit=='M' else show(latest_value,'',2),
+            'Förändring mot samma kvartal föregående år':show(yoy,' %',1) if yoy is not None else 'Saknas',
+            'Datakälla':'Yahoo Finance · kvartalsrapport'
+        })
+    if quarterly_rows:
+        st.dataframe(pd.DataFrame(quarterly_rows),hide_index=True,use_container_width=True)
+        st.caption('Förändring jämförs endast när ett rapporterat kvartal cirka ett år tidigare finns. Negativa eller nollbaserade jämförelser lämnas tomma i stället för att ge missvisande procentsatser. Balansposter är punktvärden och får ingen YoY-beräkning här.')
+    else:
+        st.info('Kvartalsrapporter saknas hos den anslutna datakällan för detta bolag.')
+
+    st.markdown('#### Datatäckning och rapporternas kvalitet')
+    coverage_frames=[('Årsresultat',fin),('Årskassaflöde',cash),('Årsbalans',balance),
+                     ('Kvartalsresultat',quarterly_income),('Kvartalskassaflöde',quarterly_cash),('Kvartalsbalans',quarterly_balance)]
+    coverage=[]
+    for label,frame in coverage_frames:
+        count=len(frame.columns) if isinstance(frame,pd.DataFrame) and not frame.empty else 0
+        coverage.append({'Rapport':label,'Tillgängliga perioder':count,'Status':'Tillgänglig' if count else 'Saknas'})
+    st.dataframe(pd.DataFrame(coverage),hide_index=True,use_container_width=True)
+    st.caption('Datatäckning visar vilka rapportserier som har hämtats, inte att varje post är reviderad eller fullständigt kvalitetssäkrad. Kontrollera viktiga värden mot bolagets publicerade rapporter.')
+
 with three:
     st.caption('Nyheter från de senaste sex månaderna. Sökningen körs först när du begär den, så bolagsbyten går snabbare.')
     if st.button('Hämta nyheter för valt bolag', key='refresh_news'):
