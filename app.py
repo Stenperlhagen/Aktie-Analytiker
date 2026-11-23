@@ -980,19 +980,38 @@ with two:
             continue
         latest_date=series.index[0]
         latest_value=float(series.iloc[0])
-        previous_year=series[(series.index>=latest_date-pd.Timedelta(days=410)) & (series.index<=latest_date-pd.Timedelta(days=320))]
+        # Samma räkenskapskvartal föregående år; välj närmaste periodslut,
+        # inte godtyckligt första datum i ett brett intervall.
+        target_date=latest_date-pd.DateOffset(years=1)
+        candidates=series.iloc[1:]
+        candidates=candidates[abs((candidates.index-target_date).days)<=45]
+        prior_date=None
+        prior_value=None
+        if not candidates.empty:
+            prior_date=min(candidates.index,key=lambda d:abs((d-target_date).days))
+            prior_value=float(candidates.loc[prior_date])
         yoy=None
-        if len(previous_year) and previous_year.iloc[0]>0 and latest_value>=0 and unit=='M' and label in ('Omsättning','EBIT','Nettoresultat','Operativt kassaflöde','Fritt kassaflöde'):
-            yoy=(latest_value/float(previous_year.iloc[0])-1)*100
+        reason=''
+        if prior_value is None:
+            reason='Föregående års motsvarande kvartal saknas i datakällan'
+        elif label in ('Räntebärande skulder','Likvida medel'):
+            reason='Balanspost – förändring i procent visas inte här'
+        elif prior_value<=0:
+            reason='Jämförelsebasen är noll eller negativ'
+        else:
+            yoy=(latest_value/prior_value-1)*100
         quarterly_rows.append({
             'Nyckeltal':label,'Senaste kvartal':str(latest_date.date()),
             'Rapporterat värde':show(latest_value/1e6,' M',1) if unit=='M' else show(latest_value,'',2),
+            'Jämförelsekvartal':str(prior_date.date()) if prior_date is not None else 'Saknas',
+            'Värde föregående år':(show(prior_value/1e6,' M',1) if unit=='M' else show(prior_value,'',2)) if prior_value is not None else 'Saknas',
             'Förändring mot samma kvartal föregående år':show(yoy,' %',1) if yoy is not None else 'Saknas',
+            'Kommentar':reason,
             'Datakälla':'Yahoo Finance · kvartalsrapport'
         })
     if quarterly_rows:
         st.dataframe(pd.DataFrame(quarterly_rows),hide_index=True,use_container_width=True)
-        st.caption('Förändring jämförs endast när ett rapporterat kvartal cirka ett år tidigare finns. Negativa eller nollbaserade jämförelser lämnas tomma i stället för att ge missvisande procentsatser. Balansposter är punktvärden och får ingen YoY-beräkning här.')
+        st.caption('Årsjämförelsen använder närmaste rapportperiod inom 45 dagar från motsvarande kvartal föregående år. Om datakällan bara har fyra kvartal kan jämförelsen inte beräknas. Procentuell förändring visas även för negativa aktuella värden när föregående års värde är positivt. Balansposter redovisas separat.')
     else:
         st.info('Kvartalsrapporter saknas hos den anslutna datakällan för detta bolag.')
 
