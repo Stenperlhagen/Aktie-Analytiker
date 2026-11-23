@@ -439,7 +439,16 @@ one,two,three,four,five=st.tabs(['Kurs och historik','Rapporterade data','Nyhete
 with one:
     if not hist.empty:
         h=hist.reset_index();h['Datum']=pd.to_datetime(h['Date']).dt.tz_localize(None)
-        st.plotly_chart(px.line(h,x='Datum',y='Close',title='Aktiekurs – senaste fem åren'),use_container_width=True)
+        h_one_year = h[h['Datum'] >= h['Datum'].max() - pd.DateOffset(years=1)].copy()
+        if len(h_one_year) >= 2:
+            chart_one_year = px.line(h_one_year,x='Datum',y='Close',title='Aktiekurs – senaste året')
+            chart_one_year.update_layout(xaxis_title='Datum',yaxis_title='Aktiekurs')
+            st.plotly_chart(chart_one_year,use_container_width=True)
+        else:
+            st.info('Det finns inte tillräckligt med kurshistorik för att visa ett år.')
+        chart_five_years = px.line(h,x='Datum',y='Close',title='Aktiekurs – senaste fem åren')
+        chart_five_years.update_layout(xaxis_title='Datum',yaxis_title='Aktiekurs')
+        st.plotly_chart(chart_five_years,use_container_width=True)
     else:st.warning('Kursserie saknas.')
     st.markdown('**Bolagsprofil**');st.write(info.get('longBusinessSummary','Beskrivning saknas.'))
 with two:
