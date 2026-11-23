@@ -155,19 +155,19 @@ ALL_COMPANIES = {**{name:ticker for name,(ticker,_) in CAT.items()}, **ADDITIONA
 
 with st.sidebar:
     st.header('Välj bolag')
-    st.caption('Sök svenska börsbolag i samma lista, oavsett börssegment.')
-    q=st.text_input('Sök bolagsnamn eller ticker',placeholder='T.ex. Volati, Investor, VBG')
-    options=sorted(
-        [n for n,t in ALL_COMPANIES.items() if q.casefold() in n.casefold() or q.casefold() in t.casefold()],
-        key=str.casefold
+    st.caption('Sök genom att skriva i listan eller öppna den och skrolla bland alla bolag.')
+    options = sorted(ALL_COMPANIES, key=str.casefold)
+    name = st.selectbox(
+        'Sök eller välj bolag',
+        options,
+        index=None,
+        placeholder='Skriv bolagsnamn eller klicka för att välja…',
+        key='company_picker',
+        help='Klicka i fältet för att öppna hela listan. Börja skriva för att filtrera.'
     )
-    if not options:
-        st.warning('Inga träffar i listan. Ange en egen Yahoo Finance-ticker nedan.')
-    name=st.selectbox('Bolag',options) if options else None
-    custom=st.text_input('Egen ticker (om bolaget saknas)',placeholder='Exempel: VOLO.ST')
-    ticker=custom.strip().upper() or (ALL_COMPANIES[name] if name else '')
+    ticker = ALL_COMPANIES[name] if name else ''
     st.caption(f'Ticker: {ticker or "–"}')
-    if st.button('Uppdatera data',use_container_width=True):
+    if st.button('Uppdatera data', use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 if not ticker:st.stop()
