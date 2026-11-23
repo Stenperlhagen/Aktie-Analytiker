@@ -729,6 +729,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
                     if all(v is not None for v in (ebit,da,cap,wc)):
                         fcff=ebit*(1-0.206)+da-abs(cap)+wc
             if symbol=='VOLO.ST':
+                currency=currency or 'SEK'
+                out['currency']=currency
                 earnings=VOLATI_Q3_2026['ebita_ltm']
                 debt=VOLATI_Q3_2026['net_debt']
                 shares=VOLATI_Q3_2026['ordinary_shares']
@@ -737,6 +739,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
                 out['period']=VOLATI_Q3_2026['as_of']
                 out['source']=VOLATI_Q3_2026['source']
             if symbol=='AAK.ST':
+                currency=currency or 'SEK'
+                out['currency']=currency
                 # Q3 2026: rapporterad EBIT R12, inte EBITA. Konservativ separat proxy.
                 earnings=4_777_000_000.0
                 debt=3_134_000_000.0
@@ -814,13 +818,13 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
     if out.get('audit'):
         out['missing'].extend(out['audit'])
         out['unreviewed_target']=target
-        out['target']=None
-        target=None
     if target is not None and price is not None and price>0:
         out['upside']=(target/price-1)*100
         out['buy_limit']=target*0.8
         out['status']='Undervärderad enligt modellen' if out['upside']>=20 else 'Övervärderad enligt modellen' if out['upside']<=-20 else 'Rimligt värderad enligt modellen'
-    else: out['status']='Saknat underlag'
+    else: out['status']='Modellvärde – aktuell kurs saknas' if target is not None else 'Saknat underlag'
+    if target is not None and out.get('audit'):
+        out['status']='Preliminär värdering – kontroll krävs'
     return out
 
 @st.cache_data(ttl=21600,show_spinner=False)
@@ -831,10 +835,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v3':
+if st.session_state.get('screener_model_version')!='unified-v4':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v3'
+    st.session_state['screener_model_version']='unified-v4'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 with st.sidebar:
@@ -859,10 +863,10 @@ with st.sidebar:
     st.caption('Sök bland samtliga bolag. Resultatet visas i huvudfönstret.')
     universe=list(dict.fromkeys(ALL_COMPANIES.values()))
     screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
-    if st.session_state.get('screener_model_version')!='unified-v3':
+    if st.session_state.get('screener_model_version')!='unified-v4':
         st.session_state.screener_results={}
         st.session_state.screener_running=False
-        st.session_state.screener_model_version='unified-v3'
+        st.session_state.screener_model_version='unified-v4'
     if 'screener_results' not in st.session_state:
         st.session_state.screener_results={}
     if 'screener_running' not in st.session_state:
@@ -1265,7 +1269,7 @@ global_combined=None
 global_display_value=None
 global_display_method='Historisk P/E-jämförelse'
 # Visas bredvid bolagsnamnet men beräknas först när värderingshistoriken finns.
-valuation_result=screener_snapshot(ticker)
+valuation_result=valuation_engine(ticker,info,fin,cash,balance,quick,hist)
 with target_slot.container():
     target=valuation_result.get('target')
     potential=valuation_result.get('upside')
@@ -2017,10 +2021,10 @@ with four:
     v=valuation_result
     st.caption('Samma automatiska modell som riktkursrutan och aktiescreenern. Inga analytikerriktkurser.')
     st.write('**Kategori:** '+v['category']+' · '+str(v.get('profile') or 'Sektormodell'))
-    if v.get('assumptions'): st.write(v['assumptions'])
+    if v.get('assumptions'): st.dataframe(pd.DataFrame([{'Antagande':k,'Värde':show(x,'',2)} for k,x in v['assumptions'].items()]),hide_index=True,use_container_width=True)
     if v.get('period'): st.caption('Rapportperiod: '+v['period'])
     if v.get('source'): st.caption('Källa: '+v['source'])
-    if v.get('inputs'): st.write(v['inputs'])
+    if v.get('inputs'): st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in v['inputs'].items()]),hide_index=True,use_container_width=True)
     for method,value in v.get('models',{}).items(): st.metric(method,show(value,' '+str(v.get('currency') or ''),2))
     st.metric('Motiverad aktiekurs',show(v.get('target'),' '+str(v.get('currency') or ''),2))
     st.metric('Reverse DCF – inprisad tillväxt',show(v.get('reverse_growth'),' %',1))
