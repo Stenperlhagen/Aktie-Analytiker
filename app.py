@@ -546,6 +546,26 @@ _roic_data, _roic_error = {}, None
 if roic_key():
     _roic_data,_roic_error = roic_company_data(ticker,roic_key())
 _roic_income=_roic_data.get('income',[])
+# P/E: använd endast verifierad valuta och samma årsperiod för EPS.
+pe_source = 'Yahoo Finance trailingPE' if pe is not None else 'Saknas'
+eps_source_currency = report_ccy
+eps_report_period = None
+if eps is not None and eps>0 and pe is None and quote_ccy:
+    if _roic_income and isinstance(_roic_income[0].get('currency'),str):
+        # Yahoo-rapportens EPS kan inte säkert kopplas till ROIC:s år utan datumkontroll.
+        roic_eps = _roic_income[0].get('eps_diluted')
+        if roic_eps is None: roic_eps = _roic_income[0].get('eps_basic')
+        if isinstance(roic_eps,(int,float)) and roic_eps>0:
+            eps = roic_eps
+            eps_source_currency = _roic_income[0]['currency']
+            eps_report_period = _roic_income[0].get('period_end_date')
+            rate = fx_rate(eps_source_currency,quote_ccy)
+            if rate is not None and price is not None and rate>0:
+                pe = price/(eps*rate)
+                pe_source = 'Beräknat från ROIC års-EPS och Yahoo valutakurs'
+    elif eps_source_currency and eps_source_currency==quote_ccy and price is not None:
+        pe=price/eps
+        pe_source='Beräknat från Yahoo EPS i handelsvalutan'
 # Enterprise value and EBITA must use the same currency.
 ev_ebita = ((market_cap+netdebt)/ebita if market_cap is not None and netdebt is not None and ebita is not None and ebita>0 and quote_ccy and report_ccy and quote_ccy==report_ccy else None)
 # Tre kompletterande nyckeltal: kassagenerering, kapitalavkastning och utdelning.
@@ -864,6 +884,9 @@ with five:
             'ROIC rapportvaluta':_roic_income[0].get('currency') if _roic_income else None,
             'P/E från Yahoo':info.get('trailingPE'),
             'P/E som visas':pe,
+            'P/E källa':pe_source,
+            'EPS-valuta för P/E':eps_source_currency,
+            'EPS-period för P/E':eps_report_period,
             'ROIC status':_roic_error or ('Rapportdata hämtad' if _roic_data.get('income') else 'Inga rapportdata')
         })
     if _assessment_rows:
