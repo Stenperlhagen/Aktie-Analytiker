@@ -640,6 +640,14 @@ ADDITIONAL_GROUP_FALLBACK={
     'MMGR-B.ST':'Industri','OEM-B.ST':'Industri','SDIP-B.ST':'Industri'
 }
 KNOWN_GROUP_BY_TICKER.update(ADDITIONAL_GROUP_FALLBACK)
+def comparable_ev_ebita(ebita_amount,net_debt_amount,share_count,multiple,fx):
+    values=[numeric(v) for v in (ebita_amount,net_debt_amount,share_count,multiple,fx)]
+    if any(v is None for v in values): return None
+    earnings,debt,shares,mult,conversion=values
+    if earnings<=0 or shares<=0 or mult<=0 or conversion<=0: return None
+    equity=(earnings*mult-debt)*conversion
+    return equity/shares if equity>0 else None
+
 def valuation_category(symbol, info=None):
     """Konservativ kategorisering: särskilda affärsmodeller kräver andra metoder."""
     if symbol in INVESTMENT_TICKERS: return 'Investmentbolag / kapitalförvaltning'
@@ -1350,15 +1358,30 @@ with target_slot.container():
                 header_target=scenario_eps*scenario_multiple
                 target_method='EPS-scenario'
                 scenario_description='Antagande: P/E 12 × positiv EPS ('+eps_period+'). Inte en historiskt observerad värdering.'
-    if ticker=='VOLO.ST' and quote_ccy=='SEK':
-        # Prioritera jämförbar Q3-rapport framför P/E-scenario från perioder före Salix.
-        header_target=(VOLATI_Q3_2026['ebita_ltm']*12.0-VOLATI_Q3_2026['net_debt'])/VOLATI_Q3_2026['ordinary_shares']
-        target_method='EV/EBITA Volati'
+    header_category=valuation_category(ticker,info)
+    if header_category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
+        header_profile=operating_valuation_profile(ticker,info)
+        header_params=VALUATION_PROFILES.get(header_profile)
+        if ticker=='VOLO.ST':
+            header_ebita=VOLATI_Q3_2026['ebita_ltm']
+            header_debt=VOLATI_Q3_2026['net_debt']
+            header_shares=VOLATI_Q3_2026['ordinary_shares']
+            header_fx=fx_rate('SEK',quote_ccy) if quote_ccy else None
+        else:
+            header_ebita=ebita
+            header_debt=netdebt
+            header_shares=shares_count
+            header_fx=fx_rate(report_ccy,quote_ccy) if report_ccy and quote_ccy else None
+        header_target=(comparable_ev_ebita(header_ebita,header_debt,header_shares,header_params[2],header_fx)
+                       if header_params else None)
+        target_method='EV/EBITA branschmodell'
     if header_target is None:
         missing_target=[]
         if header_price is None: missing_target.append('aktuell aktiekurs')
         if header_pe is None: missing_target.append('positivt aktuellt P/E')
-        if header_history is None: missing_target.append('historiskt P/E eller positiv rapporterad EPS')
+        if header_category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
+            missing_target.append('jämförbar EBITA, nettoskuld, aktieantal eller valutakurs')
+        elif header_history is None: missing_target.append('historiskt P/E eller positiv rapporterad EPS')
         target_explanation='Saknas: '+', '.join(missing_target)+'.'
         st.markdown(
             '<div style="padding:18px;border-radius:15px;background:#f1f5f9;border:1px solid #cbd5e1;">'
@@ -1369,8 +1392,8 @@ with target_slot.container():
     else:
         header_gap=((header_pe/header_history-1)*100 if target_method=='Historiskt P/E'
                     else (header_price/header_target-1)*100)
-        if target_method=='EPS-scenario':
-            header_signal='SCENARIO – EJ KÖPSIGNAL'
+        if target_method=='EV/EBITA branschmodell':
+            header_signal='BRANSCHVÄRDERING – KONTROLLERA UNDERLAG'
             header_bg,header_border,header_ink='#f1f5f9','#cbd5e1','#334155'
         elif header_gap<=-20:
             header_bg,header_border,header_ink,header_signal='#ecfdf3','#86efac','#166534','INTRESSANT ATT GRANSKA'
@@ -1380,10 +1403,10 @@ with target_slot.container():
             header_bg,header_border,header_ink,header_signal='#fffbeb','#fcd34d','#92400e','AVVAKTA'
         st.markdown(
             '<div style="padding:18px;border-radius:15px;background:'+header_bg+';border:1px solid '+header_border+';">'
-            '<div style="font-size:.85rem;font-weight:650;color:'+header_ink+';">'+('INDIKATIV KURS · HISTORISKT P/E' if target_method=='Historiskt P/E' else 'VOLATI · EV/EBITA 12× (Q3 2026)' if target_method=='EV/EBITA Volati' else 'SCENARIOKURS · ANTAGET P/E 12')+'</div>'
+            '<div style="font-size:.85rem;font-weight:650;color:'+header_ink+';">'+('EV/EBITA · '+str(header_profile) if target_method=='EV/EBITA branschmodell' else 'INDIKATIV KURS · HISTORISKT P/E' if target_method=='Historiskt P/E' else 'SCENARIOKURS · ANTAGET P/E 12')+'</div>'
             '<div style="font-size:2rem;font-weight:800;color:'+header_ink+';">'+show(header_target,' '+str(quote_ccy or ''),2)+'</div>'
             '<div style="font-size:.95rem;font-weight:700;color:'+header_ink+';">'+header_signal+'</div>'
-            '<div style="font-size:.8rem;color:#475569;margin-top:7px;">'+('Beräknad jämförelsekurs från historiskt P/E ('+str(len(global_pe_samples))+' observationer).' if target_method=='Historiskt P/E' else 'EBITA R12 245 Mkr, nettoskuld 1 331 Mkr, 79,4 miljoner stamaktier. Q3 2026.' if target_method=='EV/EBITA Volati' else scenario_description)+'</div></div>',
+            '<div style="font-size:.8rem;color:#475569;margin-top:7px;">'+('Beräknad jämförelsekurs från historiskt P/E ('+str(len(global_pe_samples))+' observationer).' if target_method=='Historiskt P/E' else 'Branschmultipel × EBITA minus nettoskuld, delat på aktier. Kontrollera rapportperiod.' if target_method=='EV/EBITA branschmodell' else scenario_description)+'</div></div>',
             unsafe_allow_html=True)
 one,two,three,four=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering'])
 with one:
@@ -2248,8 +2271,8 @@ with four:
             else:
                 enterprise_multiple=ebit_a*multiple
                 equity_multiple=enterprise_multiple-valuation_debt
-                multiple_target=equity_multiple*valuation_fx/valuation_shares
-                st.metric('EV/EBITA – beräknad kurs',show(multiple_target,' '+str(quote_ccy),2))
+                multiple_target=comparable_ev_ebita(ebit_a,valuation_debt,valuation_shares,multiple,valuation_fx)
+                st.metric('EV/EBITA – beräknad kurs',show(multiple_target,' '+str(quote_ccy),2) if multiple_target is not None else 'Ej positivt värde')
                 with st.expander('Kontrollera EV/EBITA-beräkningen och indata'):
                     st.write('**Rapporterad EBITA:** '+show(ebit_a/1e6,' M '+str(report_ccy),1))
                     st.write('**Vald EV/EBITA:** '+show(multiple,'×',1))
