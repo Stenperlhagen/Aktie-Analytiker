@@ -481,6 +481,12 @@ PROPERTY_TICKERS={
     'WIHL.ST','HUFV-A.ST','ATRLJ-B.ST','PNDX-B.ST','NP3.ST','CORE-B.ST',
     'DIOS.ST','PLAZ-B.ST','STEF-B.ST','SLP-B.ST','CIBUS.ST','EAST.ST','HEBA-B.ST'
 }
+# Verifierade substansvärden från publicerade bolagsrapporter.
+# Datum avser värderingsdatum, inte datum då börskursen hämtades.
+REPORTED_NAV={
+    'LATO-B.ST':{'nav':223.0,'date':'2026-11-02','source':'https://www.mfn.se/cis/a/latour/delarsrapport-januari-september-2026-d993ea5e.iframe','kind':'Substansvärde'},
+    'INDU-C.ST':{'nav':517.0,'date':'2026-09-30','source':'https://mfn.se/a/industrivarden/delarsrapport-1-januari-30-september-2026.iframe','kind':'Substansvärde'}
+}
 def valuation_category(symbol, info=None):
     """Konservativ kategorisering: särskilda affärsmodeller kräver andra metoder."""
     if symbol in INVESTMENT_TICKERS: return 'Investmentbolag / kapitalförvaltning'
@@ -517,8 +523,16 @@ def screener_snapshot(symbol):
                   'roe':roe*100 if roe is not None else None,
                   'book_value':book,'price':price}
             if category=='Investmentbolag / kapitalförvaltning':
-                data['status']='Substansvärde krävs'
                 data['method']='NAV / substansrabatt'
+                reported=REPORTED_NAV.get(symbol)
+                if reported and price is not None and price>0 and info.get('currency')=='SEK':
+                    data['nav']=reported['nav']
+                    data['nav_date']=reported['date']
+                    data['nav_source']=reported['source']
+                    data['gap']=(price/reported['nav']-1)*100
+                    data['status']='Rapporterad substansrabatt' if data['gap']<0 else 'Rapporterad substanspremie'
+                else:
+                    data['status']='Substansvärde krävs'
             elif category=='Fastigheter':
                 data['status']='Fastighets-NAV krävs'
                 data['method']='EPRA NRV/NTA + driftnetto'
@@ -568,10 +582,10 @@ st.caption('Bolagen klassificeras efter värderingsmetod. P/E-signaler visas bar
 universe=list(dict.fromkeys(ALL_COMPANIES.values()))
 screener_names={ticker:name for name,ticker in ALL_COMPANIES.items()}
 # Tidigare screeningresultat beräknades utan kategorifilter och måste förnyas.
-if st.session_state.get('screener_model_version')!='category-v3':
+if st.session_state.get('screener_model_version')!='category-v4':
     st.session_state.screener_results={}
     st.session_state.screener_running=False
-    st.session_state.screener_model_version='category-v3'
+    st.session_state.screener_model_version='category-v4'
 if 'screener_results' not in st.session_state:
     st.session_state.screener_results={}
 if 'screener_running' not in st.session_state:
@@ -602,9 +616,12 @@ if st.session_state.screener_results:
             'Värderingskategori':result.get('category',valuation_category(symbol)),
             'Metod':result.get('method','P/E-historik' if result.get('category')=='Rörelsedrivande bolag' else 'Ej fastställd'),
             'P/B':round(result['pb'],2) if result.get('pb') is not None else None,
+            'Rapporterat substansvärde/aktie':result.get('nav'),
+            'Substansvärdets datum':result.get('nav_date',''),
+            'Källa till substansvärde':result.get('nav_source',''),
             'ROE (%)':round(result['roe'],1) if result.get('roe') is not None else None,
             'Signal':result.get('status','Saknas'),
-            'Behöver kompletteras':result.get('missing','Rapporterat substansvärde per aktie' if result.get('category')=='Investmentbolag / kapitalförvaltning' else 'EPRA-substansvärde per aktie' if result.get('category')=='Fastigheter' else 'Solvens- och kapitalkrav' if result.get('category')=='Försäkring' else ''),
+            'Behöver kompletteras':result.get('missing','' if result.get('nav') is not None else 'Rapporterat substansvärde per aktie' if result.get('category')=='Investmentbolag / kapitalförvaltning' else 'EPRA-substansvärde per aktie' if result.get('category')=='Fastigheter' else 'Solvens- och kapitalkrav' if result.get('category')=='Försäkring' else ''),
             'Rabatt mot historisk P/E (%)':round(-result['gap'],1) if result.get('gap') is not None else None,
             'Nuvarande P/E':round(result['pe'],1) if result.get('pe') is not None else None,
             'Historisk median P/E':round(result['median'],1) if result.get('median') is not None else None,
