@@ -12,7 +12,7 @@ from functools import lru_cache
 
 # Load exact production definitions without executing Streamlit UI.
 tree=ast.parse(pathlib.Path('app.py').read_text(encoding='utf-8'))
-names={'roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
+names={'investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
 nodes=[]
 for node in tree.body:
     if isinstance(node,ast.FunctionDef) and node.name in names:
@@ -44,18 +44,34 @@ def tests():
     assert valuation_category('AAK.ST')=='Rörelsedrivande bolag'
     assert operating_valuation_profile('AAK.ST')=='Tillverkningsindustri'
     assert comparable_ev_ebita(4777e6,3134e6,259708000,11,1)>0
+    assert abs(v['buy_limit']-v['target']*.8)<1e-8
+    assert abs(v['upside']-(v['target']/v['price']-1)*100)<1e-8
+    score,items,coverage=investment_score(v,info)
+    assert score is None or 0<=score<=100
+    assert 0<=coverage<=100
     print('Mathematical regression tests passed')
 
 if __name__=='__main__':
     tests()
     rows=[]
+    failures=[]
     for symbol in dict.fromkeys(ALL_COMPANIES.values()):
         try:
             info,hist,fin,cash,balance,quick,errors=fetch(symbol)
             v=valuation_engine(symbol,info,fin,cash,balance,quick,hist)
+            if v.get('target') is not None:
+                assert math.isfinite(v['target']) and v['target']>0, 'Invalid target'
+                assert abs(v['target']-sum(v['models'].values())/len(v['models']))<1e-7, 'Inconsistent model target'
+                if v.get('price') and v['price']>0:
+                    assert abs(v['buy_limit']-v['target']*.8)<1e-7, 'Inconsistent buy limit'
+                    assert abs(v['upside']-(v['target']/v['price']-1)*100)<1e-7, 'Inconsistent upside'
             rows.append({'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Yahoo Finance – not independently verified'),'fetch_errors':str(list(errors)),'report_verified':False,'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
         except Exception as e:
+            failures.append(symbol+': '+str(e))
             rows.append({'ticker':symbol,'missing':type(e).__name__+': '+str(e),'report_verified':False})
         print(symbol,rows[-1].get('target'),flush=True)
         pd.DataFrame(rows).to_csv('valuation-audit.csv',index=False)
     print('Total:',len(rows),'With target:',sum(r.get('target') is not None for r in rows))
+
+    print('Execution failures:',len(failures),flush=True)
+    if failures: raise AssertionError('; '.join(failures))
