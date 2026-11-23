@@ -93,10 +93,18 @@ def roic_company_data(ticker, api_key):
             return {},'ROIC gav flera möjliga Stockholmsträffar för '+ticker+'; välj inte automatiskt.'
         selected=list(unique.values())
         match=selected[0]
-        isin=match.get('isin') or match.get('ISIN')
-        if not isin:
-            return {'search_match':match},'ROIC identifierade symbolen men inget ISIN finns i söksvaret. Rapport-API behöver verifieras.'
-        return {'search_match':match,'isin':isin},'ROIC hittade instrumentet. Rapport-endpoints och fältnamn behöver verifieras före användning.'
+        identifier=str(match.get('symbol') or match.get('ticker') or match.get('code') or '')
+        if ':' not in identifier:
+            return {'search_match':match},'ROIC hittade instrumentet men saknar börskvalificerad symbol.'
+        def get_periods(path):
+            resp=requests.get(root+path+'/'+urllib.parse.quote(identifier,safe=':'),params={'period_type':'annual','limit':3,'order':'desc'},headers=headers,timeout=12)
+            resp.raise_for_status()
+            body=resp.json()
+            rows=body.get('data',[]) if isinstance(body,dict) else []
+            return sorted([v for v in rows if isinstance(v,dict) and v.get('period_type')=='annual' and v.get('symbol')==identifier],key=lambda v:v.get('period_end_date',''),reverse=True)
+        income=get_periods('/fundamental/income-statement')
+        if not income: return {'search_match':match,'symbol':identifier},'ROIC identifierade aktien men årsrapporter saknas i API-svaret.'
+        return {'search_match':match,'symbol':identifier,'income':income},None
     except requests.RequestException as exc:
         return {},'ROIC nätverksfel: '+type(exc).__name__
     except (ValueError,TypeError) as exc:
@@ -534,10 +542,7 @@ if _roic_income:
         current_rev,prior_rev=latest.get('is_sales_revenue_turnover'),_roic_income[1].get('is_sales_revenue_turnover')
         if isinstance(current_rev,(int,float)) and isinstance(prior_rev,(int,float)) and prior_rev>0:
             sales_growth_pct=(current_rev/prior_rev-1)*100
-    if (not info.get('longBusinessSummary')) and _roic_data['profile'].get('description'):
-        info['longBusinessSummary']=_roic_data['profile']['description']
-    if ev_ebita is None and ebita and ebita>0 and market_cap is not None and netdebt is not None and quote_ccy and roic_currency==quote_ccy:
-        ev_ebita=(market_cap+netdebt)/ebita
+    # EV/EBITA kräver samma period och valuta; blandning med Yahoo-värden undviks.
 st.markdown('### Finansiell översikt')
 overview_items = [
     ('Aktiekurs',show(price,' '+(quote_ccy or ''),2)),
