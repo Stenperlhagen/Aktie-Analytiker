@@ -2180,280 +2180,121 @@ with four:
     st.caption('Detta är en historisk multipeljämförelse, inte en fullständig bolagsvärdering. DCF och sammanvägd köp-/säljsignal är pausade tills de har validerats.')
     st.divider()
 
-    st.markdown('### Tre värderingsmodeller – egna antaganden')
-    st.caption('DCF och Reverse DCF använder FCFF/WACC och nettoskuld. EV/EBITA använder rapporterad EBITA och en vald multipel. Alla värden ska anges i samma valuta och beloppen i miljoner. Inga analytikerriktkurser används.')
+    st.markdown('### Automatisk bolagsvärdering')
     model_category=valuation_category(ticker,info)
-    if model_category=='Forskningsbolag':
-        st.markdown('#### 1. Läkemedelsbolag i forskningsfas – rNPV')
-        st.caption('rNPV = summan av sannolikhetsvägda och diskonterade framtida nettokassaflöden. Eget kapital = rNPV + nettokassa − övriga åtaganden. Ange projektdata från kliniska program och rapporter. Ingen sannolikhet eller försäljningsprognos antas automatiskt.')
-        research_ccy=report_ccy or quote_ccy
-        research_fx=fx_rate(research_ccy,quote_ccy) if research_ccy and quote_ccy else None
-        research_shares=shares_count/1e6 if shares_count is not None and shares_count>0 else 0.0
-        with st.expander('Projektantaganden och finansiering',expanded=True):
-            rp1,rp2,rp3=st.columns(3)
-            project_count=rp1.number_input('Antal projekt',min_value=1,max_value=10,value=1,step=1,key='rnpv_projects_'+ticker)
-            research_discount=rp2.number_input('Diskonteringsränta (%)',min_value=1.0,max_value=50.0,value=15.0,step=0.5,key='rnpv_discount_'+ticker)
-            research_shares_input=rp3.number_input('Utspätt antal aktier (miljoner)',min_value=0.0,value=float(research_shares),step=1.0,key='rnpv_shares_'+ticker)
-            r4,r5=st.columns(2)
-            research_net_cash=r4.number_input('Nettokassa (miljoner '+str(research_ccy or 'rapportvaluta')+')',
-                value=float((cash_val-debt)/1e6) if cash_val is not None and debt is not None else 0.0,
-                step=10.0,key='rnpv_cash_'+ticker,
-                help='Likvida medel minus räntebärande skulder. Kontrollera mot senaste rapport.')
-            research_commitments=r5.number_input('Övriga åtaganden (miljoner)',min_value=0.0,value=0.0,step=10.0,key='rnpv_commit_'+ticker)
-            st.caption('För varje projekt: ange sannolikhet för kommersiell framgång och nettokassaflöde per år. Negativa belopp motsvarar framtida utvecklingskostnader. Belopp i miljoner rapportvaluta.')
-            rnpv_total=0.0
-            rnpv_complete=True
-            for project_i in range(int(project_count)):
-                st.markdown('**Projekt '+str(project_i+1)+'**')
-                prob=st.number_input('Sannolikhet för framgång (%) – projekt '+str(project_i+1),
-                    min_value=0.0,max_value=100.0,value=0.0,step=5.0,key='rnpv_prob_'+ticker+'_'+str(project_i))
-                flows=[]
-                project_cols=st.columns(5)
-                for year_i in range(1,6):
-                    flows.append(project_cols[year_i-1].number_input('År '+str(year_i)+' (M)',value=0.0,step=10.0,
-                        key='rnpv_cf_'+ticker+'_'+str(project_i)+'_'+str(year_i)))
-                if prob<=0 or not any(amount!=0 for amount in flows):
-                    rnpv_complete=False
-                else:
-                    # Nettokostnader före kommersialisering ska normalt inte sannolikhetsvägas
-                    # med sannolikheten för ett framtida godkännande.
-                    # Här viktas endast positiva kommersiella kassaflöden med p.
-                    rnpv_total+=sum(((prob/100 if amount>0 else 1.0)*amount)/(1+research_discount/100)**year
-                        for year,amount in enumerate(flows,1))
-        if research_shares_input<=0 or research_fx is None or not rnpv_complete:
-            st.info('rNPV kräver utspätt antal aktier, jämförbar valuta och för varje projekt en angiven sannolikhet samt framtida kassaflöden. Fyll i projektantagandena för att få ett värde.')
+    st.caption('EquityLab använder rapporterade siffror och dina tidigare branschspecifika antaganden. Inga manuella inmatningar krävs. Saknade uppgifter ersätts inte med noll.')
+    if model_category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
+        profile=operating_valuation_profile(ticker,info)
+        params=VALUATION_PROFILES.get(profile)
+        if params is None:
+            st.info('Branschprofil saknas. Ingen godtycklig WACC, tillväxt eller multipel används.')
         else:
-            equity_rnpv=rnpv_total+research_net_cash-research_commitments
-            share_rnpv=equity_rnpv*research_fx/research_shares_input
-            rr1,rr2,rr3=st.columns(3)
-            rr1.metric('Riskjusterat projektvärde',show(rnpv_total,' M '+str(research_ccy),1))
-            rr2.metric('Eget kapital efter nettokassa/åtaganden',show(equity_rnpv,' M '+str(research_ccy),1))
-            rr3.metric('Motiverad kurs enligt rNPV',show(share_rnpv,' '+str(quote_ccy),2))
-            if price is not None and price>0:
-                st.metric('Upp-/nedsida',show((share_rnpv/price-1)*100,' %',1))
-            st.caption('Positiva kassaflöden viktas med angiven sannolikhet; negativa utvecklingskostnader tas med fullt ut. Förenklad femårsmodell utan terminalvärde. Projektkostnader, lanseringstidpunkt, sannolikheter och framtida kapitalanskaffning måste kontrolleras individuellt.')
-            st.caption('Upp-/nedsida = (motiverad kurs / aktuell aktiekurs − 1) × 100. Projektmodellen ger ingen automatisk köp-/säljsignal.')
-    elif model_category=='Fastigheter':
-        st.markdown('#### Fastighetsbolag – substansvärde (NAV)')
-        st.caption('Fastighetsvärde = normaliserat årligt driftnetto / direktavkastningskrav. NAV = fastighetsvärde + övriga tillgångar − samtliga skulder. Ange värden från samma rapportperiod och valuta. Modellen är ett förenklat scenario och ersätter inte rapporterat EPRA NTA.')
-        prop_ccy=report_ccy or quote_ccy or 'SEK'
-        prop_fx=fx_rate(prop_ccy,quote_ccy) if prop_ccy and quote_ccy else None
-        prop_shares=shares_count if shares_count is not None and shares_count>0 else None
-        with st.expander('Indata – fastighetsvärdering',expanded=True):
-            p1,p2=st.columns(2)
-            prop_noi=p1.number_input('Årligt driftnetto (miljoner '+prop_ccy+')',min_value=0.0,value=0.0,step=10.0,key='property_noi_'+ticker,
-                help='Normaliserat driftnetto för hela fastighetsbeståndet, inte bolagets omsättning eller EBIT.')
-            prop_yield=p2.number_input('Direktavkastningskrav (%)',min_value=0.1,max_value=25.0,value=6.0,step=0.25,key='property_yield_'+ticker,
-                help='Eget scenarioantagande. Standard 6 % är inte ett observerat marknadsavkastningskrav.')
-            p3,p4=st.columns(2)
-            prop_other=p3.number_input('Övriga tillgångar (miljoner '+prop_ccy+')',min_value=0.0,value=0.0,step=10.0,key='property_assets_'+ticker,
-                help='Endast tillgångar utanför det fastighetsbestånd som driftnettot avser. Undvik dubbelräkning.')
-            prop_liabilities=p4.number_input('Totala skulder (miljoner '+prop_ccy+')',min_value=0.0,value=0.0,step=10.0,key='property_liabilities_'+ticker,
-                help='Samtliga relevanta skulder, inte bara nettoskuld. Beakta uppskjuten skatt och minoritetsintressen separat vid behov.')
-            p5,p6=st.columns(2)
-            prop_shares_input=p5.number_input('Antal aktier (miljoner)',min_value=0.0,value=float(prop_shares/1e6) if prop_shares is not None else 0.0,step=1.0,key='property_shares_'+ticker)
-            prop_margin=p6.slider('Säkerhetsmarginal (%)',min_value=0,max_value=50,value=20,step=5,key='property_margin_'+ticker)
-        if prop_noi<=0 or prop_shares_input<=0 or prop_fx is None:
-            st.info('Fyll i verifierat driftnetto, antal aktier och säkerställ rapportvaluta för att beräkna NAV. Skulder och övriga tillgångar måste också kontrolleras mot bolagets rapport.')
-        else:
-            prop_value=prop_noi/(prop_yield/100)
-            prop_nav=prop_value+prop_other-prop_liabilities
-            prop_nav_share=prop_nav*prop_fx/prop_shares_input
-            q1,q2,q3=st.columns(3)
-            q1.metric('Beräknat fastighetsvärde',show(prop_value,' M '+prop_ccy,1))
-            q2.metric('Beräknat NAV',show(prop_nav,' M '+prop_ccy,1))
-            q3.metric('NAV per aktie',show(prop_nav_share,' '+str(quote_ccy),2))
-            if prop_nav_share>0 and price is not None and price>0:
-                prop_discount=(1-price/prop_nav_share)*100
-                prop_upside=(prop_nav_share/price-1)*100
-                prop_buy=prop_nav_share*(1-prop_margin/100)
-                q4,q5,q6=st.columns(3)
-                q4.metric('Substansrabatt / premie',show(prop_discount,' %',1),delta=show(prop_discount,' %',1))
-                q5.metric('Upp- eller nedsida',show(prop_upside,' %',1),delta=show(prop_upside,' %',1))
-                q6.metric('Högsta köpkurs med säkerhetsmarginal',show(prop_buy,' '+str(quote_ccy),2))
-                st.caption('Positiv substansrabatt betyder att aktien handlas under beräknat NAV. Negativt värde betyder substanspremie.')
+            wacc_pct,growth_pct,multiple=params
+            st.write('**Branschprofil:** '+profile+' · **WACC:** '+show(wacc_pct,' %',1)+' · **FCFF-tillväxt:** '+show(growth_pct,' %',1)+' · **EV/EBITA:** '+show(multiple,'×',1))
+            st.caption('Detta är dina tidigare modellantaganden, inte rapporterade prognoser. Terminaltillväxt: 2 %. Prognoshorisont: 5 år.')
+            fx=fx_rate(report_ccy,quote_ccy) if report_ccy and quote_ccy else None
+            shares=shares_count if shares_count is not None and shares_count>0 else None
+            # FCFF = operativt kassaflöde minus investeringar plus ränta efter skatt
+            # ENDAST om räntebetalningar ingår i CFO enligt kassaflödesrapporten.
+            ocf_report=statement_value(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'])
+            capex_report=statement_value(cash,['Capital Expenditure'])
+            interest_report=statement_value(cash,['Interest Paid Supplemental Data','Interest Paid'])
+            fcff=None
+            if all(v is not None for v in (ocf_report,capex_report,interest_report)):
+                fcff=ocf_report-abs(capex_report)+abs(interest_report)*(1-0.206)
+            ebit_a=ebita if ebita is not None and ebita>0 else None
+            required=[]
+            if shares is None: required.append('antal aktier')
+            if fx is None: required.append('verifierad rapport- och handelsvaluta')
+            if netdebt is None: required.append('nettoskuld')
+            st.markdown('#### 1. DCF – FCFF / WACC')
+            dcf_target=None
+            if fcff is None or fcff<=0:
+                st.info('DCF kan inte beräknas utan positiv FCFF och verifierad hantering av räntebetalningar i kassaflödet.')
+            elif required:
+                st.info('DCF saknar: '+', '.join(required)+'.')
             else:
-                st.warning('NAV är noll eller negativt, alternativt saknas aktuell aktiekurs. Ingen substansrabatt kan beräknas.')
-            st.caption('Modellen bortser från eventuell värdeförändring i derivat, uppskjuten skatt och andra substansjusteringar om de inte anges i skulder/tillgångar.')
-    elif model_category=='Bank / finansiella tjänster':
-        st.markdown('#### Banker och finansbolag – P/B och ROE')
-        st.caption('BVPS = eget kapital / antal aktier. Motiverat P/B = (ROE − långsiktig tillväxt) / (avkastningskrav på eget kapital − långsiktig tillväxt). Modellen förutsätter stabil ROE och långsiktig utdelnings-/kapitalpolicy.')
-        bank_ccy=report_ccy or quote_ccy
-        bank_fx=fx_rate(bank_ccy,quote_ccy) if bank_ccy and quote_ccy else None
-        bank_equity=statement_value(balance,['Stockholders Equity','Common Stock Equity','Total Equity Gross Minority Interest'])
-        bank_shares=shares_count if shares_count is not None and shares_count>0 else None
-        bank_roe=val(info,'returnOnEquity')
-        if bank_roe is None and bank_equity is not None and bank_equity>0:
-            bank_profit=statement_value(fin,['Net Income Common Stockholders','Net Income'])
-            if bank_profit is not None: bank_roe=bank_profit/bank_equity
-        st.caption('Förifyllda värden hämtas från tillgänglig balans- och resultaträkning. Kontrollera att eget kapital, ROE och aktieantal är jämförbara och avser rätt aktieslag.')
-        with st.expander('Indata – P/B-värdering',expanded=True):
-            bk1,bk2=st.columns(2)
-            bank_equity_input=bk1.number_input('Eget kapital (miljoner '+str(bank_ccy or 'rapportvaluta')+')',
-                min_value=0.0,value=float(bank_equity/1e6) if bank_equity is not None and bank_equity>0 else 0.0,
-                step=100.0,key='bank_equity_'+ticker)
-            bank_shares_input=bk2.number_input('Antal aktier (miljoner)',min_value=0.0,
-                value=float(bank_shares/1e6) if bank_shares is not None else 0.0,
-                step=1.0,key='bank_shares_'+ticker)
-            bk3,bk4,bk5=st.columns(3)
-            bank_roe_input=bk3.number_input('Normaliserad ROE (%)',min_value=-30.0,max_value=60.0,
-                value=float(bank_roe*100) if bank_roe is not None and -0.3<=bank_roe<=0.6 else 10.0,
-                step=0.5,key='bank_roe_'+ticker)
-            bank_ke=bk4.number_input('Avkastningskrav på eget kapital (%)',min_value=1.0,max_value=35.0,
-                value=10.0,step=0.5,key='bank_ke_'+ticker)
-            bank_g=bk5.number_input('Långsiktig tillväxt g (%)',min_value=-2.0,max_value=8.0,
-                value=2.0,step=0.5,key='bank_g_'+ticker)
-            bank_mos=st.slider('Säkerhetsmarginal (%)',0,50,20,5,key='bank_mos_'+ticker)
-        st.caption('10 % avkastningskrav, 2 % långsiktig tillväxt och 10 % ROE om ROE saknas är modellantaganden – inte verifierade bolagsprognoser.')
-        if bank_equity_input<=0 or bank_shares_input<=0 or bank_fx is None:
-            st.info('Beräkningen kräver positivt rapporterat eget kapital, antal aktier och en känd valutakurs. Ange kontrollerade uppgifter.')
-        elif bank_ke<=bank_g:
-            st.warning('Avkastningskravet måste vara högre än den långsiktiga tillväxten.')
-        else:
-            bvps=bank_equity_input*bank_fx/bank_shares_input
-            justified_pb=((bank_roe_input-bank_g)/(bank_ke-bank_g))
-            justified_price=bvps*justified_pb
-            b1,b2,b3=st.columns(3)
-            b1.metric('Bokfört värde per aktie (BVPS)',show(bvps,' '+str(quote_ccy),2))
-            b2.metric('Motiverat P/B',show(justified_pb,'×',2))
-            b3.metric('Motiverad aktiekurs',show(justified_price,' '+str(quote_ccy),2) if justified_price>0 else 'Ej positivt värde')
-            if justified_price>0 and price is not None and price>0:
-                bank_upside=(justified_price/price-1)*100
-                b4,b5=st.columns(2)
-                b4.metric('Upp-/nedsida',show(bank_upside,' %',1),delta=show(bank_upside,' %',1))
-                b5.metric('Högsta köpkurs med säkerhetsmarginal',
-                    show(justified_price*(1-bank_mos/100),' '+str(quote_ccy),2))
-            else:
-                st.info('Ingen positiv uppsida kan beräknas från dessa antaganden.')
-            st.caption('Modellen är känslig för normaliserad ROE och kapitalkrav. Den ersätter inte kontroll av CET1, kreditförluster, finansieringskostnader eller kapitaldistribution.')
-    elif model_category not in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
-        st.info('För '+model_category.lower()+' behövs en särskild värderingsmodell. FCFF/EV/EBITA är inte automatiskt tillämplig.')
-    else:
-        if model_category=='Etablerade läkemedelsbolag':
-            st.markdown('#### Etablerade läkemedelsbolag – DCF och EV/EBITA')
-            st.caption('Läkemedelsbolag med etablerade intäkter värderas med FCFF/WACC och EV/EBITA. Upp- och nedsida beräknas separat för båda metoderna. Forskningsprojekt utan etablerat kassaflöde ska i stället analyseras med rNPV.')
-        profile_name=operating_valuation_profile(ticker,info)
-        profile_values=VALUATION_PROFILES.get(profile_name)
-        if profile_values is None:
-            st.warning('Ingen säker branschprofil identifierad. Välj en profil nedan innan du använder standardantagandena.')
-        profile_options=list(VALUATION_PROFILES)
-        chosen_profile=st.selectbox('Värderingsprofil',profile_options,
-            index=profile_options.index(profile_name) if profile_name in profile_options else None,
-            placeholder='Välj bolagets värderingsprofil…',key='valuation_profile_'+ticker)
-        active_profile=VALUATION_PROFILES.get(chosen_profile)
-        if active_profile:
-            st.caption('Branschantaganden: WACC '+str(active_profile[0]).replace('.',',')+' % · FCFF-tillväxt '+str(active_profile[1]).replace('.',',')+' % · EV/EBITA '+str(active_profile[2]).replace('.',',')+'×. Dessa är scenariovärden, inte rapporterade nyckeltal.')
-        model_ccy=report_ccy or quote_ccy or 'SEK'
-        model_fx=fx_rate(model_ccy,quote_ccy) if model_ccy and quote_ccy else None
-        model_shares=shares_count if shares_count is not None and shares_count>0 else None
-        model_debt=netdebt if netdebt is not None else None
-        model_ebita=ebita if ebita is not None else None
-        # FCFF kan inte generellt sättas lika med Yahoo "Free Cash Flow":
-        # räntebetalningar och förändringar i rörelsekapital måste hanteras rätt.
-        model_fcff=None
-        if isinstance(cash,pd.DataFrame) and not cash.empty:
-            op=statement_value(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'])
-            cap=statement_value(cash,['Capital Expenditure'])
-            interest=statement_value(cash,['Interest Paid Supplemental Data','Interest Paid'])
-            if op is not None and cap is not None and interest is not None:
-                # Endast som förifyllt utkast, förutsätter CFO efter betald ränta.
-                model_fcff=(op-abs(cap)+abs(interest)*0.794)
-        st.caption('Förifyllda värden hämtas från tillgängliga rapporter. Kontrollera FCFF särskilt: rörelsens kassaflöde + räntebetalningar efter skatt − investeringar är endast giltigt om räntan ingår i det rapporterade kassaflödet.')
-        with st.expander('Indata och antaganden för värdering',expanded=True):
-            m1,m2,m3=st.columns(3)
-            input_fcff=m1.number_input('FCFF basår (miljoner '+model_ccy+')',value=float(model_fcff/1e6) if model_fcff is not None else 0.0,step=1.0,key='fcff_input_'+ticker,help='0 betyder att modellen saknar användbar FCFF. Kontrollera beräkningen mot bolagets kassaflödesrapport.')
-            input_ebita=m2.number_input('EBITA (miljoner '+model_ccy+')',value=float(model_ebita/1e6) if model_ebita is not None else 0.0,step=1.0,key='ebita_input_'+ticker)
-            input_debt=m3.number_input('Nettoskuld (miljoner '+model_ccy+')',value=float(model_debt/1e6) if model_debt is not None else 0.0,step=1.0,key='netdebt_input_'+ticker)
-            m4,m5,m6=st.columns(3)
-            input_wacc=m4.number_input('WACC (%) – eget antagande',min_value=3.0,max_value=30.0,value=float(active_profile[0]) if active_profile else 9.0,step=0.5,key='wacc_input_'+ticker+'_'+str(chosen_profile))
-            input_growth=m5.number_input('FCFF-tillväxt år 1–5 (%)',min_value=-30.0,max_value=30.0,value=float(active_profile[1]) if active_profile else 3.0,step=0.5,key='growth_input_'+ticker+'_'+str(chosen_profile))
-            input_terminal=m6.number_input('Terminaltillväxt (%)',min_value=-2.0,max_value=4.0,value=2.0,step=0.5,key='terminal_input_'+ticker)
-            m7,m8=st.columns(2)
-            input_multiple=m7.number_input('Rimlig EV/EBITA (×) – eget antagande',min_value=1.0,max_value=40.0,value=float(active_profile[2]) if active_profile else 12.0,step=0.5,key='multiple_input_'+ticker+'_'+str(chosen_profile))
-            input_shares=m8.number_input('Antal aktier (miljoner)',min_value=0.0,value=float(model_shares/1e6) if model_shares is not None else 0.0,step=1.0,key='shares_input_'+ticker)
-        st.caption('Branschvärdena är användarvalda scenarioparametrar, inte verifierade marknadsgenomsnitt. Terminaltillväxten är separat 2 % som standard. Skatt i förifyllt FCFF-utkast antas vara 20,6 %.')
-        if model_fx is None:
-            st.warning('Valutakurs mellan rapportvaluta och handelsvaluta saknas. Ingen värdering kan visas.')
-        elif input_shares<=0:
-            st.warning('Antal aktier saknas. Ange ett verifierat antal aktier för att beräkna värde per aktie.')
-        else:
-            w=input_wacc/100
-            g=input_growth/100
-            tg=input_terminal/100
-            def fcff_enterprise_value(growth):
-                flows=[input_fcff*(1+growth)**year for year in range(1,6)]
-                terminal=flows[-1]*(1+tg)/(w-tg)
-                return sum(cf/(1+w)**year for year,cf in enumerate(flows,1))+terminal/(1+w)**5
-            dcf_share=None
-            ev_ebita_value=None
-            if input_fcff>0 and w>tg:
-                enterprise=fcff_enterprise_value(g)
-                dcf_share=(enterprise-input_debt)*model_fx/input_shares
-                st.markdown('#### 1. DCF – FCFF / WACC')
-                st.metric('DCF-värde per aktie',show(dcf_share,' '+str(quote_ccy),2))
-                st.caption('EV = diskonterade FCFF år 1–5 + diskonterat terminalvärde. Eget kapital = EV − nettoskuld.')
-            else:
-                st.info('DCF kräver positiv FCFF och WACC högre än terminaltillväxt.')
+                rate=wacc_pct/100
+                growth=growth_pct/100
+                terminal_growth=0.02
+                flows=[fcff*(1+growth)**year for year in range(1,6)]
+                enterprise=sum(cf/(1+rate)**year for year,cf in enumerate(flows,1))
+                enterprise+=flows[-1]*(1+terminal_growth)/(rate-terminal_growth)/(1+rate)**5
+                dcf_target=(enterprise-netdebt)*fx/shares
+                st.metric('DCF – beräknad kurs',show(dcf_target,' '+str(quote_ccy),2))
+                st.caption('FCFF bygger på rapporterad CFO, investeringar och räntebetalningar med antagen 20,6 % skatt. Kontrollera om räntan faktiskt ingår i CFO.')
             st.markdown('#### 2. EV/EBITA')
-            if input_ebita>0:
-                ev_ebita_value=(input_ebita*input_multiple-input_debt)*model_fx/input_shares
-                st.metric('EV/EBITA-värde per aktie',show(ev_ebita_value,' '+str(quote_ccy),2))
+            multiple_target=None
+            if ebit_a is None:
+                st.info('Rapporterad EBITA saknas. EBIT eller EBITDA används inte som ersättning.')
+            elif required:
+                st.info('EV/EBITA saknar: '+', '.join(required)+'.')
             else:
-                st.info('EV/EBITA kräver positiv EBITA.')
-            st.markdown('#### 3. Reverse DCF – inprisad FCFF-tillväxt')
-            if input_fcff>0 and w>tg and price is not None and price>0:
-                implied_ev=price*input_shares/model_fx+input_debt
-                low,high=-0.5,0.5
-                if fcff_enterprise_value(low)<=implied_ev<=fcff_enterprise_value(high):
-                    for _ in range(65):
-                        mid=(low+high)/2
-                        if fcff_enterprise_value(mid)<implied_ev: low=mid
-                        else: high=mid
-                    st.metric('Tillväxt som kursen förutsätter',show((low+high)*50,' % per år',1))
+                multiple_target=(ebit_a*multiple-netdebt)*fx/shares
+                st.metric('EV/EBITA – beräknad kurs',show(multiple_target,' '+str(quote_ccy),2))
+            st.markdown('#### 3. Reverse DCF')
+            if fcff is not None and fcff>0 and not required and price is not None and price>0:
+                rate=wacc_pct/100
+                terminal_growth=0.02
+                target_ev=price*shares/fx+netdebt
+                def enterprise_at_growth(g):
+                    projected=[fcff*(1+g)**year for year in range(1,6)]
+                    return sum(cf/(1+rate)**year for year,cf in enumerate(projected,1))+projected[-1]*(1+terminal_growth)/(rate-terminal_growth)/(1+rate)**5
+                lo,hi=-0.5,0.5
+                if enterprise_at_growth(lo)<=target_ev<=enterprise_at_growth(hi):
+                    for _ in range(55):
+                        mid=(lo+hi)/2
+                        if enterprise_at_growth(mid)<target_ev: lo=mid
+                        else: hi=mid
+                    st.metric('Inprisad FCFF-tillväxt per år',show((lo+hi)*50,' %',1))
                 else:
-                    st.info('Inprisad tillväxt ligger utanför modellintervallet −50 till +50 % per år.')
+                    st.info('Inprisad tillväxt ligger utanför modellens intervall −50 till +50 %.')
             else:
-                st.info('Reverse DCF kräver positiv FCFF, WACC över terminaltillväxten och aktuell kurs.')
-            st.markdown('#### 4. Upp- eller nedsida')
-            valid_targets=[]
-            if dcf_share is not None and dcf_share>0: valid_targets.append(('DCF',dcf_share))
-            if ev_ebita_value is not None and ev_ebita_value>0: valid_targets.append(('EV/EBITA',ev_ebita_value))
-            if price is not None and price>0 and valid_targets:
-                for method,estimated_price in valid_targets:
-                    upside=(estimated_price/price-1)*100
-                    u1,u2=st.columns(2)
-                    u1.metric(method+' – motiverad kurs',show(estimated_price,' '+str(quote_ccy),2))
-                    u2.metric(method+' – upp-/nedsida',show(upside,' %',1),
-                              delta=show(upside,' %',1),delta_color='normal')
-                st.caption('Upp-/nedsida = (modellvärde / aktuell kurs − 1) × 100. Metoderna kan ge olika värden.')
+                st.info('Reverse DCF kräver samma verifierade FCFF-underlag som vanlig DCF samt aktuell aktiekurs.')
+            st.markdown('#### 4–6. Upp-/nedsida, säkerhetsmarginal och årlig avkastning')
+            targets=[(label,value) for label,value in [('DCF',dcf_target),('EV/EBITA',multiple_target)] if value is not None and value>0]
+            if targets and price is not None and price>0:
+                for label,target in targets:
+                    upside=(target/price-1)*100
+                    buy_limit=target*0.8
+                    dividend=numeric(info.get('dividendRate'))
+                    dividend=dividend if dividend is not None and dividend>=0 else 0
+                    annualized=((target+dividend*5)/price)**(1/5)-1
+                    st.write('**'+label+'**')
+                    c1,c2,c3=st.columns(3)
+                    c1.metric('Upp-/nedsida',show(upside,' %',1))
+                    c2.metric('Köpkurs med 20 % marginal',show(buy_limit,' '+str(quote_ccy),2))
+                    c3.metric('Årlig totalavkastning, 5 år',show(annualized*100,' %',1))
+                st.caption('Årsavkastningen antar att modellvärdet nås om fem år. Senast tillgänglig utdelning används som konstant antagande, annars 0; det är inte en utdelningsprognos.')
             else:
-                st.info('Upp-/nedsida kräver aktuell aktiekurs och minst ett positivt beräknat modellvärde.')
-
-            st.markdown('#### 5. Säkerhetsmarginal')
-            margin_of_safety=st.slider('Önskad säkerhetsmarginal (%)',min_value=0,max_value=50,value=20,step=5,key='mos_'+ticker)
-            if valid_targets:
-                for method,estimated_price in valid_targets:
-                    maximum_buy_price=estimated_price*(1-margin_of_safety/100)
-                    st.metric(method+' – högsta köpkurs',show(maximum_buy_price,' '+str(quote_ccy),2))
-                st.caption('Högsta köpkurs = motiverad kurs × (1 − säkerhetsmarginal). Säkerhetsmarginalen är ditt antagande.')
-            else:
-                st.info('Säkerhetsmarginal kan beräknas när ett positivt modellvärde finns.')
-
-            st.markdown('#### 6. Förväntad årlig totalavkastning')
-            years=st.number_input('Investeringshorisont (år)',min_value=1,max_value=20,value=5,step=1,key='return_years_'+ticker)
-            annual_dividend=st.number_input('Förväntad utdelning per aktie och år ('+str(quote_ccy)+')',
-                                            min_value=0.0,value=0.0,step=0.5,key='annual_dividend_'+ticker)
-            st.caption('Utdelningen är ett eget antagande. För enkelhetens skull antas samma kontantutdelning varje år, utan återinvestering.')
-            if price is not None and price>0 and valid_targets:
-                for method,estimated_price in valid_targets:
-                    terminal_proceeds=estimated_price+annual_dividend*years
-                    if terminal_proceeds>0:
-                        annual_return=((terminal_proceeds/price)**(1/years)-1)*100
-                        st.metric(method+' – annualiserad totalavkastning',show(annual_return,' % per år',1))
-                st.caption('Årsavkastning = ((framtida aktiekurs + summa utdelningar) / dagens aktiekurs)^(1 / antal år) − 1. Modellvärdet antas uppnås vid horisontens slut. Detta är ett scenario, inte en avkastningsprognos.')
-            else:
-                st.info('Förväntad totalavkastning kräver aktuell aktiekurs och minst ett positivt modellvärde.')
-        st.caption('Kontrollera att FCFF, EBITA och nettoskuld avser jämförbara perioder och samma rapportvaluta. Denna modell är en separat scenarioanalys och ersätter inte övriga värderingskontroller.')
+                st.info('Upp-/nedsida och avkastning kräver en positiv beräknad kurs och en aktuell aktiekurs.')
+    elif model_category=='Fastigheter':
+        st.markdown('#### Fastigheter – NAV')
+        st.info('NAV kräver normaliserat driftnetto, relevant direktavkastningskrav, övriga tillgångar och samtliga skulder från samma rapportperiod. Utan dessa kan en automatiskt beräknad riktkurs bli missvisande.')
+        reported=REPORTED_NAV.get(ticker)
+        if reported:
+            st.metric('Rapporterat substansvärde per aktie',show(reported['nav'],' '+str(quote_ccy),2))
+    elif model_category=='Bank / finansiella tjänster':
+        st.markdown('#### Banker – P/B och ROE')
+        equity_value=statement_value(balance,['Stockholders Equity','Common Stock Equity'])
+        roe=val(info,'returnOnEquity')
+        fx=fx_rate(report_ccy,quote_ccy) if report_ccy and quote_ccy else None
+        if equity_value is not None and equity_value>0 and shares_count and fx is not None and roe is not None:
+            book_value=equity_value*fx/shares_count
+            ke,g=0.10,0.02
+            justified_pb=(roe-g)/(ke-g)
+            if justified_pb>0:
+                fair=book_value*justified_pb
+                st.metric('Motiverad kurs – P/B',show(fair,' '+str(quote_ccy),2))
+                if price is not None and price>0: st.metric('Upp-/nedsida',show((fair/price-1)*100,' %',1))
+                st.caption('Avkastningskrav 10 % och långsiktig tillväxt 2 % är modellantaganden. ROE och bokfört eget kapital kommer från tillgängliga bolagsuppgifter.')
+            else: st.info('ROE ger inget positivt motiverat P/B med dessa antaganden.')
+        else: st.info('Saknar jämförbart eget kapital, ROE, aktieantal eller valutakurs.')
+    elif model_category=='Forskningsbolag':
+        st.markdown('#### Forskningsbolag – rNPV')
+        st.info('rNPV kräver projektspecifika kliniska sannolikheter, kassaflödesprognoser och utspätt aktieantal. Vanliga årsrapportsdata räcker inte. Ingen godtycklig projektprognos används.')
+    else:
+        st.info('Denna bolagskategori kräver en särskild värderingsmetod eller ytterligare verifierat underlag.')
     st.divider()
 
     st.caption('Automatiska historikbaserade antaganden och öppet redovisade modellpolicyer. Inga manuella reglage. Resultaten är inte riktkurser eller köprekommendationer.')
