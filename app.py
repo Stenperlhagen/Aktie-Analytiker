@@ -974,6 +974,31 @@ with three:
         'q': f'{company} pressmeddelanden senaste sex månaderna'
     })
     st.markdown(f'[Sök pressmeddelanden i webbläsaren]({search_link})')
+# Urval av noterade jämförelsebolag. Urvalet är en analytisk bedömning,
+# inte en automatisk bekräftelse på identiska affärsmodeller.
+PEER_UNIVERSE={
+    'BETS-B.ST':[('FDJ United','FDJU.PA','Speloperatör, annan geografisk mix'),('Flutter Entertainment','FLUT','Speloperatör, annan storlek och geografisk mix')],
+    'VOLO.ST':[('Bergman & Beving','BERG-B.ST','Svensk förvärvsgrupp'),('Lagercrantz','LAGR-B.ST','Svensk förvärvsgrupp'),('Indutrade','INDT.ST','Svensk förvärvsgrupp')],
+    'SALIX.ST':[('Bergman & Beving','BERG-B.ST','Industridistribution'),('Addtech','ADDT-B.ST','Teknikhandel och förvärv'),('Lagercrantz','LAGR-B.ST','Teknik- och industrigrupp')],
+}
+@st.cache_data(ttl=21600,show_spinner=False)
+def peer_snapshot(symbol):
+    try:
+        obj=yf.Ticker(symbol)
+        data=obj.info or {}
+        p=numeric(data.get('trailingPE'))
+        m=numeric(data.get('operatingMargins'))
+        g=numeric(data.get('revenueGrowth'))
+        d=numeric(data.get('totalDebt'))
+        c=numeric(data.get('totalCash'))
+        e=numeric(data.get('ebitda'))
+        leverage=(d-c)/e if d is not None and c is not None and e is not None and e>0 else None
+        return {'pe':p if p is not None and p>0 else None,'margin':m*100 if m is not None else None,
+                'growth':g*100 if g is not None else None,'leverage':leverage,
+                'currency':data.get('currency'),'source':'Yahoo Finance'}
+    except Exception:
+        return {}
+
 with four:
     st.subheader(f'Investeringsanalys – {company}')
     st.markdown('### Investeringsprocess i fem steg')
@@ -1001,7 +1026,35 @@ with four:
             st.write(description[:650]+('…' if len(description)>650 else ''))
         else:
             st.caption('Bolagsbeskrivning saknas från datakällan.')
-        st.caption('Marknadsandelar, konkurrenters marginaler och konkurrensfördelar är ännu inte verifierade. Ingen automatisk kvalitetsbedömning görs för detta steg.')
+        st.markdown('**Jämförelse med börsnoterade konkurrenter**')
+        peers=PEER_UNIVERSE.get(ticker,[])
+        if peers:
+            peer_rows=[{'Bolag':company,'P/E':pe,'Rörelsemarginal (%)':margin*100 if margin is not None else None,
+                        'Omsättningstillväxt (%)':sales_growth_pct,'Nettoskuld/EBITDA':netdebt_ebitda,
+                        'Jämförbarhet':'Bolaget som analyseras'}]
+            for peer_name,peer_ticker,peer_note in peers:
+                peer_data=peer_snapshot(peer_ticker)
+                peer_rows.append({'Bolag':peer_name,'P/E':peer_data.get('pe'),
+                    'Rörelsemarginal (%)':peer_data.get('margin'),
+                    'Omsättningstillväxt (%)':peer_data.get('growth'),
+                    'Nettoskuld/EBITDA':peer_data.get('leverage'),
+                    'Jämförbarhet':peer_note})
+            peer_table=pd.DataFrame(peer_rows)
+            st.dataframe(peer_table,hide_index=True,use_container_width=True,
+                column_config={'P/E':st.column_config.NumberColumn('P/E',format='%.1f×'),
+                'Rörelsemarginal (%)':st.column_config.NumberColumn('Rörelsemarginal (%)',format='%.1f'),
+                'Omsättningstillväxt (%)':st.column_config.NumberColumn('Omsättningstillväxt (%)',format='%.1f'),
+                'Nettoskuld/EBITDA':st.column_config.NumberColumn('Nettoskuld/EBITDA',format='%.2f×')})
+            available_pe=[row['P/E'] for row in peer_rows[1:] if row['P/E'] is not None and row['P/E']>0]
+            if len(available_pe)>=2 and pe is not None and pe>0:
+                peer_median=float(pd.Series(available_pe).median())
+                st.write('Bolagets P/E: **'+show(pe,'×',1)+'** · Jämförelsebolagens median-P/E: **'+show(peer_median,'×',1)+'**.')
+            else:
+                st.caption('För få jämförbara P/E-observationer för en meningsfull median.')
+            st.caption('Urvalet är manuellt granskat för branschlikhet men inte identiska affärsmodeller. Yahoo-uppgifterna kan avse olika rapportperioder, redovisningsprinciper och valutor. Jämförelsen är vägledande, inte en automatisk riktkurs eller investeringssignal.')
+        else:
+            st.caption('Inga kvalitetssäkrade börsnoterade jämförelsebolag har valts för detta bolag ännu. Vi visar inte godtyckliga konkurrenter.')
+        st.caption('Marknadsandelar och konkurrensfördelar kräver fortfarande separata branschkällor.')
     with st.container(border=True):
         st.markdown('**04 · Branschutsikter och risker**')
         st.write('Granska reglering, konjunktur, konkurrens, geografisk exponering och hur dessa faktorer påverkar tillväxt och kassaflöde.')
