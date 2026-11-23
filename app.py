@@ -18,7 +18,7 @@ GROUPS={
 'Hälsovård': {'AstraZeneca':'AZN.ST','Getinge B':'GETI-B.ST','Sobi':'SOBI.ST','Elekta B':'EKTA-B.ST','Sectra B':'SECT-B.ST','BioArctic B':'BIOA-B.ST','Camurus':'CAMX.ST','Bonesupport':'BONEX.ST','Vitrolife':'VITR.ST','Medicover B':'MCOV-B.ST','AddLife B':'ALIF-B.ST'},
 'Konsument och övrigt': {'H&M B':'HM-B.ST','Evolution':'EVO.ST','Essity B':'ESSITY-B.ST','Axfood':'AXFO.ST','AAK':'AAK.ST','Electrolux B':'ELUX-B.ST','Husqvarna B':'HUSQ-B.ST','Thule':'THULE.ST','Dometic':'DOM.ST','Scandic Hotels':'SHOT.ST','SkiStar B':'SKIS-B.ST','Betsson B':'BETS-B.ST','Embracer B':'EMBRAC-B.ST','Autoliv':'ALIV-SDB.ST','Bilia A':'BILI-A.ST','New Wave B':'NEWA-B.ST','Mips':'MIPS.ST'},
 'Material och skog': {'Boliden':'BOL.ST','SSAB B':'SSAB-B.ST','SCA B':'SCA-B.ST','Holmen B':'HOLM-B.ST','Billerud':'BILL.ST','Stora Enso R':'STE-R.ST','Gränges':'GRNG.ST','Hexpol B':'HPOL-B.ST','Alleima':'ALLEI.ST','Lundin Mining':'LUMI.ST'},
-'Övriga bolag': {'Volati B':'VOLAT-B.ST','Salix Group':'SALIX.ST','Röko':'ROKO.ST','Asker Healthcare':'ASKER.ST','Verisure':'VSURE.ST','Paradox Interactive':'PDX.ST'}
+'Övriga bolag': {'Volati AB':'VOLO.ST','Salix Group':'SALIX.ST','Röko':'ROKO.ST','Asker Healthcare':'ASKER.ST','Verisure':'VSURE.ST','Paradox Interactive':'PDX.ST'}
 }
 CAT={n:(t,g) for g,items in GROUPS.items() for n,t in items.items()}
 
@@ -100,7 +100,7 @@ ADDITIONAL_COMPANIES = {
     'Solid Försäkring':'SFAB.ST','Stillfront Group':'SF.ST','Storytel B':'STORY-B.ST',
     'Studsvik':'SVIK.ST','Surgical Science':'SUS.ST','SynAct Pharma':'SYNACT.ST',
     'TF Bank':'TFBANK.ST','Tobii Dynavox':'TDVOX.ST','Troax Group':'TROAX.ST',
-    'Vestum':'VESTUM.ST','VBG Group B':'VBG-B.ST','Volati B':'VOLAT-B.ST',
+    'Vestum':'VESTUM.ST','VBG Group B':'VBG-B.ST','Volati AB':'VOLO.ST',
     'Wästbygg Gruppen B':'WBGR-B.ST','XANO Industri B':'XANO-B.ST'
 }
 ALL_COMPANIES = {**{name:ticker for name,(ticker,_) in CAT.items()}, **ADDITIONAL_COMPANIES}
@@ -116,7 +116,7 @@ with st.sidebar:
     if not options:
         st.warning('Inga träffar i listan. Ange en egen Yahoo Finance-ticker nedan.')
     name=st.selectbox('Bolag',options) if options else None
-    custom=st.text_input('Egen ticker (om bolaget saknas)',placeholder='Exempel: VOLAT-B.ST')
+    custom=st.text_input('Egen ticker (om bolaget saknas)',placeholder='Exempel: VOLO.ST')
     ticker=custom.strip().upper() or (ALL_COMPANIES[name] if name else '')
     st.caption(f'Ticker: {ticker or "–"}')
     if st.button('Uppdatera data',use_container_width=True):
