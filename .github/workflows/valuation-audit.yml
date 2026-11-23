@@ -3,7 +3,10 @@ on:
   push:
     paths:
       - 'valuation_audit.py'
+      - 'app.py'
       - '.github/workflows/valuation-audit.yml'
+  schedule:
+    - cron: '17 3 * * *'
   workflow_dispatch:
 jobs:
   audit:
@@ -16,6 +19,8 @@ jobs:
           python-version: '3.11'
       - run: pip install pandas yfinance
       - run: python valuation_audit.py
+        env:
+          ROIC_API_KEY: ${{ secrets.ROIC_API_KEY }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
