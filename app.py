@@ -1161,7 +1161,7 @@ with target_slot.container():
             '<div style="font-size:.85rem;font-weight:650;color:'+header_ink+';">INDIKATIV RIKTKURS · HISTORISKT P/E</div>'
             '<div style="font-size:2rem;font-weight:800;color:'+header_ink+';">'+show(header_target,' '+str(quote_ccy or ''),2)+'</div>'
             '<div style="font-size:.95rem;font-weight:700;color:'+header_ink+';">'+header_signal+'</div>'
-            '<div style="font-size:.8rem;color:#475569;margin-top:7px;">Beräknad jämförelsekurs, inte analytikerriktkurs eller köp-/säljråd.</div></div>',
+            '<div style="font-size:.8rem;color:#475569;margin-top:7px;">Beräknad jämförelsekurs baserad på historiskt P/E.</div></div>',
             unsafe_allow_html=True)
 st.markdown('### Värderingskontroll')
 valid_price=price is not None and price>0
