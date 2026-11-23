@@ -2051,6 +2051,84 @@ with four:
     st.caption('Detta är en historisk multipeljämförelse, inte en fullständig bolagsvärdering. DCF och sammanvägd köp-/säljsignal är pausade tills de har validerats.')
     st.divider()
 
+    st.markdown('### Tre värderingsmodeller – egna antaganden')
+    st.caption('DCF och Reverse DCF använder FCFF/WACC och nettoskuld. EV/EBITA använder rapporterad EBITA och en vald multipel. Alla värden ska anges i samma valuta och beloppen i miljoner. Inga analytikerriktkurser används.')
+    model_category=valuation_category(ticker,info)
+    if model_category!='Rörelsedrivande bolag':
+        st.info('Modellerna nedan är anpassade för rörelsedrivande bolag. För '+model_category.lower()+' krävs sektorsanpassad värdering.')
+    else:
+        model_ccy=report_ccy or quote_ccy or 'SEK'
+        model_fx=fx_rate(model_ccy,quote_ccy) if model_ccy and quote_ccy else None
+        model_shares=shares_count if shares_count is not None and shares_count>0 else None
+        model_debt=netdebt if netdebt is not None else None
+        model_ebita=ebita if ebita is not None else None
+        # FCFF kan inte generellt sättas lika med Yahoo "Free Cash Flow":
+        # räntebetalningar och förändringar i rörelsekapital måste hanteras rätt.
+        model_fcff=None
+        if isinstance(cash,pd.DataFrame) and not cash.empty:
+            op=statement_value(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'])
+            cap=statement_value(cash,['Capital Expenditure'])
+            interest=statement_value(cash,['Interest Paid Supplemental Data','Interest Paid'])
+            if op is not None and cap is not None and interest is not None:
+                # Endast som förifyllt utkast, förutsätter CFO efter betald ränta.
+                model_fcff=(op-abs(cap)+abs(interest)*0.794)
+        st.caption('Förifyllda värden hämtas från tillgängliga rapporter. Kontrollera FCFF särskilt: rörelsens kassaflöde + räntebetalningar efter skatt − investeringar är endast giltigt om räntan ingår i det rapporterade kassaflödet.')
+        with st.expander('Indata och antaganden för värdering',expanded=True):
+            m1,m2,m3=st.columns(3)
+            input_fcff=m1.number_input('FCFF basår (miljoner '+model_ccy+')',value=float(model_fcff/1e6) if model_fcff is not None else 0.0,step=1.0,key='fcff_input_'+ticker,help='0 betyder att modellen saknar användbar FCFF. Kontrollera beräkningen mot bolagets kassaflödesrapport.')
+            input_ebita=m2.number_input('EBITA (miljoner '+model_ccy+')',value=float(model_ebita/1e6) if model_ebita is not None else 0.0,step=1.0,key='ebita_input_'+ticker)
+            input_debt=m3.number_input('Nettoskuld (miljoner '+model_ccy+')',value=float(model_debt/1e6) if model_debt is not None else 0.0,step=1.0,key='netdebt_input_'+ticker)
+            m4,m5,m6=st.columns(3)
+            input_wacc=m4.number_input('WACC (%) – eget antagande',min_value=3.0,max_value=30.0,value=9.0,step=0.5,key='wacc_input_'+ticker)
+            input_growth=m5.number_input('FCFF-tillväxt år 1–5 (%)',min_value=-30.0,max_value=30.0,value=3.0,step=0.5,key='growth_input_'+ticker)
+            input_terminal=m6.number_input('Terminaltillväxt (%)',min_value=-2.0,max_value=4.0,value=2.0,step=0.5,key='terminal_input_'+ticker)
+            m7,m8=st.columns(2)
+            input_multiple=m7.number_input('Rimlig EV/EBITA (×) – eget antagande',min_value=1.0,max_value=40.0,value=12.0,step=0.5,key='multiple_input_'+ticker)
+            input_shares=m8.number_input('Antal aktier (miljoner)',min_value=0.0,value=float(model_shares/1e6) if model_shares is not None else 0.0,step=1.0,key='shares_input_'+ticker)
+        st.caption('WACC 9 %, FCFF-tillväxt 3 %, terminaltillväxt 2 % och EV/EBITA 12× är illustrativa standardantaganden, inte beräknade bolagsprognoser. Skatt i förifyllt FCFF-utkast antas vara 20,6 %.')
+        if model_fx is None:
+            st.warning('Valutakurs mellan rapportvaluta och handelsvaluta saknas. Ingen värdering kan visas.')
+        elif input_shares<=0:
+            st.warning('Antal aktier saknas. Ange ett verifierat antal aktier för att beräkna värde per aktie.')
+        else:
+            w=input_wacc/100
+            g=input_growth/100
+            tg=input_terminal/100
+            def fcff_enterprise_value(growth):
+                flows=[input_fcff*(1+growth)**year for year in range(1,6)]
+                terminal=flows[-1]*(1+tg)/(w-tg)
+                return sum(cf/(1+w)**year for year,cf in enumerate(flows,1))+terminal/(1+w)**5
+            if input_fcff>0 and w>tg:
+                enterprise=fcff_enterprise_value(g)
+                dcf_share=(enterprise-input_debt)*model_fx/input_shares
+                st.markdown('#### 1. DCF – FCFF / WACC')
+                st.metric('DCF-värde per aktie',show(dcf_share,' '+str(quote_ccy),2))
+                st.caption('EV = diskonterade FCFF år 1–5 + diskonterat terminalvärde. Eget kapital = EV − nettoskuld.')
+            else:
+                st.info('DCF kräver positiv FCFF och WACC högre än terminaltillväxt.')
+            st.markdown('#### 2. EV/EBITA')
+            if input_ebita>0:
+                ev_ebita_value=(input_ebita*input_multiple-input_debt)*model_fx/input_shares
+                st.metric('EV/EBITA-värde per aktie',show(ev_ebita_value,' '+str(quote_ccy),2))
+            else:
+                st.info('EV/EBITA kräver positiv EBITA.')
+            st.markdown('#### 3. Reverse DCF – inprisad FCFF-tillväxt')
+            if input_fcff>0 and w>tg and price is not None and price>0:
+                implied_ev=price*input_shares/model_fx+input_debt
+                low,high=-0.5,0.5
+                if fcff_enterprise_value(low)<=implied_ev<=fcff_enterprise_value(high):
+                    for _ in range(65):
+                        mid=(low+high)/2
+                        if fcff_enterprise_value(mid)<implied_ev: low=mid
+                        else: high=mid
+                    st.metric('Tillväxt som kursen förutsätter',show((low+high)*50,' % per år',1))
+                else:
+                    st.info('Inprisad tillväxt ligger utanför modellintervallet −50 till +50 % per år.')
+            else:
+                st.info('Reverse DCF kräver positiv FCFF, WACC över terminaltillväxten och aktuell kurs.')
+        st.caption('Kontrollera att FCFF, EBITA och nettoskuld avser jämförbara perioder och samma rapportvaluta. Denna modell är en separat scenarioanalys och ersätter inte övriga värderingskontroller.')
+    st.divider()
+
     st.caption('Automatiska historikbaserade antaganden och öppet redovisade modellpolicyer. Inga manuella reglage. Resultaten är inte riktkurser eller köprekommendationer.')
     if price is None or price<=0 or not quote_ccy:
         st.warning('Aktuell aktiekurs och handelsvaluta krävs för att jämföra värderingarna.')
