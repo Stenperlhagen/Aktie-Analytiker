@@ -517,19 +517,44 @@ def borsapi_key():
     except Exception: return ''
 
 @st.cache_data(ttl=86400,show_spinner=False)
+def borsapi_instruments(api_key):
+    """Börsdata v1: instrument-ID krävs för rapportanrop; ingen gissad ticker-URL."""
+    if not api_key: return [],'Börsdata PRO+-nyckel saknas'
+    try:
+        response=requests.get('https://apiservice.borsdata.se/v1/instruments',
+                              params={'authKey':api_key},timeout=20)
+        if not response.ok: return [],'Börsdata HTTP '+str(response.status_code)
+        payload=response.json()
+        instruments=payload.get('instruments',[]) if isinstance(payload,dict) else []
+        return instruments if isinstance(instruments,list) else [],''
+    except Exception as exc:
+        return [],type(exc).__name__
+
+@st.cache_data(ttl=86400,show_spinner=False)
 def borsapi_reports(symbol,api_key):
-    """Sekundär rapportkälla för hela universum, inte bara utvalda bolag."""
-    if not api_key: return {},'BörsAPI-nyckel saknas'
-    code=symbol.removesuffix('.ST').removesuffix('.CO')
+    """Rapporter via dokumenterat Börsdata API, bara med entydigt matchat instrument."""
+    instruments,error=borsapi_instruments(api_key)
+    if error: return {},error
+    requested=symbol.removesuffix('.ST').removesuffix('.CO').upper()
+    matches=[]
+    for inst in instruments:
+        if not isinstance(inst,dict): continue
+        candidates=[inst.get(k) for k in ('ticker','tickerSymbol','symbol','shortName','stockSymbol')]
+        if requested in [str(c).upper().replace('.ST','').replace('.CO','') for c in candidates if c]:
+            matches.append(inst)
+    ids={str(x.get('insId') or x.get('insID') or x.get('instrumentId') or '') for x in matches}
+    ids.discard('')
+    if len(ids)!=1: return {},'Instrument-ID kunde inte matchas entydigt'
+    instrument_id=next(iter(ids))
     try:
         response=requests.get(
-            'https://borsapi.se/api/v1/companies/'+urllib.parse.quote(code,safe='')+'/reports',
-            params={'period_type':'year','entity_type':'CONSOLIDATED','merge':'true','limit':5},
-            headers={'Authorization':'Bearer '+api_key},timeout=18)
-        if not response.ok: return {},'BörsAPI HTTP '+str(response.status_code)
+            'https://apiservice.borsdata.se/v1/instruments/'+instrument_id+'/reports/year',
+            params={'authKey':api_key,'maxcount':5,'original':1},timeout=20)
+        if not response.ok: return {},'Börsdata rapport HTTP '+str(response.status_code)
         payload=response.json()
-        data=payload.get('data',[]) if isinstance(payload,dict) else []
-        return {'periods':data if isinstance(data,list) else []},''
+        periods=payload.get('reports',[]) if isinstance(payload,dict) else []
+        return {'periods':periods if isinstance(periods,list) else [],
+                'instrument_id':instrument_id},''
     except Exception as exc:
         return {},type(exc).__name__
 
@@ -630,7 +655,7 @@ def screener_snapshot(symbol):
 
 st.markdown('### Hitta undervärderade aktier')
 if not borsapi_key():
-    st.caption('Extra rapportkälla: BörsAPI kan aktiveras med BORSAPI_API_KEY i Streamlit Secrets. Utan nyckeln används Yahoo. BörsAPI:s standardiserade rapporter är inte samma sak som rapporterat substansvärde.')
+    st.caption('Extra rapportkälla: Börsdata PRO+ kan aktiveras med BORSAPI_API_KEY i Streamlit Secrets. Utan nyckeln används Yahoo. Börsdatas rapporter ersätter inte rapporterat substansvärde.')
 st.caption('Bolagen klassificeras efter värderingsmetod. P/E-signaler visas bara för rörelsedrivande bolag. Investmentbolag, banker, försäkringsbolag och fastighetsbolag markeras separat tills rätt värderingsmodell finns. En rabatt är inte ett köpbeslut.')
 universe=list(dict.fromkeys(ALL_COMPANIES.values()))
 screener_names={ticker:name for name,ticker in ALL_COMPANIES.items()}
