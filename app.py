@@ -1209,6 +1209,29 @@ def swedish_ten_year_yield():
         pass
     return None,None
 
+@st.cache_data(ttl=86400,show_spinner=False)
+def calculated_stock_beta(ticker):
+    """Veckobeta mot OMX Stockholm 30, minst 52 gemensamma veckor."""
+    try:
+        stock=yf.Ticker(ticker).history(period='3y',interval='1wk',auto_adjust=True)
+        index=yf.Ticker('^OMX').history(period='3y',interval='1wk',auto_adjust=True)
+        if stock.empty or index.empty: return None
+        a=stock['Close'].copy()
+        b=index['Close'].copy()
+        a.index=pd.to_datetime(a.index,utc=True).tz_localize(None).to_period('W').to_timestamp()
+        b.index=pd.to_datetime(b.index,utc=True).tz_localize(None).to_period('W').to_timestamp()
+        weekly=pd.concat([a.groupby(level=0).last().rename('stock'),b.groupby(level=0).last().rename('market')],axis=1).dropna()
+        returns=weekly.pct_change().dropna()
+        if len(returns)<52: return None
+        variance=returns['market'].var()
+        if variance<=0: return None
+        result=float(returns['stock'].cov(returns['market'])/variance)
+        return result if 0<result<5 else None
+    except (ValueError,TypeError,KeyError,OverflowError):
+        return None
+    except Exception:
+        return None
+
 with five:
     st.subheader(f'Bolagsvärdering – {company}')
     st.caption('Automatiska historikbaserade antaganden och öppet redovisade modellpolicyer. Inga manuella reglage. Resultaten är inte riktkurser eller köprekommendationer.')
@@ -1284,31 +1307,50 @@ with five:
         fcf_fx=fx_rate(fcf_currency,quote_ccy) if fcf_currency and quote_ccy else None
         valid_shares=shares_count if shares_count is not None and shares_count>0 else (market_cap/price if market_cap is not None and market_cap>0 else None)
         fcf_series=pd.Series(dtype='float64')
-        if cash is not None and not cash.empty and 'Free Cash Flow' in cash.index:
-            fcf_series=pd.to_numeric(cash.loc['Free Cash Flow'],errors='coerce').dropna().sort_index()
+        if cash is not None and not cash.empty:
+            if 'Free Cash Flow' in cash.index:
+                fcf_series=pd.to_numeric(cash.loc['Free Cash Flow'],errors='coerce').dropna().sort_index()
+            elif 'Operating Cash Flow' in cash.index and 'Capital Expenditure' in cash.index:
+                ocf=pd.to_numeric(cash.loc['Operating Cash Flow'],errors='coerce')
+                capex=pd.to_numeric(cash.loc['Capital Expenditure'],errors='coerce')
+                fcf_series=(ocf-capex.abs()).dropna().sort_index()
         dcf_growth=None
-        if len(fcf_series)>=3 and fcf_series.iloc[0]>0 and fcf_series.iloc[-1]>0:
+        if len(fcf_series)>=2 and fcf_series.iloc[0]>0 and fcf_series.iloc[-1]>0:
             dcf_growth=max(-10.0,min(12.0,((float(fcf_series.iloc[-1])/float(fcf_series.iloc[0]))**(1/(len(fcf_series)-1))-1)*100))
         # CAPM för SEK: Riksbankens tioårsränta + observerad beta × antagen aktieriskpremie.
         # Använd inte ränta i fel valuta och ersätt inte saknad beta med 1,0.
         riskfree,rate_date=swedish_ten_year_yield() if quote_ccy=='SEK' else (None,None)
         beta=numeric(info.get('beta'))
+        beta_source='Yahoo Finance'
+        if beta is None or not 0<beta<5:
+            beta=calculated_stock_beta(ticker)
+            beta_source='Beräknad veckobeta mot OMX Stockholm 30 (3 år)'
         equity_risk_premium=5.5  # Öppen modellpolicy, inte observerad aktuell marknadsriskpremie.
         discount_rate=(riskfree+beta*equity_risk_premium) if riskfree is not None and beta is not None and 0<beta<5 else None
         terminal_growth=2.0
         st.markdown('**Bolagets avkastningskrav (CAPM)**')
         if discount_rate is None:
-            st.info('Riskbaserat avkastningskrav kan inte beräknas: svensk tioårsränta, verifierad beta eller SEK-handelsvaluta saknas. DCF visas därför inte med en godtycklig standardränta.')
+            st.caption('Riskbaserat avkastningskrav är inte tillgängligt för detta bolag. Se saknade uppgifter nedan.')
         else:
             risk_a,risk_b,risk_c=st.columns(3)
             risk_a.metric('Riskfri ränta',show(riskfree,' %',2))
             risk_b.metric('Beta',show(beta,'×',2))
             risk_c.metric('Avkastningskrav',show(discount_rate,' %',2))
-            st.caption('CAPM = '+show(riskfree,' %',2)+' + '+show(beta,'×',2)+' × 5,5 % aktieriskpremie. Statsobligationsränta: Riksbanken '+str(rate_date)+'. Beta: Yahoo Finance. Aktieriskpremien 5,5 % är ett modellantagande.')
-        st.caption('DCF använder historisk FCF-tillväxt från minst tre årsperioder (begränsad till −10–12 %) och terminaltillväxt 2 % (modellantagande).')
-        if fcf_annual is None or fcf_annual<=0 or fcf_fx is None or valid_shares is None or dcf_growth is None or discount_rate is None or discount_rate<=terminal_growth:
+            st.caption('CAPM = '+show(riskfree,' %',2)+' + '+show(beta,'×',2)+' × 5,5 % aktieriskpremie. Statsobligationsränta: Riksbanken '+str(rate_date)+'. Beta: '+beta_source+'. Aktieriskpremien 5,5 % är ett modellantagande.')
+        st.caption('DCF använder historisk FCF-tillväxt från minst två jämförbara årsperioder (begränsad till −10–12 %) och terminaltillväxt 2 % (modellantagande).')
+        dcf_missing=[]
+        if fcf_annual is None or fcf_annual<=0: dcf_missing.append('Positivt fritt kassaflöde')
+        if dcf_growth is None: dcf_missing.append('Minst två jämförbara år med positivt FCF')
+        if fcf_fx is None: dcf_missing.append('Verifierad rapportvaluta och valutakurs')
+        if valid_shares is None: dcf_missing.append('Antal aktier')
+        if quote_ccy!='SEK': dcf_missing.append('CAPM-ränta i rätt handelsvaluta (endast SEK stöds)')
+        elif riskfree is None: dcf_missing.append('Svensk tioårig statsobligationsränta')
+        if beta is None or not 0<beta<5: dcf_missing.append('Aktiebeta')
+        if discount_rate is not None and discount_rate<=terminal_growth: dcf_missing.append('Avkastningskrav högre än terminaltillväxt')
+        if dcf_missing:
             dcf_fair=None
-            st.info('DCF kräver positivt FCF, minst tre jämförbara år, rapportvaluta, antal aktier och ett riskbaserat avkastningskrav över terminaltillväxten. Saknas underlag beräknas inget värde.')
+            st.warning('DCF kan inte beräknas ännu. Saknas: '+', '.join(dcf_missing)+'.')
+        else:
         else:
             fcf_quote=fcf_annual*fcf_fx
             projected=[fcf_quote*(1+dcf_growth/100)**year for year in range(1,6)]
