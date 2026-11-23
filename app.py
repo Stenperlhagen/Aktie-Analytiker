@@ -1921,6 +1921,62 @@ with four:
             c2.metric('Motiverat pris enligt P/E',show(pe_fair,' '+quote_ccy,2))
             c3.metric('Skillnad mot kurs',show((pe_fair/price-1)*100,' %',1))
             st.caption('EPS-källa: '+valuation_eps_note+'. Historisk median P/E: '+show(pe_multiple,'×',1)+'. Historisk värdering är ingen garanti för framtida rimligt P/E.')
+        st.markdown('#### 2. Reverse DCF – vad kräver dagens aktiekurs?')
+        st.caption('Omvänd DCF med kassaflöde till aktieägarna (FCFE). Visar den årliga FCFE-tillväxt som krävs för att motivera dagens kurs, givet fem års prognos och 2 % terminaltillväxt. Inga prognoser hittas på.')
+        if valuation_category(ticker,info)!='Rörelsedrivande bolag':
+            st.info('Reverse DCF för rörelsedrivande bolag visas inte för denna bolagskategori. Använd en sektoranpassad värderingsmetod.')
+        else:
+            cf_frame=cash if isinstance(cash,pd.DataFrame) else pd.DataFrame()
+            oc_label=next((x for x in ('Operating Cash Flow','Cash Flow From Continuing Operating Activities') if x in cf_frame.index),None)
+            cap_label=next((x for x in ('Capital Expenditure',) if x in cf_frame.index),None)
+            borrow_label=next((x for x in ('Net Issuance Payments Of Debt','Net Long Term Debt Issuance') if x in cf_frame.index),None)
+            rev_missing=[]
+            if not oc_label or not cap_label or not borrow_label: rev_missing.append('kassaflöde, investeringar och nettoupplåning')
+            if shares_count is None or shares_count<=0: rev_missing.append('antal aktier')
+            if quote_ccy!='SEK': rev_missing.append('SEK-handelsvaluta')
+            reverse_rf,_=swedish_ten_year_yield() if quote_ccy=='SEK' else (None,None)
+            reverse_beta=numeric(info.get('beta'))
+            if reverse_beta is None or not 0<reverse_beta<5: reverse_beta=calculated_stock_beta(ticker)
+            if reverse_rf is None or reverse_beta is None or not 0<reverse_beta<5: rev_missing.append('riskfri ränta och beta')
+            reverse_fx=fx_rate(report_ccy,quote_ccy) if report_ccy and quote_ccy else None
+            if reverse_fx is None: rev_missing.append('valutakurs för kassaflöde')
+            reverse_fcfe=None
+            if not rev_missing:
+                op=pd.to_numeric(cf_frame.loc[oc_label],errors='coerce')
+                cap=pd.to_numeric(cf_frame.loc[cap_label],errors='coerce')
+                borrow=pd.to_numeric(cf_frame.loc[borrow_label],errors='coerce')
+                common=op.dropna().index.intersection(cap.dropna().index).intersection(borrow.dropna().index)
+                if len(common)>=2:
+                    last=sorted(common)[-1]
+                    reverse_fcfe=(float(op[last])-abs(float(cap[last]))+float(borrow[last]))*reverse_fx
+                if reverse_fcfe is None or reverse_fcfe<=0: rev_missing.append('positivt FCFE från jämförbara årsrapporter')
+            if rev_missing:
+                st.info('Kan inte beräknas säkert: '+', '.join(rev_missing)+'.')
+            else:
+                ke=(reverse_rf+reverse_beta*5.5)/100
+                terminal_g=0.02
+                equity_market_value=price*shares_count
+                if ke<=terminal_g+0.01:
+                    st.info('Avkastningskravet är för nära terminaltillväxten för en stabil modell.')
+                else:
+                    def reverse_equity_value(growth):
+                        amounts=[reverse_fcfe*(1+growth)**yr for yr in range(1,6)]
+                        terminal=amounts[-1]*(1+terminal_g)/(ke-terminal_g)
+                        return sum(v/(1+ke)**yr for yr,v in enumerate(amounts,1))+terminal/(1+ke)**5
+                    lower,upper=-0.5,0.5
+                    if not reverse_equity_value(lower)<=equity_market_value<=reverse_equity_value(upper):
+                        st.info('Dagens pris kräver tillväxt utanför modellintervallet −50 % till +50 % per år. Ingen tillväxtprognos presenteras.')
+                    else:
+                        for _ in range(65):
+                            mid=(lower+upper)/2
+                            if reverse_equity_value(mid)<equity_market_value: lower=mid
+                            else: upper=mid
+                        required_growth=(lower+upper)/2
+                        r1,r2,r3=st.columns(3)
+                        r1.metric('Inprisad FCFE-tillväxt/år',show(required_growth*100,' %',1))
+                        r2.metric('Senaste beräknade FCFE',show(reverse_fcfe/1e6,' M '+quote_ccy,1))
+                        r3.metric('Antaget avkastningskrav',show(ke*100,' %',1))
+                        st.caption('Antaganden: fem år, konstant årlig FCFE-tillväxt, terminaltillväxt 2 %, CAPM med antagen riskpremie 5,5 %. Modellen är känslig för nettoupplåning och ett enskilt basår. Använd som förväntningsanalys, inte köpsignal.')
         st.markdown('#### 2. DCF – diskonterat fritt kassaflöde')
         st.warning('DCF-beräkningen nedan är preliminär och inte kvalitetssäkrad för investeringsbeslut. Den används inte i den övergripande värderingsindikatorn.')
         st.caption('Förenklad aktieägar-DCF: prognostiserat fritt kassaflöde diskonteras till idag, inklusive ett terminalvärde. Modellen kräver kassaflöde och antal aktier i verifierbar valuta.')
