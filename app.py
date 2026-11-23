@@ -1076,7 +1076,6 @@ with two:
             'Jämförelsekvartal':str(prior_date.date()) if prior_date is not None else 'Saknas',
             'Värde föregående år':(show(prior_value/1e6,' M',1) if unit=='M' else show(prior_value,'',2)) if prior_value is not None else 'Saknas',
             'Förändring mot samma kvartal föregående år':show(yoy,' %',1) if yoy is not None else 'Saknas',
-            'Kommentar':reason,
             'Datakälla':yoy_source+' / Yahoo Finance'
         })
     if quarterly_rows:
