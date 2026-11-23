@@ -134,6 +134,19 @@ def fetch(ticker):
     quick = attempt('Snabbkursdata', lambda: dict(obj.fast_info), {})
     return info or {}, history, fin, cash, balance, quick or {}, errors
 
+@st.cache_data(ttl=3600,show_spinner=False)
+def fx_rate(from_currency,to_currency):
+    if not from_currency or not to_currency: return None
+    if from_currency==to_currency: return 1.0
+    try:
+        pair=f"{from_currency}{to_currency}=X"
+        frame=yf.Ticker(pair).history(period='5d',auto_adjust=False)
+        if frame is None or frame.empty: return None
+        rate=numeric(frame['Close'].dropna().iloc[-1])
+        return rate if rate and rate>0 else None
+    except Exception:
+        return None
+
 @st.cache_data(ttl=86400,show_spinner=False)
 def trailing_dividend_yield(ticker, price):
     """Faktiska kontantutdelningar senaste 365 dagarna, i aktiens handelsvaluta."""
@@ -500,7 +513,22 @@ if margin is None and revenue:
     if operating_income is not None: margin=operating_income/revenue
 if eps is None:
     eps=statement_value(fin,['Diluted EPS','Basic EPS'])
-if pe is None and eps is not None and eps>0 and price is not None: pe=price/eps
+eps_source = 'Yahoo Finance – trailingEps' if info.get('trailingEps') is not None else ('Yahoo Finance – resultaträkning' if eps is not None else 'Saknas')
+eps_currency = report_ccy or (info.get('currency') if info.get('trailingEps') is not None else None)
+if eps_currency is None and _roic_data.get('income'):
+    eps_currency = _roic_data['income'][0].get('currency')
+eps_in_quote_currency = None
+eps_fx_rate = None
+if eps is not None and eps>0 and quote_ccy and eps_currency:
+    eps_fx_rate = fx_rate(eps_currency,quote_ccy)
+    if eps_fx_rate is not None:
+        eps_in_quote_currency = eps*eps_fx_rate
+if pe is None and eps_in_quote_currency is not None and price is not None:
+    pe=price/eps_in_quote_currency
+elif eps is not None and eps_currency==quote_ccy and price is not None and eps>0 and pe is None:
+    eps_in_quote_currency=eps
+    eps_fx_rate=1.0
+    pe=price/eps
 
 
 # Bedömningen använder tillgängliga års-, kvartals- och värderingsserier.
@@ -844,7 +872,11 @@ with five:
         st.write('Datakontroll – använda värden och ursprung:', {
             'Aktiekurs': {'värde':price,'källa':'Yahoo Finance kurshistorik'},
             'Börsvärde': {'värde':market_cap,'källa':('Yahoo Finance marketCap' if val(info,'marketCap') is not None else ('Yahoo Finance fast_info' if val(quick,'market_cap') is not None else ('Beräknat: antal aktier × aktiekurs' if market_cap is not None else 'Saknas')))},
-            'EPS från Yahoo':info.get('trailingEps'),
+            'EPS som används':eps,
+            'EPS-källa':eps_source,
+            'EPS rapportvaluta':eps_currency,
+            'Valutakurs till handelsvaluta':eps_fx_rate,
+            'EPS omräknad till handelsvaluta':eps_in_quote_currency,
             'Handelsvaluta':quote_ccy,
             'Rapportvaluta från Yahoo':report_ccy,
             'ROIC rapportvaluta':_roic_data.get('income',[{}])[0].get('currency') if _roic_data.get('income') else None,
