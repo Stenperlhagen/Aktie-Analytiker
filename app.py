@@ -1375,6 +1375,14 @@ with target_slot.container():
         header_target=(comparable_ev_ebita(header_ebita,header_debt,header_shares,header_params[2],header_fx)
                        if header_params else None)
         target_method='EV/EBITA branschmodell'
+    # Specialbolag får aldrig en missvisande generell P/E-riktkurs.
+    if header_category=='Investmentbolag / kapitalförvaltning':
+        nav_data=REPORTED_NAV.get(ticker)
+        header_target=nav_data['nav'] if nav_data and quote_ccy=='SEK' else None
+        target_method='Rapporterat NAV'
+    elif header_category not in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
+        header_target=None
+        target_method='Sektormodell saknas'
     if header_target is None:
         missing_target=[]
         if header_price is None: missing_target.append('aktuell aktiekurs')
@@ -1392,7 +1400,10 @@ with target_slot.container():
     else:
         header_gap=((header_pe/header_history-1)*100 if target_method=='Historiskt P/E'
                     else (header_price/header_target-1)*100)
-        if target_method=='EV/EBITA branschmodell':
+        if target_method=='Rapporterat NAV':
+            header_signal='SUBSTANSVÄRDE – EJ RIKTKURS'
+            header_bg,header_border,header_ink='#f1f5f9','#cbd5e1','#334155'
+        elif target_method=='EV/EBITA branschmodell':
             header_signal='BRANSCHVÄRDERING – KONTROLLERA UNDERLAG'
             header_bg,header_border,header_ink='#f1f5f9','#cbd5e1','#334155'
         elif header_gap<=-20:
@@ -1403,10 +1414,10 @@ with target_slot.container():
             header_bg,header_border,header_ink,header_signal='#fffbeb','#fcd34d','#92400e','AVVAKTA'
         st.markdown(
             '<div style="padding:18px;border-radius:15px;background:'+header_bg+';border:1px solid '+header_border+';">'
-            '<div style="font-size:.85rem;font-weight:650;color:'+header_ink+';">'+('EV/EBITA · '+str(header_profile) if target_method=='EV/EBITA branschmodell' else 'INDIKATIV KURS · HISTORISKT P/E' if target_method=='Historiskt P/E' else 'SCENARIOKURS · ANTAGET P/E 12')+'</div>'
+            '<div style="font-size:.85rem;font-weight:650;color:'+header_ink+';">'+('EV/EBITA · '+str(header_profile) if target_method=='EV/EBITA branschmodell' else 'RAPPORTERAT SUBSTANSVÄRDE (NAV)' if target_method=='Rapporterat NAV' else 'INDIKATIV KURS · HISTORISKT P/E' if target_method=='Historiskt P/E' else 'SCENARIOKURS · ANTAGET P/E 12')+'</div>'
             '<div style="font-size:2rem;font-weight:800;color:'+header_ink+';">'+show(header_target,' '+str(quote_ccy or ''),2)+'</div>'
             '<div style="font-size:.95rem;font-weight:700;color:'+header_ink+';">'+header_signal+'</div>'
-            '<div style="font-size:.8rem;color:#475569;margin-top:7px;">'+('Beräknad jämförelsekurs från historiskt P/E ('+str(len(global_pe_samples))+' observationer).' if target_method=='Historiskt P/E' else 'Branschmultipel × EBITA minus nettoskuld, delat på aktier. Kontrollera rapportperiod.' if target_method=='EV/EBITA branschmodell' else scenario_description)+'</div></div>',
+            '<div style="font-size:.8rem;color:#475569;margin-top:7px;">'+('Beräknad jämförelsekurs från historiskt P/E ('+str(len(global_pe_samples))+' observationer).' if target_method=='Historiskt P/E' else 'Senast rapporterat substansvärde per aktie; inte en prognos.' if target_method=='Rapporterat NAV' else 'Branschmultipel × EBITA minus nettoskuld, delat på aktier. Kontrollera rapportperiod.' if target_method=='EV/EBITA branschmodell' else scenario_description)+'</div></div>',
             unsafe_allow_html=True)
 one,two,three,four=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering'])
 with one:
@@ -2355,6 +2366,25 @@ with four:
                 st.caption('Avkastningskrav 10 % och långsiktig tillväxt 2 % är modellantaganden. ROE och bokfört eget kapital kommer från tillgängliga bolagsuppgifter.')
             else: st.info('ROE ger inget positivt motiverat P/B med dessa antaganden.')
         else: st.info('Saknar jämförbart eget kapital, ROE, aktieantal eller valutakurs.')
+    elif model_category=='Investmentbolag / kapitalförvaltning':
+        st.markdown('#### Investmentbolag – substansvärde')
+        reported=REPORTED_NAV.get(ticker)
+        if reported and quote_ccy=='SEK':
+            nav_value=reported['nav']
+            st.metric('Senast rapporterat substansvärde per aktie',show(nav_value,' SEK',2))
+            if price is not None and price>0:
+                st.metric('Substansrabatt / premie',show((1-price/nav_value)*100,' %',1))
+            st.caption('Rapportdatum: '+reported['date']+' · Källa: '+reported['source']+'. Substansvärdet kan ha förändrats sedan dess.')
+        else:
+            st.info('Rapporterat substansvärde per aktie saknas i anslutna källor. P/E och EV/EBITA ersätter inte substansvärdering.')
+    elif model_category=='Försäkring':
+        st.markdown('#### Försäkringsbolag – kapital och lönsamhet')
+        insurance_pb=val(info,'priceToBook')
+        insurance_roe=val(info,'returnOnEquity')
+        c1,c2=st.columns(2)
+        c1.metric('P/B',show(insurance_pb,'×',2))
+        c2.metric('ROE',show(insurance_roe*100,' %',1) if insurance_roe is not None else 'Saknas')
+        st.info('Ingen automatisk riktkurs utan verifierad solvens, försäkringstekniska reserver och normaliserad avkastning på eget kapital.')
     elif model_category=='Forskningsbolag':
         st.markdown('#### Forskningsbolag – rNPV')
         st.info('rNPV kräver projektspecifika kliniska sannolikheter, kassaflödesprognoser och utspätt aktieantal. Vanliga årsrapportsdata räcker inte. Ingen godtycklig projektprognos används.')
