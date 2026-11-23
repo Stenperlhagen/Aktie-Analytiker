@@ -883,6 +883,10 @@ company=info.get('longName') or name or ticker
 company_col,target_col=st.columns([2,1],vertical_alignment='top')
 with company_col:
     st.subheader(company)
+    company_type=valuation_category(ticker,info)
+    if company_type=='Rörelsedrivande bolag':
+        company_type=operating_valuation_profile(ticker,info) or 'Rörelsedrivande bolag'
+    st.markdown('<div style="font-size:0.92rem;color:#64748b;margin-top:-8px;margin-bottom:10px;">'+company_type+'</div>',unsafe_allow_html=True)
     st.caption(f'{ticker} · Valuta: {info.get("currency","okänd")} · Börsdata hämtad {dt.datetime.now().strftime("%Y-%m-%d %H:%M")} · Yahoo Finance')
 with target_col:
     target_slot=st.empty()
