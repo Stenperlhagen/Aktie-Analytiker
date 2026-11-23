@@ -1075,8 +1075,7 @@ with two:
             'Förändring mot föregående kvartal':show(previous_quarter_change,' %',1) if previous_quarter_change is not None else 'Saknas',
             'Jämförelsekvartal':str(prior_date.date()) if prior_date is not None else 'Saknas',
             'Värde föregående år':(show(prior_value/1e6,' M',1) if unit=='M' else show(prior_value,'',2)) if prior_value is not None else 'Saknas',
-            'Förändring mot samma kvartal föregående år':show(yoy,' %',1) if yoy is not None else 'Saknas',
-            'Datakälla':yoy_source+' / Yahoo Finance'
+            'Förändring mot samma kvartal föregående år':show(yoy,' %',1) if yoy is not None else 'Saknas'
         })
     if quarterly_rows:
         quarter_table=pd.DataFrame(quarterly_rows)
