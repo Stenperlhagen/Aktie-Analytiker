@@ -134,6 +134,23 @@ def fetch(ticker):
     quick = attempt('Snabbkursdata', lambda: dict(obj.fast_info), {})
     return info or {}, history, fin, cash, balance, quick or {}, errors
 
+@st.cache_data(ttl=86400,show_spinner=False)
+def trailing_dividend_yield(ticker, price):
+    """Faktiska kontantutdelningar senaste 365 dagarna, i aktiens handelsvaluta."""
+    if not isinstance(price,(int,float)) or price<=0: return None
+    try:
+        series=yf.Ticker(ticker).dividends
+        if series is None or series.empty: return None
+        dates=pd.to_datetime(series.index,utc=True)
+        cutoff=pd.Timestamp.now(tz='UTC')-pd.Timedelta(days=365)
+        paid=pd.to_numeric(series.loc[dates>=cutoff],errors='coerce')
+        paid=paid[(paid>0)&paid.notna()]
+        if paid.empty: return None
+        value=float(paid.sum())/price*100
+        return value if 0<value<=30 else None
+    except Exception:
+        return None
+
 @st.cache_data(ttl=7200, show_spinner=False)
 def extended_financials(ticker):
     """Ytterligare offentligt tillgängliga serier, hämtade separat och cachade."""
@@ -528,6 +545,8 @@ dividend_yield = val(info,'dividendYield')
 # Yahoo kan ange yield som procenttal eller decimal; avstå om formatet inte kan säkerställas.
 if dividend_yield is not None:
     dividend_yield = dividend_yield*100 if 0<=dividend_yield<=1 else (dividend_yield if 1<dividend_yield<=30 else None)
+if dividend_yield is None:
+    dividend_yield = trailing_dividend_yield(ticker, price)
 # ROIC kompletterar endast verifierade, saknade värden.
 _roic_data, _roic_error = {}, None
 if roic_key():
