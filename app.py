@@ -96,6 +96,15 @@ st.info('Bolagslistan är ett brett urval och inte en verifierad fullständig Na
 # Kompletterande svenska bolag. Börssegment kan ändras vid Nasdaqs omklassificeringar.
 # Listan är ett sökbart urval, inte en garanti för en fullständig aktuell segmentförteckning.
 ADDITIONAL_COMPANIES = {
+    'Attendo':'ATT.ST',
+    'Humana':'HUM.ST',
+    'Byggmax':'BMAX.ST',
+    'Rusta':'RUSTA.ST',
+    'RevolutionRace':'RVRC.ST',
+    'Diös Fastigheter':'DIOS.ST',
+    'Platzer Fastigheter B':'PLAZ-B.ST',
+    'Stendörren Fastigheter B':'STEF-B.ST',
+    'Swedish Logistic Property B':'SLP-B.ST',
     'AcadeMedia':'ACAD.ST','Addvise B':'ADDV-B.ST','Arjo B':'ARJO-B.ST',
     'Ascelia Pharma':'ACE.ST','Bactiguard B':'BACTI-B.ST','Bergman & Beving B':'BERG-B.ST',
     'Betsson B':'BETS-B.ST','BHG Group':'BHG.ST','Boozt':'BOOZT.ST',
