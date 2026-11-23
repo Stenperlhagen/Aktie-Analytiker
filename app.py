@@ -836,7 +836,7 @@ def screener_snapshot(symbol):
     except Exception:
         return {'status':'Kunde inte hämtas'}
 
-if st.session_state.screener_results:
+if st.session_state.get('screener_results',{}):
     screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
     st.subheader('Resultat från aktiescreenern')
     scan_rows=[]
@@ -884,11 +884,16 @@ if st.session_state.screener_results:
     st.caption('För investmentbolag krävs rapporterat substansvärde per aktie för substansrabatt. För fastigheter krävs rapporterat EPRA-substansvärde. P/B är inte samma sak som substansrabatt. Banker och försäkringsbolag visas med P/B och ROE, men får ingen automatisk köp-/säljsignal utan kapital- och riskkontroll.')
     st.caption('Beräkningen bygger på senaste hämtade Yahoo-data. Positiv rabatt = lägre nuvarande P/E än historisk median. P/E-historik och aktuell P/E kan ha olika definitioner eller perioder; resultaten måste granskas. Saknade uppgifter ger ingen investeringssignal.')
     st.download_button('Exportera sökresultat (CSV)',data=scan_df.to_csv(index=False).encode('utf-8-sig'),file_name='equitylab_aktiescreener.csv',mime='text/csv')
-if st.session_state.screener_running:
+if st.session_state.get('screener_running',False):
     st.rerun()
-if st.session_state.screener_results:
+if st.session_state.get('screener_results',{}):
     st.divider()
 
+# Screener-state initieras före rendering, även när Streamlit återställer en session.
+if not isinstance(st.session_state.get('screener_results'),dict):
+    st.session_state['screener_results']={}
+if not isinstance(st.session_state.get('screener_running'),bool):
+    st.session_state['screener_running']=False
 with st.sidebar:
     st.header('Välj bolag')
     st.caption('Sök genom att skriva i listan eller öppna den och skrolla bland alla bolag.')
@@ -927,7 +932,7 @@ with st.sidebar:
     if scan_b.button('Börja om',key='reset_scan_stocks',use_container_width=True):
         st.session_state.screener_running=False
         st.session_state.screener_results={}
-    if st.session_state.screener_running:
+    if st.session_state.get('screener_running',False):
         pending=[symbol for symbol in universe if symbol not in st.session_state.screener_results]
         for symbol in pending[:8]:
             st.session_state.screener_results[symbol]=screener_snapshot(symbol)
