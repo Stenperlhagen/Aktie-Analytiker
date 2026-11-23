@@ -1080,7 +1080,11 @@ with two:
             'Datakälla':yoy_source+' / Yahoo Finance'
         })
     if quarterly_rows:
-        st.dataframe(pd.DataFrame(quarterly_rows),hide_index=True,use_container_width=True)
+        quarter_table=pd.DataFrame(quarterly_rows)
+        if quarter_table['Förändring mot samma kvartal föregående år'].eq('Saknas').all():
+            st.info('Datakällorna saknar motsvarande kvartal föregående år för de här posterna. Därför visas i stället en separat jämförelse av rapporterade helår nedan. Helårsförändring är inte samma sak som kvartalsförändring.')
+            quarter_table=quarter_table.drop(columns=['Jämförelsekvartal','Värde föregående år','Förändring mot samma kvartal föregående år'])
+        st.dataframe(quarter_table,hide_index=True,use_container_width=True)
         st.caption('Kvartalsjämförelsen använder närmaste föregående kvartal inom 40 dagar; årsjämförelsen använder närmaste rapportperiod inom 45 dagar från motsvarande kvartal föregående år. Om datakällan bara har fyra kvartal kan jämförelsen inte beräknas. Procentuell förändring visas även för negativa aktuella värden när föregående års värde är positivt. Balansposter redovisas separat.')
     else:
         st.info('Kvartalsrapporter saknas hos den anslutna datakällan för detta bolag.')
@@ -1089,6 +1093,52 @@ with two:
         st.caption('Kompletterande ROIC-kvartal: '+roic_quarter_error+'. Årsjämförelser kan fortfarande saknas.')
     elif roic_quarters:
         st.caption('ROIC AI levererade '+str(len(roic_quarters))+' rapporterade kvartal. Dessa används endast när motsvarande Yahoo-jämförelse saknas och valuta och period överensstämmer.')
+
+    st.markdown('#### Årsförändring – beräknad från befintliga årsrapporter')
+    st.caption('När jämförbara kvartal saknas använder vi bolagets faktiska helårssiffror som en separat, korrekt jämförelse. Inga kvartal uppskattas.')
+    annual_comparisons=[
+        ('Omsättning',fin,('Total Revenue','Operating Revenue'),'M'),
+        ('EBIT',fin,('Operating Income','EBIT'),'M'),
+        ('Nettoresultat',fin,('Net Income','Net Income Common Stockholders'),'M'),
+        ('EPS',fin,('Diluted EPS','Basic EPS'),'EPS'),
+        ('Operativt kassaflöde',cash,('Operating Cash Flow','Cash Flow From Continuing Operating Activities'),'M'),
+        ('Fritt kassaflöde',cash,('Free Cash Flow',),'M'),
+        ('Räntebärande skulder',balance,('Total Debt',),'M'),
+        ('Likvida medel',balance,('Cash And Cash Equivalents','Cash Cash Equivalents And Short Term Investments'),'M')
+    ]
+    annual_rows=[]
+    for label,annual_frame,aliases,unit in annual_comparisons:
+        if annual_frame is None or annual_frame.empty: continue
+        key=next((k for k in aliases if k in annual_frame.index),None)
+        if key is None: continue
+        vals=pd.to_numeric(annual_frame.loc[key],errors='coerce').dropna()
+        try:
+            vals.index=pd.to_datetime(vals.index)
+            vals=vals.sort_index(ascending=False)
+        except (ValueError,TypeError):
+            continue
+        if len(vals)<2: continue
+        current_date=vals.index[0]
+        earlier_candidates=vals.iloc[1:]
+        earlier_candidates=earlier_candidates[abs((earlier_candidates.index-(current_date-pd.DateOffset(years=1))).days)<=45]
+        if earlier_candidates.empty: continue
+        older_date=min(earlier_candidates.index,key=lambda d:abs((d-(current_date-pd.DateOffset(years=1))).days))
+        current=float(vals.iloc[0])
+        older=float(earlier_candidates.loc[older_date])
+        growth=(current/older-1)*100 if older>0 else None
+        annual_rows.append({
+            'Nyckeltal':label,
+            'Senaste helår':str(current_date.date()),
+            'Värde senaste helår':show(current/1e6,' M',1) if unit=='M' else show(current,'',2),
+            'Föregående helår':str(older_date.date()),
+            'Värde föregående helår':show(older/1e6,' M',1) if unit=='M' else show(older,'',2),
+            'Förändring helår':show(growth,' %',1) if growth is not None else 'Ej meningsfull'
+        })
+    if annual_rows:
+        st.dataframe(pd.DataFrame(annual_rows),hide_index=True,use_container_width=True)
+        st.caption('Årsförändringen beräknas som (senaste helår / föregående helår − 1) × 100. En negativ eller nollstor jämförelsebas ger ingen vanlig procentuell tillväxt.')
+    else:
+        st.caption('Även två jämförbara årsperioder saknas för de tillgängliga posterna.')
 
     st.markdown('#### Fullständiga kvartalsrapporter')
     st.caption('Samtliga tillgängliga originalposter från dataleverantören visas nedan, inte bara de utvalda nyckeltalen i sammanfattningen. Rapportperioder och saknade värden bevaras.')
