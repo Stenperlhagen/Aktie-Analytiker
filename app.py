@@ -914,10 +914,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v6':
+if st.session_state.get('screener_model_version')!='unified-v7':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v6'
+    st.session_state['screener_model_version']='unified-v7'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 with st.sidebar:
@@ -942,10 +942,10 @@ with st.sidebar:
     st.caption('Sök bland samtliga bolag. Resultatet visas i huvudfönstret.')
     universe=list(dict.fromkeys(ALL_COMPANIES.values()))
     screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
-    if st.session_state.get('screener_model_version')!='unified-v6':
+    if st.session_state.get('screener_model_version')!='unified-v7':
         st.session_state.screener_results={}
         st.session_state.screener_running=False
-        st.session_state.screener_model_version='unified-v6'
+        st.session_state.screener_model_version='unified-v7'
     if 'screener_results' not in st.session_state:
         st.session_state.screener_results={}
     if 'screener_running' not in st.session_state:
@@ -1027,7 +1027,7 @@ if ebitda is None:
 if opcf is None:
     opcf=statement_value(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'])
 if debt is None:
-    debt=statement_value(balance,['Total Debt','Long Term Debt And Capital Lease Obligation'])
+    debt=statement_value(balance,['Total Debt'])
 if cash_val is None:
     cash_val=statement_value(balance,['Cash And Cash Equivalents','Cash Cash Equivalents And Short Term Investments'])
 if netdebt is None and debt is not None and cash_val is not None: netdebt=debt-cash_val
@@ -1135,7 +1135,7 @@ if _roic_income and market_cap is not None and market_cap>0 and quote_ccy:
         balance_match=next((x for x in roic_balance if str(x.get('period_end_date') or '')[:10]==report_date and x.get('currency')==report_currency),None)
         debt_annual=_record_number(balance_match,(
             'bs_total_debt','total_debt','totalDebt','bs_short_long_term_debt_total',
-            'bs_long_term_debt','bs_total_borrowings'))
+            'bs_total_borrowings'))
         cash_annual=_record_number(balance_match,(
             'bs_cash_and_cash_equivalents','cash_and_cash_equivalents',
             'cash_and_short_term_investments','bs_cash_cash_equivalents_and_short_term_investments',
@@ -1146,7 +1146,7 @@ if _roic_income and market_cap is not None and market_cap>0 and quote_ccy:
         if yahoo_balance_currency==report_currency:
             if debt_annual is None:
                 debt_annual=_annual_balance_value(balance,(
-                    'Total Debt','Long Term Debt And Capital Lease Obligation'),report_date)
+                    'Total Debt'),report_date)
                 if debt_annual is not None: debt_source='ROIC EBITA + Yahoo årsbalans'
             if cash_annual is None:
                 cash_annual=_annual_balance_value(balance,(
@@ -1348,7 +1348,7 @@ global_combined=None
 global_display_value=None
 global_display_method='Historisk P/E-jämförelse'
 # Visas bredvid bolagsnamnet men beräknas först när värderingshistoriken finns.
-valuation_result=valuation_engine(ticker,info,fin,cash,balance,quick,hist)
+valuation_result=screener_snapshot(ticker)
 with target_slot.container():
     target=valuation_result.get('target')
     potential=valuation_result.get('upside')
@@ -1744,7 +1744,7 @@ with three:
     with st.container(border=True):
         st.markdown('**05 · Värdering och uppföljning**')
         st.write('Aktuell kurs: **'+(show(price,' '+str(quote_ccy),2) if price is not None else 'Saknas')+'**.')
-        st.write('Kontrollerat motiverat värde: **Ej fastställt**. Tidigare automatiska DCF- och rabattbedömningar är inte godkända som investeringssignal.')
+        st.write('Motiverad aktiekurs enligt huvudmodellen: **'+show(valuation_result.get('target'),' '+str(valuation_result.get('currency') or ''),2)+'**. '+valuation_result.get('status',''))
         st.caption('Följ kvartalsrapporter, prognosförändringar, kassaflöde och värderingsantaganden. Använd fliken Bolagsvärdering och bolagens publicerade rapporter för underlaget.')
     st.markdown('#### Samlad bedömning')
     st.info('Analysen är ännu inte tillräckligt verifierad för en köp-/säljbedömning. Finansiell historik finns delvis, men branschbedömning och kvalitetssäkrad värdering återstår.')
@@ -1838,7 +1838,7 @@ with three:
                 'EBITA år 5 (M '+str(forecast_currency)+')':round(projected_ebita/1e6,1),
                 'Aktiekurs år 5':show(future_price,' '+str(quote_ccy),2) if future_price is not None else 'Saknas',
                 'Avkastning/år':show(annual_return,' %',1) if annual_return is not None else 'Saknas',
-                'Motiverat pris idag':show(fair_price,' '+str(quote_ccy),2) if fair_price is not None else 'Saknas',
+                'Diskonterat femårsscenario':show(fair_price,' '+str(quote_ccy),2) if fair_price is not None else 'Saknas',
                 'Säkerhetsmarginal':show(safety_margin,' %',1) if safety_margin is not None else 'Saknas'
             })
         st.markdown('#### 3. Resultat – tre möjliga utvecklingar')
@@ -1850,7 +1850,7 @@ with three:
                     sc1,sc2,sc3=st.columns(3)
                     sc1.metric('Aktiekurs om fem år',item['Aktiekurs år 5'])
                     sc2.metric('Årlig kursavkastning',item['Avkastning/år'])
-                    sc3.metric('Motiverat pris idag',item['Motiverat pris idag'])
+                    sc3.metric('Diskonterat femårsscenario',item['Diskonterat femårsscenario'])
         else:
             st.info('Scenariernas resultat och EBITA kan beräknas, men ett aktiepris kräver verifierad nettoskuld och valuta.')
         with st.expander('Visa detaljerad scenariotabell'):
@@ -1861,7 +1861,7 @@ with three:
             base_equity_report = max(0.0,base_future_ev-annual_netdebt)
             base_fair_price = price*base_equity_report/(market_cap*market_fx)/(1+hurdle/100)**5
             base_return = (base_equity_report/(market_cap*market_fx))**(1/5)-1 if base_equity_report>0 else -1.0
-            st.caption('Motiverat pris idag diskonterar värdet om fem år med avkastningskravet. Säkerhetsmarginalen är '+show((1-price/base_fair_price)*100,' %',1)+' i basscenariot.' if base_fair_price>0 else 'Basscenariot ger inget positivt motiverat aktiepris.')
+            st.caption('Diskonterat femårsscenario är en separat scenarioanalys, inte appens motiverade aktiekurs. Det diskonterar värdet om fem år med avkastningskravet. Säkerhetsmarginalen är '+show((1-price/base_fair_price)*100,' %',1)+' i basscenariot.' if base_fair_price>0 else 'Basscenariot ger inget positivt motiverat aktiepris.')
             # Omvänd värdering: vilken omsättningstillväxt behövs för att nå avkastningskravet?
             target_equity = market_cap*market_fx*(1+hurdle/100)**5
             required_ev = target_equity+annual_netdebt
@@ -1884,7 +1884,7 @@ with three:
             st.write('Risk: en lägre tillväxt, pressade marginaler eller lägre framtida värderingsmultipel kan ge betydligt sämre avkastning. Modellen antar dessutom oförändrad nettoskuld.')
             st.caption('Scenarierna är känslighetsberäkningar, inte prognoser. Oförändrad nettoskuld och antal aktier antas; utdelning och framtida finansieringsbehov ingår inte.')
     st.divider()
-    st.markdown('#### Historisk poängmodell – äldre jämförelse')
+    st.markdown('#### Historiska nyckeltalsindikatorer – ej investeringsbetyg')
     st.caption('Den äldre färgmodellen är inte kalibrerad för framtida tillväxt och används inte för scenariovärderingen ovan.')
     st.caption('Automatisk historikbaserad analys. Inga manuellt påhittade tillväxttal, multiplar eller sannolikheter används.')
     def series_from_statement(frame, labels):
@@ -2140,7 +2140,7 @@ with four:
         st.write('Fundamental indikatorbedömning: **'+('Stark' if score>=75 else 'Blandad' if score>=50 else 'Svag')+'**. Bedömningen är inte en köp- eller säljsignal.')
 
     v=valuation_result
-    st.caption('Samma automatiska modell som riktkursrutan och aktiescreenern. Inga analytikerriktkurser.')
+    st.caption('Huvudmodell: samma cachade värdering som riktkursrutan och aktiescreenern. Femårsscenarier är separata och utgör inte ytterligare riktkurser. Inga analytikerriktkurser.')
     st.write('**Kategori:** '+v['category']+' · '+str(v.get('profile') or 'Sektormodell'))
     if v.get('assumptions'): st.dataframe(pd.DataFrame([{'Antagande':k,'Värde':show(x,'',2)} for k,x in v['assumptions'].items()]),hide_index=True,use_container_width=True)
     if v.get('period'): st.caption('Rapportperiod: '+v['period'])
