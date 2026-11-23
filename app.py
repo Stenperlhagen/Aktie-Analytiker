@@ -842,7 +842,7 @@ with four:
     st.subheader(f'Analys om bolaget – {company}')
     st.markdown('### Vad kan aktien vara värd om fem år?')
     st.caption('Utifrån bolagets rapporterade resultat beräknar modellen ett möjligt framtida aktiepris och vad det skulle innebära för din avkastning.')
-    st.markdown('**Så använder du analysen:** Börja med resultatet. Öppna sedan antagandena om du vill testa högre eller lägre tillväxt, lönsamhet och värdering.')
+    st.markdown('**Så använder du analysen:** Se de tre möjliga utfallen och kontrollera antagandena bakom beräkningen. Du behöver inte fylla i några siffror.')
     def scenario_field(record, keys):
         for key in keys:
             result = numeric(record.get(key))
@@ -879,16 +879,20 @@ with four:
         baseline_b.metric('EBITA-marginal',show(latest_margin*100,' %',1))
         baseline_c.metric('Historisk omsättningstillväxt',show(historical_growth*100,' %/år',1) if historical_growth is not None else 'Saknas')
         st.caption('Rapportperiod: '+forecast_period+' · Historiken avser endast tillgängliga jämförbara årsperioder.')
-        with st.expander('2. Justera antagandena för femårsprognosen',expanded=False):
-            st.caption('Ändra dessa värden för att se hur värderingen påverkas. Förvalen är historikbaserade där data finns, men framtida multipel och avkastningskrav är modellantaganden.')
-            left,middle=st.columns(2)
-            with left:
-                base_growth=st.slider('Omsättningstillväxt per år',-15.0,25.0,float(suggested_growth),0.5,key='future_growth',help='Hur mycket omsättningen antas växa varje år under fem år.')
-                base_margin=st.slider('EBITA-marginal om fem år',0.0,40.0,float(suggested_margin),0.5,key='future_margin',help='Hur stor del av omsättningen som antas bli EBITA år fem.')
-            with middle:
-                base_multiple=st.slider('EV/EBITA vid försäljning år fem',4.0,25.0,12.0,0.5,key='future_multiple',help='Antaget företagsvärde som multipel av EBITA om fem år. 12× är inte en verifierad marknadsvärdering.')
-                hurdle=st.slider('Ditt årliga avkastningskrav',5.0,20.0,10.0,0.5,key='required_equity_return',help='Används för att räkna tillbaka det framtida värdet till ett motiverat pris idag.')
-            st.caption('Negativt och positivt scenario prövar ±5 procentenheter tillväxt, ±2 procentenheter marginal och ±3× värderingsmultipel.')
+        # Inga manuella inmatningar: historikbaserade utgångspunkter och öppet redovisade antaganden.
+        base_growth=float(suggested_growth)
+        base_margin=float(suggested_margin)
+        hurdle=10.0
+        base_multiple=float(ev_ebita) if ev_ebita is not None and 2.0<=ev_ebita<=40.0 else 12.0
+        multiple_source='Nuvarande beräknad EV/EBITA' if ev_ebita is not None and 2.0<=ev_ebita<=40.0 else 'Illustrativ standardmultipel – ingen verifierad historisk värdering'
+        st.markdown('#### 2. Så räknar modellen')
+        st.write('Modellen använder rapporterad omsättning och EBITA, uppskattar utvecklingen under fem år och värderar därefter bolaget med en EV/EBITA-multipel.')
+        with st.expander('Visa beräkningsantaganden'):
+            st.write('Årlig omsättningstillväxt: **'+show(base_growth,' %',1)+'**'+(' (historiskt härledd)' if historical_growth is not None else ' (illustrativt antagande – historik saknas)'))
+            st.write('EBITA-marginal år fem: **'+show(base_margin,' %',1)+'** (utgår från senast rapporterad marginal)')
+            st.write('EV/EBITA år fem: **'+show(base_multiple,'×',1)+'** ('+multiple_source+')')
+            st.write('Avkastningskrav: **10 % per år** (modellantagande)')
+            st.caption('Negativt och positivt scenario varierar tillväxt ±5 procentenheter, marginal ±2 procentenheter och EV/EBITA ±3×. Antagandena är inte bolagsprognoser.')
         # Nettoskuld måste komma från samma årsbalans som EBITA.
         balance_period = next((x for x in _roic_data.get('balance',[]) if str(x.get('period_end_date') or '')[:10]==forecast_period and x.get('currency')==forecast_currency),None)
         debt_annual = scenario_field(balance_period or {},('bs_total_debt','total_debt','totalDebt'))
@@ -929,7 +933,7 @@ with four:
             })
         st.markdown('#### 3. Resultat – tre möjliga utvecklingar')
         if can_value:
-            st.caption('Beräknade priser och kursavkastning, exklusive utdelning. Alla resultat påverkas av antagandena ovan.')
+            st.caption('Beräknade priser och kursavkastning, exklusive utdelning. Resultaten bygger på de redovisade antagandena ovan.')
             for item in scenario_rows:
                 with st.container(border=True):
                     st.markdown('**'+item['Scenario']+' scenario**')
