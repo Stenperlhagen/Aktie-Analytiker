@@ -80,7 +80,7 @@ def extended_financials(ticker):
             errors[key] = f'{type(exc).__name__}: {str(exc)[:120]}'
     return result, errors
 
-def assessment(fin, cash, balance, info, price, netdebt, ebitda, history, extended):
+def assessment(fin, cash, balance, info, price, netdebt, ebitda, history, extended, quick=None):
     """Bedömning utan prognosantaganden eller uppfunna datapunkter."""
     def series(frame, keys):
         if frame is None or frame.empty: return pd.Series(dtype='float64')
@@ -128,14 +128,21 @@ def assessment(fin, cash, balance, info, price, netdebt, ebitda, history, extend
         if len(common)>0 and equity[common[-1]]>0:
             roe=float(net_income[common[-1]]/equity[common[-1]])
             record('Lönsamhet','ROE senaste år',roe,roe>0.10,'Metodgräns 10 %')
-    shares = info.get('sharesOutstanding')
-    marketcap = info.get('marketCap')
+    quick = quick or {}
+    shares = info.get('sharesOutstanding') or quick.get('shares')
+    marketcap = info.get('marketCap') or quick.get('market_cap')
     if not isinstance(marketcap,(int,float)) and price and isinstance(shares,(int,float)):
         marketcap=price*shares
     if isinstance(marketcap,(int,float)) and marketcap>0 and len(fcf)>0:
         fy=float(fcf.iloc[-1]/marketcap)
         record('Värdering','FCF-yield senaste år',fy,fy>0.05,'5 % metodgräns; senaste års FCF kan vara cykliskt')
     pe = info.get('trailingPE')
+    # Härledning från EPS är säker bara när EPS och kurs uttrycks i samma valuta.
+    quote_currency = info.get('currency') or quick.get('currency')
+    earnings_currency = info.get('financialCurrency')
+    eps = info.get('trailingEps')
+    if not isinstance(pe,(int,float)) and quote_currency and earnings_currency and quote_currency==earnings_currency and isinstance(eps,(int,float)) and eps>0 and price:
+        pe=price/eps
     if isinstance(pe,(int,float)) and 0<pe<500:
         record('Värdering','P/E',pe,pe<20,'20× är en generell metodgräns, inte historisk jämförelse')
     vh=extended.get('valuation_history',pd.DataFrame())
@@ -158,7 +165,8 @@ def assessment(fin, cash, balance, info, price, netdebt, ebitda, history, extend
     if specialized:
         return 'GRÅ – Särskild branschmodell krävs', '#64748B', evidence, None, 'Banker, finans- och fastighetsbolag kräver branschspecifika värderingsmått.'
     if len(evidence)<7 or valuation_count<2 or missing:
-        return 'GRÅ – Otillräckligt underlag', '#64748B', evidence, None, 'För få oberoende datapunkter eller saknade analysområden: '+(', '.join(missing) if missing else 'värderingshistorik och/eller täckning')
+        valuation_detail = ('Värderingsdata kunde inte beräknas: kontrollera börsvärde, aktiekurs, EPS, rapportvaluta och kassaflöde.' if valuation_count==0 else f'Endast {valuation_count} verifierbart värderingsmått tillgängligt; minst två krävs.')
+        return 'GRÅ – Värderingsdata saknas i anslutna källor', '#64748B', evidence, None, valuation_detail+' Övriga finansiella uppgifter kan ändå finnas i bolagets rapporter.'
     score=sum(groups[g]*sum(x['Utfall']=='Positivt' for x in items)/len(items) for g,items in present.items())
     # Negativt FCF och allvarlig belåning kan inte kompenseras av billig P/E.
     risk_flag=(netdebt is not None and ebitda is not None and ebitda>0 and netdebt/ebitda>=4)
@@ -370,7 +378,7 @@ if pe is None and eps is not None and eps>0 and price is not None: pe=price/eps
 with st.spinner('Kontrollerar fördjupade rapport- och värderingsdata…'):
     extended, extended_errors = extended_financials(ticker)
 _signal_title,_signal_color,_assessment_rows,_assessment_score,_signal_detail = assessment(
-    fin,cash,balance,info,price,netdebt,ebitda,hist,extended
+    fin,cash,balance,info,price,netdebt,ebitda,hist,extended,quick
 )
 st.markdown(
     f'<div style="border:1px solid {_signal_color};border-left:8px solid {_signal_color};border-radius:12px;padding:15px 20px;margin:16px 0;">'
@@ -590,6 +598,9 @@ with five:
     if _assessment_score is not None:
         st.metric('Modellpoäng',f'{_assessment_score*100:.0f} av 100')
     st.caption(_signal_detail)
+    if 'GRÅ' in _signal_title:
+        st.info('Grått betyder att appens anslutna datakällor inte räcker för en investeringsvärdering – inte att bolaget saknar offentliga rapporter.')
+        st.write('Datakontroll:', {'Aktiekurs':price,'Börsvärde':info.get('marketCap') or quick.get('market_cap'),'EPS':info.get('trailingEps'),'Handelsvaluta':info.get('currency') or quick.get('currency'),'Rapportvaluta':info.get('financialCurrency'),'P/E från källa':info.get('trailingPE')})
     if _assessment_rows:
         st.dataframe(pd.DataFrame(_assessment_rows),hide_index=True,use_container_width=True)
     with st.expander('Datatäckning och källstatus'):
