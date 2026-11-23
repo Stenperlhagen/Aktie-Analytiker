@@ -583,8 +583,10 @@ def screener_snapshot(symbol):
         obj=yf.Ticker(symbol)
         info=obj.info or {}
         category=valuation_category(symbol,info)
-        # Försök komplettera varje bolag med en andra, rapportbaserad källa.
-        extra,extra_error=borsapi_reports(symbol,borsapi_key())
+        # Hämta kompletterande rapporter endast när Börsdata-nyckel är ansluten.
+        # Ingen extra API-förfrågan för användare utan abonnemang.
+        api_key=borsapi_key()
+        extra,extra_error=borsapi_reports(symbol,api_key) if api_key else ({},'Ej ansluten')
         report_count=len(extra.get('periods',[]))
 
         if category!='Rörelsedrivande bolag':
@@ -619,6 +621,28 @@ def screener_snapshot(symbol):
                 data['method']='Granskning krävs'
             data['secondary_report_periods']=report_count
             return data
+        growth=numeric(info.get('revenueGrowth'))
+        margin=numeric(info.get('operatingMargins'))
+        cashflow=numeric(info.get('operatingCashflow'))
+        debt=numeric(info.get('totalDebt'))
+        cash_assets=numeric(info.get('totalCash'))
+        ebitda_value=numeric(info.get('ebitda'))
+        leverage=((debt-cash_assets)/ebitda_value
+                  if None not in (debt,cash_assets,ebitda_value) and ebitda_value>0 else None)
+        quality_data={
+            'revenue_growth':growth*100 if growth is not None else None,
+            'operating_margin':margin*100 if margin is not None else None,
+            'operating_cashflow':cashflow,
+            'leverage':leverage,
+        }
+        tests=[
+            (growth is not None,growth is not None and growth>0.03),
+            (margin is not None,margin is not None and margin>0.08),
+            (cashflow is not None,cashflow is not None and cashflow>0),
+            (leverage is not None,leverage is not None and leverage<2.5)
+        ]
+        quality_data['quality_coverage']=sum(available for available,_ in tests)
+        quality_data['quality_score']=sum(passed for available,passed in tests if available)
         current_pe=numeric(info.get('trailingPE'))
         price=numeric(info.get('currentPrice') or info.get('regularMarketPrice'))
         if price is None or price<=0:
@@ -632,7 +656,7 @@ def screener_snapshot(symbol):
             missing=[]
             if price is None or price<=0: missing.append('aktuell kurs')
             if current_pe is None or not 0<current_pe<=80: missing.append('positiv vinst per aktie (TTM)')
-            return {'status':'Otillräckliga börsdata','category':category,'missing':', '.join(missing)}
+            return {'status':'Otillräckliga börsdata','category':category,'missing':', '.join(missing),**quality_data}
         history=obj.get_valuation_measures(freq='quarterly',periods=12)
         pe_values=[]
         if isinstance(history,pd.DataFrame) and not history.empty:
@@ -658,7 +682,7 @@ def screener_snapshot(symbol):
         return {'status':'Intressant att analysera vidare' if gap<=-20 else 'Högt värderad' if gap>=20 else 'Avvakta',
                 'pe':current_pe,'median':median,'gap':gap,'price':price,
                 'indicative_price':price*median/current_pe,'observations':len(pe_values),
-                'currency':info.get('currency'),'category':category,'secondary_report_periods':report_count}
+                'currency':info.get('currency'),'category':category,'secondary_report_periods':report_count,**quality_data}
     except Exception:
         return {'status':'Kunde inte hämtas'}
 
@@ -669,10 +693,10 @@ st.caption('Bolagen klassificeras efter värderingsmetod. P/E-signaler visas bar
 universe=list(dict.fromkeys(ALL_COMPANIES.values()))
 screener_names={ticker:name for name,ticker in ALL_COMPANIES.items()}
 # Tidigare screeningresultat beräknades utan kategorifilter och måste förnyas.
-if st.session_state.get('screener_model_version')!='category-v6':
+if st.session_state.get('screener_model_version')!='category-v7':
     st.session_state.screener_results={}
     st.session_state.screener_running=False
-    st.session_state.screener_model_version='category-v6'
+    st.session_state.screener_model_version='category-v7'
 if 'screener_results' not in st.session_state:
     st.session_state.screener_results={}
 if 'screener_running' not in st.session_state:
@@ -701,6 +725,10 @@ if st.session_state.screener_results:
         scan_rows.append({
             'Bolag':screener_names.get(symbol,symbol),'Ticker':symbol,
             'Värderingskategori':result.get('category',valuation_category(symbol)),
+            'Kvalitet (uppfyllda/testade)':str(result.get('quality_score'))+'/'+str(result.get('quality_coverage')) if result.get('quality_coverage') else 'Ej bedömd',
+            'Omsättningstillväxt (%)':round(result['revenue_growth'],1) if result.get('revenue_growth') is not None else None,
+            'Rörelsemarginal (%)':round(result['operating_margin'],1) if result.get('operating_margin') is not None else None,
+            'Nettoskuld/EBITDA':round(result['leverage'],2) if result.get('leverage') is not None else None,
             'Rapportperioder (BörsAPI)':result.get('secondary_report_periods'),
             'Metod':result.get('method','P/E-historik' if result.get('category')=='Rörelsedrivande bolag' else 'Ej fastställd'),
             'P/B':round(result['pb'],2) if result.get('pb') is not None else None,
