@@ -209,9 +209,17 @@ def official_report_excerpt(ticker):
     except Exception as exc:
         return [], f'{type(exc).__name__}: {str(exc)[:180]}'
 
+# Faktagranskade svenska bolagsbeskrivningar med direktlänk till originalkällan.
+VERIFIED_COMPANY_DESCRIPTIONS = {
+    'BETS-B.ST': (
+        'Betsson AB är en svensk börsnoterad koncern inom onlinespel. Genom sina operativa dotterbolag erbjuder koncernen kasino och sportspel på internationella marknader, bland annat under varumärkena Betsson, Betsafe och NordicBet. Verksamheten bedrivs huvudsakligen på egenutvecklade tekniska plattformar. Moderbolaget ansvarar för koncernstrategi, ägarstyrning och förvärv.',
+        'https://www.betssonab.com/sv/om-oss'
+    )
+}
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def company_description_fallback(company):
-    """Sök en verifierbar uppslagsverksbeskrivning, utan att hitta på verksamhet."""
+    """Hämta faktatext med källhänvisning från Wikipedia om bolaget kan matchas."""
     clean = re.sub(r'\\s+(?:AB|A|B)$','',company,flags=re.I).strip()
     def normalized(x):
         return re.sub(r'[^a-z0-9]','',x.casefold().replace('å','a').replace('ä','a').replace('ö','o'))
@@ -219,17 +227,22 @@ def company_description_fallback(company):
     for lang in ('sv','en'):
         endpoint=f'https://{lang}.wikipedia.org/w/api.php'
         try:
-            headers={'User-Agent':'EquityLab/1.0 (company research; public Wikipedia API)'}
-            response=requests.get(endpoint,params={'action':'query','format':'json','generator':'search','gsrsearch':f'intitle:"{clean}"','gsrlimit':8,'prop':'extracts|info','exintro':1,'explaintext':1,'inprop':'url','exchars':1400},headers=headers,timeout=7)
+            response=requests.get(endpoint,params={
+                'action':'query','format':'json','generator':'search',
+                'gsrsearch':clean,'gsrlimit':10,
+                'prop':'extracts|info','exintro':1,'explaintext':1,
+                'inprop':'url','exchars':1400
+            },headers={'User-Agent':'EquityLab/1.0 (financial company profiles)'},timeout=8)
             response.raise_for_status()
             pages=response.json().get('query',{}).get('pages',{})
             for page in pages.values():
                 title=page.get('title','')
                 title_base=re.sub(r'\\s*\\([^)]*\\)$','',title).strip()
-                if normalized(title_base) not in (wanted,normalized(clean+' AB')):
+                title_normalized=normalized(title_base)
+                if title_normalized not in (wanted,normalized(clean+' AB'),normalized(company)):
                     continue
                 extract=re.sub(r'\\s+',' ',page.get('extract') or '').strip()
-                if len(extract)>=90 and not any(word in extract.lower() for word in ['may refer to','kan syfta på','disambiguation']):
+                if len(extract)>=65 and not any(word in extract.lower() for word in ['may refer to','kan syfta på','disambiguation']):
                     return extract[:1300],page.get('fullurl'),f'Wikipedia ({lang})'
         except Exception:
             continue
@@ -497,8 +510,12 @@ with one:
         st.plotly_chart(mark_high_low(chart_five_years,h),use_container_width=True)
     else:st.warning('Kursserie saknas.')
     st.markdown('#### Bolagsbeskrivning')
+    verified = VERIFIED_COMPANY_DESCRIPTIONS.get(ticker)
     description = (info.get('longBusinessSummary') or '').strip()
-    if description:
+    if verified:
+        st.write(verified[0])
+        st.markdown(f'[Källa: Bolagets officiella webbplats]({verified[1]})')
+    elif description:
         st.write(description)
         st.caption('Källa: Yahoo Finance – bolagsprofil.')
     else:
