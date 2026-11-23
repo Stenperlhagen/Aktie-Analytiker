@@ -360,23 +360,24 @@ with two:
             raw_table.columns = [str(c.date()) if hasattr(c, 'date') else str(c) for c in raw_table.columns]
             st.dataframe(raw_table, use_container_width=True)
 with three:
-    st.caption('Publicerade artiklar de senaste sex månaderna via Google News och Bing News RSS. Artiklar kan handla om andra bolag med liknande namn.')
-    if st.button('Uppdatera nyheter', key='refresh_news'):
+    st.caption('Nyheter från de senaste sex månaderna. Sökningen körs först när du begär den, så bolagsbyten går snabbare.')
+    if st.button('Hämta nyheter för valt bolag', key='refresh_news'):
         news.clear()
-        st.rerun()
-    with st.spinner('Söker nyheter…'):
-        items, news_diagnostics = news(company)
-    if items:
-        st.success(f'{len(items)} artiklar hittades.')
-        for item in items:
-            st.markdown(f'**{item["Datum"]}** · [{item["Rubrik"]}]({item["Länk"]})')
+        st.session_state['news_requested_for'] = ticker
+    if st.session_state.get('news_requested_for') == ticker:
+        with st.spinner('Hämtar nyheter…'):
+            items, news_diagnostics = news(company)
+        if items:
+            st.success(f'{len(items)} artiklar hittades.')
+            for item in items:
+                st.markdown(f'**{item["Datum"]}** · [{item["Rubrik"]}]({item["Länk"]})')
+        else:
+            st.warning('Inga artiklar kunde hämtas. Det betyder inte att bolaget saknar nyheter.')
+        with st.expander('Visa nyhetskällans diagnostik'):
+            for line in news_diagnostics:
+                st.text(line)
     else:
-        st.warning('Inga artiklar kunde hämtas. Det betyder inte att bolaget saknar nyheter.')
-    with st.expander('Visa nyhetskällans diagnostik'):
-        for line in news_diagnostics:
-            st.text(line)
-        if not news_diagnostics:
-            st.text('Ingen diagnostik tillgänglig.')
+        st.info('Klicka på Hämta nyheter för valt bolag för att starta sökningen.')
     search_link = 'https://www.google.com/search?' + urllib.parse.urlencode({
         'q': f'{company} pressmeddelanden senaste sex månaderna'
     })
