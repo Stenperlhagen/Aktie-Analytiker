@@ -745,7 +745,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
     shares=val(info,'sharesOutstanding') or val(quick,'shares')
     if not shares:
         cap=val(info,'marketCap') or val(quick,'market_cap')
-        if cap and price and price>0 and symbol not in {'VOLO.ST'}: shares=cap/price
+        if cap and price and price>0 and '-' not in symbol and symbol not in {'VOLO.ST','SALIX.ST'}: shares=cap/price
     out={'category':category,'profile':profile,'price':price,'currency':currency,'target':None,'method':'','missing':[],'models':{}}
     out['source']=primary_source
     out['report_currency']=report
@@ -760,6 +760,22 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
             value=row(frame,labels,period)
             if value is not None: return value
         return None
+    # Shared market metrics: trailing EPS is per quoted share, not total group earnings.
+    eps=val(info,'trailingEps')
+    out['pe_ttm']=price/eps if price and price>0 and eps and eps>0 else None
+    out['roe']=val(info,'returnOnEquity')
+    out['cost_of_equity_pct']=10.0
+    out['roic']=None
+    if category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
+        periods=sorted(set(fin.columns)&set(balance.columns),reverse=True)
+        if len(periods)>=2:
+            p,q=periods[:2]
+            operating_profit=row(fin,['Operating Income','EBIT'],p)
+            tax=row(fin,['Tax Provision'],p)
+            pretax=row(fin,['Pretax Income'],p)
+            capitals=[row(balance,['Invested Capital'],d) for d in (p,q)]
+            if operating_profit is not None and tax is not None and pretax and pretax>0 and 0<=tax/pretax<=1 and all(c is not None and c>0 for c in capitals):
+                out['roic']=operating_profit*(1-tax/pretax)/(sum(capitals)/2)*100
     if category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
         if not params: out['missing'].append('Branschprofil')
         else:
@@ -838,6 +854,9 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
                         audit.append('FCFF överstiger omsättning; kontrollera enheter')
                 else:
                     audit.append('Omsättning saknas för rimlighetskontroll')
+            preferred=latest(balance,['Preferred Stock','Preferred Stock Equity'])
+            if (preferred is not None and preferred>0) or symbol=='VOLO.ST':
+                audit.append('Preferenskapital: marknadsvärde och rättigheter måste verifieras innan stamaktievärdet kan användas som köpsignal')
             out['audit']=audit
             out['inputs']={('EBIT (proxy)' if symbol=='AAK.ST' else earnings_label):earnings,'Nettoskuld':debt,'Antal aktier':shares,'FCFF':fcff,'Valutakurs':fx}
             multiple_value=comparable_ev_ebita(earnings,debt,shares,m,fx)
@@ -917,10 +936,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v8':
+if st.session_state.get('screener_model_version')!='unified-v9':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v8'
+    st.session_state['screener_model_version']='unified-v9'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 with st.sidebar:
@@ -945,10 +964,10 @@ with st.sidebar:
     st.caption('Sök bland samtliga bolag. Resultatet visas i huvudfönstret.')
     universe=list(dict.fromkeys(ALL_COMPANIES.values()))
     screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
-    if st.session_state.get('screener_model_version')!='unified-v8':
+    if st.session_state.get('screener_model_version')!='unified-v9':
         st.session_state.screener_results={}
         st.session_state.screener_running=False
-        st.session_state.screener_model_version='unified-v8'
+        st.session_state.screener_model_version='unified-v9'
     if 'screener_results' not in st.session_state:
         st.session_state.screener_results={}
     if 'screener_running' not in st.session_state:
@@ -1201,6 +1220,7 @@ ev_ebita=None
 if all(x is not None for x in (valuation_earnings,valuation_debt,valuation_fx,valuation_shares,valuation_price)) and valuation_earnings>0 and valuation_fx>0 and valuation_shares>0 and valuation_price>0:
     ev_ebita=(valuation_price*valuation_shares/valuation_fx+valuation_debt)/valuation_earnings
 ebita=valuation_earnings
+pe=valuation_result.get('pe_ttm')
 dividend_yield=trailing_dividend_yield(ticker,valuation_price)
 st.markdown('### Finansiell översikt')
 overview_items = [
@@ -1212,7 +1232,7 @@ overview_items = [
     ('EBITA (värderingsperiod)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas'),
     ('Avkastning på eget kapital (ROE)',show(roe_overview,' %',1) if roe_overview is not None else 'Saknas'),
     ('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),
-    ('P/E',show(pe,'×') if pe is not None else 'Saknas'),
+    ('P/E (R12)',show(pe,'×') if pe is not None else 'Saknas'),
     ('EV/EBITA',show(ev_ebita,'×',1) if ev_ebita is not None else 'Saknas'),
     ('Nettoskuld/EBITDA',show(netdebt_ebitda,'×',2) if netdebt_ebitda is not None else 'Saknas'),
     ('Direktavkastning',show(dividend_yield,' %',1) if dividend_yield is not None else 'Saknas')
@@ -1808,7 +1828,7 @@ with three:
         # Inga manuella inmatningar: historikbaserade utgångspunkter och öppet redovisade antaganden.
         base_growth=float(suggested_growth)
         base_margin=float(suggested_margin)
-        hurdle=10.0 # separat avkastningskrav på eget kapital; WACC avser företagskassaflöde
+        hurdle=valuation_result['cost_of_equity_pct']
         base_multiple=valuation_result.get('assumptions',{}).get('EV/EBITA')
         multiple_source='Huvudmodellens branschmultipel'
         st.markdown('#### 2. Så räknar modellen')
@@ -2126,7 +2146,7 @@ def investment_score(v, info):
         items.append({'Område':name,'Nyckeltal':show(x,unit,1),'Poäng':round(points,1),'Vikt':weight})
     if not v.get('audit') and v.get('target') is not None:
         add('Värdering',v.get('upside'),-30,40,25,' %')
-    roe=val(info,'returnOnEquity')
+    roe=v.get('roe')
     if operating or category=='Bank / finansiella tjänster':
         if roe is not None: add('Lönsamhet (ROE)',roe*100,0,20,20,' %')
     if operating:
@@ -2148,6 +2168,12 @@ def investment_score(v, info):
 with four:
     st.subheader('Bolagsvärdering – '+company)
     score,score_items,score_coverage=investment_score(valuation_result,info)
+    st.markdown('#### Kapitalavkastning och kapitalkostnad')
+    cap_a,cap_b,cap_c=st.columns(3)
+    cap_a.metric('ROIC (rapporterat underlag)',show(valuation_result.get('roic'),' %',1))
+    cap_b.metric('WACC (modellantagande)',show(valuation_result.get('assumptions',{}).get('WACC (%)'),' %',1))
+    cap_c.metric('Avkastningskrav eget kapital',show(valuation_result.get('cost_of_equity_pct'),' %',1))
+    st.caption('ROIC = EBIT efter rapporterad effektiv skatt / genomsnittligt investerat kapital. WACC och avkastningskrav på eget kapital är separata modellantaganden.')
     st.markdown('#### Fundamentalt investeringsbetyg')
     st.metric('Investeringsbetyg',show(score,' / 100',0))
     st.caption('Indikatorbaserad modell, ej historiskt kalibrerad. Datatäckning: '+show(score_coverage,' %',0)+'. Fullständigt betyg visas endast för rörelsedrivande bolag med tillräckliga nyckeltal; övriga sektorer kräver separata modeller.')
