@@ -231,7 +231,7 @@ cols=st.columns(4)
 for col,(label,value) in zip(cols,[('EBITDA (LTM/helår)',show(ebitda/1e6,' M',0) if ebitda is not None else 'Saknas'),('Nettoskuld',show(netdebt/1e6,' M',0) if netdebt is not None else 'Saknas'),('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),('EPS senaste 12 mån',show(eps,'',2))]):col.metric(label,value)
 st.caption('Omsättning kan avse senaste rapporterade helår när LTM saknas; kontrollera perioderna i rapporttabellerna. M = miljoner i angiven rapporteringsvaluta. Rörelsemarginal är inte samma sak som EBITA-marginal. Nettoskuld = rapporterade skulder minus likvida medel (förenklad beräkning). LTM-perioder kan skilja sig mellan fält.')
 
-one,two,three,four=st.tabs(['Kurs och historik','Rapporterade data','Nyheter – 6 månader','Ladda upp dokument och värdera'])
+one,two,three,four,five=st.tabs(['Kurs och historik','Rapporterade data','Nyheter – 6 månader','Dokument och scenarier','Analys om bolaget'])
 with one:
     if not hist.empty:
         h=hist.reset_index();h['Datum']=pd.to_datetime(h['Date']).dt.tz_localize(None)
@@ -361,5 +361,77 @@ with four:
     st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
     st.caption('Modellen är en förenklad känslighetsanalys, inte investeringsrådgivning. Den passar sämre för banker, investmentbolag, fastighetsbolag och bolag med förlust.')
     st.download_button('Exportera värdering (CSV)',pd.DataFrame(rows).to_csv(index=False).encode('utf-8-sig'),'vardering.csv','text/csv')
+with five:
+    st.subheader(f'Analys om bolaget – {company}')
+    st.caption('DCF, EV/EBITA och historisk multipel enligt din tidigare bolagsvärderingsmodell. Belopp i MSEK och aktiekurs i SEK. Saknade underlag måste anges manuellt – inga påhittade värden.')
+    shares_raw = val(info, 'sharesOutstanding')
+    if shares_raw is None:
+        shares_raw = val(quick, 'shares')
+    # FCFF är inte samma sak som operativt kassaflöde eller fritt kassaflöde efter ränta.
+    # EBITA kan inte generellt härledas från EBITDA utan tillförlitliga avskrivningsuppgifter.
+    st.markdown('#### 1. Bolagsuppgifter')
+    x1,x2,x3 = st.columns(3)
+    with x1:
+        p = st.number_input('Aktiekurs (kr)', min_value=0.0, value=float(price or 0), step=1.0, key='bv_price')
+        shares = st.number_input('Antal aktier (miljoner)', min_value=0.0, value=float(shares_raw/1e6) if shares_raw else 0.0, step=1.0, key='bv_shares')
+    with x2:
+        nd = st.number_input('Nettoskuld (MSEK)', value=float(netdebt/1e6) if netdebt is not None else 0.0, step=10.0, key='bv_debt')
+        ebita = st.number_input('Senaste EBITA (MSEK)', value=0.0, step=10.0, key='bv_ebita')
+    with x3:
+        fcff = st.number_input('FCFF – kassaflöde till företaget (MSEK)', value=0.0, step=10.0, key='bv_fcff')
+        st.caption('EBITA och FCFF fylls inte automatiskt med EBITDA eller operativt kassaflöde. Ange verifierade belopp från bolagets rapport.')
+    st.markdown('#### 2. Prognos och värderingsantaganden')
+    c1,c2,c3 = st.columns(3)
+    with c1:
+        growth = st.number_input('Årlig FCFF-tillväxt år 1–5 (%)', value=6.0, key='bv_growth')
+        wacc = st.number_input('WACC / diskonteringsränta (%)', value=10.0, min_value=0.01, key='bv_wacc')
+    with c2:
+        terminal = st.number_input('Evig tillväxt efter år 5 (%)', value=2.0, key='bv_terminal')
+        multiple = st.number_input('Motiverad EV/EBITA-multipel', value=12.0, min_value=0.0, key='bv_multiple')
+    with c3:
+        historical = st.number_input('Historisk genomsnittlig EV/EBITA', value=11.0, min_value=0.0, key='bv_historical')
+        margin_safe = st.number_input('Säkerhetsmarginal (%)', value=20.0, min_value=0.0, max_value=100.0, key='bv_margin')
+    st.markdown('#### 3. Modellvikter')
+    v1,v2,v3 = st.columns(3)
+    wd = v1.number_input('DCF-vikt', value=50.0, min_value=0.0, key='bv_wd')
+    wm = v2.number_input('EV/EBITA-vikt', value=30.0, min_value=0.0, key='bv_wm')
+    wh = v3.number_input('Historisk multipel-vikt', value=20.0, min_value=0.0, key='bv_wh')
+    if p <= 0 or shares <= 0:
+        st.warning('Aktiekurs och antal aktier måste vara större än noll för att beräkna värde per aktie.')
+    elif wacc <= terminal or growth <= -100 or terminal <= -100 or wd+wm+wh <= 0:
+        st.error('Kontrollera antagandena: WACC måste överstiga evig tillväxt, tillväxten vara över −100 % och minst en vikt positiv.')
+    elif (wd > 0 and fcff == 0) or ((wm > 0 or wh > 0) and ebita == 0):
+        st.info('Fyll i EBITA och FCFF från bolagets rapport för att få en meningsfull värdering. Modellen använder inte exempelbelopp som verklig data.')
+    else:
+        g,w,t = growth/100,wacc/100,terminal/100
+        forecast = [{'År':i,'FCFF (MSEK)':fcff*(1+g)**i,'Nuvärde (MSEK)':fcff*(1+g)**i/(1+w)**i} for i in range(1,6)]
+        terminal_pv = (fcff*(1+g)**5*(1+t)/(w-t))/(1+w)**5
+        dcf_ev = sum(row['Nuvärde (MSEK)'] for row in forecast)+terminal_pv
+        methods = [('DCF',(dcf_ev-nd)/shares,wd),('EV/EBITA',(ebita*multiple-nd)/shares,wm),('Historisk EV/EBITA',(ebita*historical-nd)/shares,wh)]
+        total_weight = wd+wm+wh
+        fair = sum(value*weight/total_weight for _,value,weight in methods)
+        upside = (fair/p-1)*100
+        buy = fair*(1-margin_safe/100)
+        status = 'Potentiellt undervärderad' if upside > 20 else ('Potentiellt övervärderad' if upside < -20 else 'Nära motiverat värde')
+        k1,k2,k3,k4 = st.columns(4)
+        k1.metric('Aktiekurs',show(p,' kr',2))
+        k2.metric('Motiverat aktievärde',show(fair,' kr',2))
+        k3.metric('Potential',show(upside,' %',1))
+        k4.metric('Bedömning',status)
+        left,right = st.columns(2)
+        with left:
+            st.markdown('#### Värdering per metod')
+            st.dataframe(pd.DataFrame([{'Metod':n,'Värde/aktie (kr)':round(v,2),'Vikt (%)':round(weight/total_weight*100,1)} for n,v,weight in methods]),hide_index=True,use_container_width=True)
+        with right:
+            st.markdown('#### Säkerhetsmarginal')
+            st.metric('Högsta köpkurs med säkerhetsmarginal',show(buy,' kr',2))
+            st.caption('Aktiekursen ligger under köpkursen.' if p <= buy else 'Aktiekursen ligger över köpkursen.')
+        st.markdown('#### DCF-prognos – fem år')
+        st.dataframe(pd.DataFrame(forecast).round(2),hide_index=True,use_container_width=True)
+        st.caption(f'Nuvärde av terminalvärdet: {show(terminal_pv/1, " MSEK", 1)}. DCF-företagsvärde: {show(dcf_ev, " MSEK", 1)}.')
+        export = pd.DataFrame([{'Bolag':company,'Aktiekurs':p,'Motiverat värde':fair,'Potential (%)':upside,'Köpkurs med säkerhetsmarginal':buy}])
+        st.download_button('Exportera analys (CSV)',export.to_csv(index=False).encode('utf-8-sig'),file_name='bolagsvardering.csv',mime='text/csv')
+    st.caption('Modellen är en indikativ värdering och ingen köp- eller säljrekommendation. Kontrollera normaliserat kassaflöde, EBITA, nettoskuld, aktieantal, utspädning och multiplar mot rapporterna. Historisk EV/EBITA fylls manuellt eftersom den inte kan fastställas säkert från nuvarande datakälla.')
+
 st.divider()
 st.caption('Källor: Yahoo Finance via yfinance för nyckeltal och historik; Google News RSS för nyhetssökning; användarens egna uppladdade dokument. Inga automatiska AI-slutsatser påstås ha gjorts. Appen körs på egen Streamlit-server och filerna behandlas i den sessionen.')
