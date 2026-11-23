@@ -1103,6 +1103,33 @@ def directional_indicator(good, label):
 
 # Gemensam värderingsindikator ovanför alla flikar.
 # Baseras på verifierbar års-EPS och historisk P/E-median, aldrig enbart dagens P/E.
+def reconstructed_pe_history(income,prices,report_currency,trade_currency,reported_eps=None):
+    if report_currency!=trade_currency or not isinstance(prices,pd.DataFrame) or prices.empty or 'Close' not in prices:
+        return []
+    eps_by_year={}
+    if isinstance(income,pd.DataFrame) and not income.empty:
+        label=next((x for x in ('Diluted EPS','Basic EPS') if x in income.index),None)
+        if label:
+            for period in income.columns:
+                try:
+                    year=pd.Timestamp(period).year
+                    eps_value=numeric(income.at[label,period])
+                    if eps_value is not None and eps_value>0: eps_by_year[year]=eps_value
+                except (TypeError,ValueError,KeyError): pass
+    for year,eps_value in (reported_eps or {}).items():
+        eps_by_year.setdefault(year,eps_value)
+    series=prices['Close'].copy()
+    series.index=pd.to_datetime(series.index,utc=True).tz_localize(None)
+    ratios=[]
+    for year,eps_value in sorted(eps_by_year.items()):
+        if not eps_value or eps_value<=0: continue
+        first_day=pd.Timestamp(year=year+1,month=1,day=1)
+        period=series.loc[(series.index>=first_day)&(series.index<=first_day+pd.Timedelta(days=15))].dropna()
+        if len(period):
+            observed=numeric(period.iloc[0])
+            if observed is not None and 0<observed/eps_value<=80: ratios.append(observed/eps_value)
+    return ratios
+
 global_pe_samples=[]
 global_pe_frame=extended.get('valuation_history',pd.DataFrame())
 if isinstance(global_pe_frame,pd.DataFrame) and not global_pe_frame.empty:
@@ -1112,6 +1139,11 @@ if isinstance(global_pe_frame,pd.DataFrame) and not global_pe_frame.empty:
         if pe_label in global_pe_frame.columns:
             global_pe_samples+=pd.to_numeric(global_pe_frame[pe_label],errors='coerce').dropna().tolist()
 global_pe_samples=[float(x) for x in global_pe_samples if 0<float(x)<=80]
+if len(global_pe_samples)<3:
+    # Bokus EPS: 2023 Nordnet, 2024–2025 bolagets årsrapport 2025.
+    eps_fallback={'BOKUS.ST':{2023:2.51,2024:2.60,2025:5.37}}
+    rebuilt=reconstructed_pe_history(fin,hist,report_ccy,quote_ccy,eps_fallback.get(ticker))
+    if len(rebuilt)>=3: global_pe_samples=rebuilt
 global_pe_median=float(pd.Series(global_pe_samples).median()) if len(global_pe_samples)>=3 else None
 global_eps=None
 global_eps_period=None
@@ -1138,6 +1170,10 @@ global_display_method='Historisk P/E-jämförelse'
 with target_slot.container():
     header_price=price if price is not None and price>0 else None
     header_pe=pe if pe is not None and 0<pe<=80 else None
+    if header_pe is None and header_price is not None:
+        trailing_eps=numeric(info.get('trailingEps'))
+        if trailing_eps is not None and trailing_eps>0:
+            header_pe=header_price/trailing_eps
     header_history=global_pe_median if global_pe_median is not None and len(global_pe_samples)>=3 else None
     header_target=(header_price*header_history/header_pe
                    if header_price is not None and header_pe is not None and header_history is not None else None)
