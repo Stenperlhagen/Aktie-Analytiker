@@ -1423,9 +1423,16 @@ with five:
         else:
             risk_a,risk_b,risk_c=st.columns(3)
             risk_a.metric('Riskfri ränta',show(riskfree,' %',2))
-            risk_b.metric('Beta',show(beta,'×',2))
+            risk_b.metric('Beta – börskänslighet',show(beta,'',2))
             risk_c.metric('Avkastningskrav',show(discount_rate,' %',2))
-            st.caption('CAPM = '+show(riskfree,' %',2)+' + '+show(beta,'×',2)+' × 5,5 % aktieriskpremie. Statsobligationsränta: Riksbanken '+str(rate_date)+'. Beta: '+beta_source+'. Aktieriskpremien 5,5 % är ett modellantagande.')
+            st.caption('Beta mäter hur känslig aktien historiskt varit för börsens rörelser. Beta 1,0 ≈ samma känslighet som marknaden; 1,5 ≈ 50 % större; 0,5 ≈ hälften. Det är ett statistiskt mått, inte en prognos.')
+            with st.expander('Vad betyder beta och varför påverkar det värderingen?'):
+                st.write('**Beta 1,0:** aktien har historiskt rört sig ungefär i takt med marknaden. **Beta 1,5:** aktien har i genomsnitt reagerat cirka 50 % mer på marknadsrörelser. **Beta 0,5:** aktien har reagerat cirka hälften så mycket. Sambanden gäller inte vid varje enskild börsrörelse.')
+                st.write('I CAPM innebär högre beta ett högre avkastningskrav. Ett högre avkastningskrav minskar normalt det beräknade DCF-värdet, eftersom framtida kassaflöden diskonteras hårdare.')
+                st.write('**Bolagets beta:** '+show(beta,'',2)+' · **Källa:** '+beta_source+'.')
+                st.write('**Beräkning:** '+show(riskfree,' %',2)+' riskfri ränta + '+show(beta,'',2)+' × 5,5 % aktieriskpremie = '+show(discount_rate,' %',2)+' avkastningskrav.')
+                st.caption('Beta mäter marknadskänslighet, inte alla affärs- eller finansieringsrisker. 5,5 % aktieriskpremie är ett modellantagande.')
+            st.caption('Riskfri ränta: Riksbanken '+str(rate_date)+'. Beta: '+beta_source+'. CAPM-avkastningskrav: '+show(discount_rate,' %',2)+'.')
         st.caption('DCF använder historisk FCF-tillväxt från minst två jämförbara årsperioder (begränsad till −10–12 %) och terminaltillväxt 2 % (modellantagande).')
         dcf_missing=[]
         if fcf_annual is None or fcf_annual<=0: dcf_missing.append('Positivt fritt kassaflöde')
