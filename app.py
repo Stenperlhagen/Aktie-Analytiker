@@ -96,6 +96,7 @@ st.info('Bolagslistan är ett brett urval och inte en verifierad fullständig Na
 # Kompletterande svenska bolag. Börssegment kan ändras vid Nasdaqs omklassificeringar.
 # Listan är ett sökbart urval, inte en garanti för en fullständig aktuell segmentförteckning.
 ADDITIONAL_COMPANIES = {
+    'Bokusgruppen AB':'BOKUS.ST',
     'Attendo':'ATT.ST',
     'Humana':'HUM.ST',
     'Byggmax':'BMAX.ST',
