@@ -469,6 +469,92 @@ ADDITIONAL_COMPANIES = {
 }
 ALL_COMPANIES = {**{name:ticker for name,(ticker,_) in CAT.items()}, **ADDITIONAL_COMPANIES}
 
+@st.cache_data(ttl=21600,show_spinner=False)
+def screener_snapshot(symbol):
+    """En bolagsobservation med samma P/E-metod som Värderingskontroll."""
+    try:
+        obj=yf.Ticker(symbol)
+        info=obj.info or {}
+        current_pe=numeric(info.get('trailingPE'))
+        price=numeric(info.get('currentPrice') or info.get('regularMarketPrice'))
+        if current_pe is None or not 0<current_pe<=80 or price is None or price<=0:
+            return {'status':'Otillräckliga börsdata'}
+        history=obj.get_valuation_measures(freq='quarterly',periods=12)
+        pe_values=[]
+        if isinstance(history,pd.DataFrame) and not history.empty:
+            for field in ('PeRatio','PE Ratio','Trailing P/E','Trailing PE','peRatio','trailingPE','TrailingPeRatio'):
+                if field in history.index:
+                    pe_values+=pd.to_numeric(history.loc[field],errors='coerce').dropna().tolist()
+                if field in history.columns:
+                    pe_values+=pd.to_numeric(history[field],errors='coerce').dropna().tolist()
+        pe_values=[float(v) for v in pe_values if 0<float(v)<=80]
+        if len(pe_values)<3:
+            return {'status':'P/E-historik saknas','pe':current_pe,'price':price,'observations':len(pe_values)}
+        median=float(pd.Series(pe_values).median())
+        gap=(current_pe/median-1)*100
+        return {'status':'Intressant att analysera vidare' if gap<=-20 else 'Högt värderad' if gap>=20 else 'Avvakta',
+                'pe':current_pe,'median':median,'gap':gap,'price':price,
+                'indicative_price':price*median/current_pe,'observations':len(pe_values),
+                'currency':info.get('currency')}
+    except Exception:
+        return {'status':'Kunde inte hämtas'}
+
+st.markdown('### Hitta undervärderade aktier')
+st.caption('Screener för alla bolag i EquityLabs lista. Jämför nuvarande P/E med historisk median-P/E, på samma sätt som Värderingskontroll. En rabatt är en signal att undersöka bolaget, inte ett köpbeslut.')
+universe=list(dict.fromkeys(ALL_COMPANIES.values()))
+screener_names={ticker:name for name,ticker in ALL_COMPANIES.items()}
+if 'screener_results' not in st.session_state:
+    st.session_state.screener_results={}
+if 'screener_running' not in st.session_state:
+    st.session_state.screener_running=False
+scan_a,scan_b,scan_c=st.columns([2,2,2])
+if scan_a.button('Sök igenom alla bolag',key='scan_all_stocks',use_container_width=True):
+    st.session_state.screener_running=True
+if scan_b.button('Pausa sökningen',key='pause_scan_stocks',use_container_width=True):
+    st.session_state.screener_running=False
+if scan_c.button('Börja om',key='reset_scan_stocks',use_container_width=True):
+    st.session_state.screener_running=False
+    st.session_state.screener_results={}
+if st.session_state.screener_running:
+    pending=[symbol for symbol in universe if symbol not in st.session_state.screener_results]
+    for symbol in pending[:8]:
+        st.session_state.screener_results[symbol]=screener_snapshot(symbol)
+    if len(st.session_state.screener_results)>=len(universe):
+        st.session_state.screener_running=False
+    else:
+        st.caption('Sökningen fortsätter i omgångar för att minska belastningen på datakällan.')
+completed=len(st.session_state.screener_results)
+st.progress(completed/max(1,len(universe)),text=f'Genomsökta bolag: {completed} av {len(universe)}')
+if st.session_state.screener_results:
+    scan_rows=[]
+    for symbol,result in st.session_state.screener_results.items():
+        scan_rows.append({
+            'Bolag':screener_names.get(symbol,symbol),'Ticker':symbol,
+            'Signal':result.get('status','Saknas'),
+            'Rabatt mot historisk P/E (%)':round(-result['gap'],1) if result.get('gap') is not None else None,
+            'Nuvarande P/E':round(result['pe'],1) if result.get('pe') is not None else None,
+            'Historisk median P/E':round(result['median'],1) if result.get('median') is not None else None,
+            'Aktiekurs':round(result['price'],2) if result.get('price') is not None else None,
+            'Indikativ kurs vid historisk P/E':round(result['indicative_price'],2) if result.get('indicative_price') is not None else None,
+            'Valuta':result.get('currency',''),
+            'P/E-observationer':result.get('observations',0)
+        })
+    scan_df=pd.DataFrame(scan_rows)
+    filter_choice=st.radio('Visa', ['Intressanta','Alla resultat','Saknade uppgifter'],horizontal=True,key='screener_filter')
+    if filter_choice=='Intressanta':
+        scan_df=scan_df[scan_df['Signal']=='Intressant att analysera vidare']
+    elif filter_choice=='Saknade uppgifter':
+        scan_df=scan_df[scan_df['Signal'].isin(['Otillräckliga börsdata','P/E-historik saknas','Kunde inte hämtas'])]
+    scan_df=scan_df.sort_values('Rabatt mot historisk P/E (%)',ascending=False,na_position='last')
+    st.dataframe(scan_df,hide_index=True,use_container_width=True)
+    st.caption('Beräkningen bygger på senaste hämtade Yahoo-data. Positiv rabatt = lägre nuvarande P/E än historisk median. P/E-historik och aktuell P/E kan ha olika definitioner eller perioder; resultaten måste granskas. Saknade uppgifter ger ingen investeringssignal.')
+    st.download_button('Exportera sökresultat (CSV)',data=scan_df.to_csv(index=False).encode('utf-8-sig'),file_name='equitylab_aktiescreener.csv',mime='text/csv')
+else:
+    st.info('Klicka på ”Sök igenom alla bolag” för att börja. Resultaten visas allt eftersom bolagen kontrolleras.')
+if st.session_state.screener_running:
+    st.rerun()
+st.divider()
+
 with st.sidebar:
     st.header('Välj bolag')
     st.caption('Sök genom att skriva i listan eller öppna den och skrolla bland alla bolag.')
