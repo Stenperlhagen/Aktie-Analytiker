@@ -401,6 +401,20 @@ quote_ccy = info.get('currency') or quick.get('currency')
 report_ccy = info.get('financialCurrency')
 # Enterprise value and EBITA must use the same currency.
 ev_ebita = ((market_cap+netdebt)/ebita if market_cap is not None and netdebt is not None and ebita is not None and ebita>0 and quote_ccy and report_ccy and quote_ccy==report_ccy else None)
+# Tre kompletterande nyckeltal: kassagenerering, kapitalavkastning och utdelning.
+free_cash_flow = statement_value(cash,['Free Cash Flow'])
+if free_cash_flow is None:
+    operating_cash_reported = statement_value(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'])
+    capital_expenditure = statement_value(cash,['Capital Expenditure'])
+    if operating_cash_reported is not None and capital_expenditure is not None:
+        free_cash_flow = operating_cash_reported - abs(capital_expenditure)
+net_income_reported = statement_value(fin,['Net Income','Net Income Common Stockholders'])
+equity_reported = statement_value(balance,['Stockholders Equity','Common Stock Equity'])
+roe_overview = net_income_reported/equity_reported*100 if net_income_reported is not None and equity_reported is not None and equity_reported>0 else None
+dividend_yield = val(info,'dividendYield')
+# Yahoo kan ange yield som procenttal eller decimal; avstå om formatet inte kan säkerställas.
+if dividend_yield is not None:
+    dividend_yield = dividend_yield*100 if 0<=dividend_yield<=1 else (dividend_yield if 1<dividend_yield<=30 else None)
 st.markdown('### Finansiell översikt')
 overview_items = [
     ('Aktiekurs',show(price,' '+(quote_ccy or ''),2)),
@@ -411,12 +425,15 @@ overview_items = [
     ('Nettoskuld/EBITDA',show(netdebt_ebitda,'×',2) if netdebt_ebitda is not None else 'Saknas'),
     ('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),
     ('EV/EBITA',show(ev_ebita,'×',1) if ev_ebita is not None else 'Saknas'),
-    ('EBITA (helår)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas')
+    ('EBITA (helår)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas'),
+    ('Fritt kassaflöde',show(free_cash_flow/1e6,' M',0) if free_cash_flow is not None else 'Saknas'),
+    ('Avkastning på eget kapital (ROE)',show(roe_overview,' %',1) if roe_overview is not None else 'Saknas'),
+    ('Direktavkastning',show(dividend_yield,' %',1) if dividend_yield is not None else 'Saknas')
 ]
 for start in range(0,len(overview_items),4):
     cols=st.columns(4)
     for col,(label,value) in zip(cols,overview_items[start:start+4]): col.metric(label,value)
-st.caption('Omsättning och kassaflöde kan avse olika perioder. Omsättningstillväxt = CAGR över tillgängliga rapporterade årsperioder. EBITA visas bara om det finns som separat rapporterad post; EBIT och EBITDA används aldrig som ersättning. EV/EBITA visas endast när rapport- och handelsvaluta matchar. M = miljoner.')
+st.caption('Omsättning och kassaflöde kan avse olika perioder. Omsättningstillväxt = CAGR över tillgängliga rapporterade årsperioder. EBITA visas bara om det finns som separat rapporterad post; EBIT och EBITDA används aldrig som ersättning. EV/EBITA visas endast när rapport- och handelsvaluta matchar. ROE bygger på senaste rapporterade nettoresultat och eget kapital och är en förenklad kvot, inte ett genomsnittligt eget kapital. M = miljoner.')
 
 one,two,three,four,five=st.tabs(['Kurs och historik','Rapporterade data','Nyheter – 6 månader','Dokument och scenarier','Analys om bolaget'])
 with one:
