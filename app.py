@@ -531,8 +531,18 @@ def screener_snapshot(symbol):
             return data
         current_pe=numeric(info.get('trailingPE'))
         price=numeric(info.get('currentPrice') or info.get('regularMarketPrice'))
+        if price is None or price<=0:
+            try: price=numeric(obj.fast_info.get('last_price'))
+            except Exception: pass
+        if current_pe is None or not 0<current_pe<=80:
+            eps=numeric(info.get('trailingEps'))
+            if eps is not None and eps>0 and price is not None and price>0:
+                current_pe=price/eps
         if current_pe is None or not 0<current_pe<=80 or price is None or price<=0:
-            return {'status':'Otillräckliga börsdata','category':category}
+            missing=[]
+            if price is None or price<=0: missing.append('aktuell kurs')
+            if current_pe is None or not 0<current_pe<=80: missing.append('positiv vinst per aktie (TTM)')
+            return {'status':'Otillräckliga börsdata','category':category,'missing':', '.join(missing)}
         history=obj.get_valuation_measures(freq='quarterly',periods=12)
         pe_values=[]
         if isinstance(history,pd.DataFrame) and not history.empty:
@@ -543,7 +553,7 @@ def screener_snapshot(symbol):
                     pe_values+=pd.to_numeric(history[field],errors='coerce').dropna().tolist()
         pe_values=[float(v) for v in pe_values if 0<float(v)<=80]
         if len(pe_values)<3:
-            return {'status':'P/E-historik saknas','pe':current_pe,'price':price,'observations':len(pe_values),'category':category}
+            return {'status':'P/E-historik saknas','pe':current_pe,'price':price,'observations':len(pe_values),'category':category,'missing':'minst tre jämförbara historiska P/E-observationer'}
         median=float(pd.Series(pe_values).median())
         gap=(current_pe/median-1)*100
         return {'status':'Intressant att analysera vidare' if gap<=-20 else 'Högt värderad' if gap>=20 else 'Avvakta',
@@ -558,10 +568,10 @@ st.caption('Bolagen klassificeras efter värderingsmetod. P/E-signaler visas bar
 universe=list(dict.fromkeys(ALL_COMPANIES.values()))
 screener_names={ticker:name for name,ticker in ALL_COMPANIES.items()}
 # Tidigare screeningresultat beräknades utan kategorifilter och måste förnyas.
-if st.session_state.get('screener_model_version')!='category-v2':
+if st.session_state.get('screener_model_version')!='category-v3':
     st.session_state.screener_results={}
     st.session_state.screener_running=False
-    st.session_state.screener_model_version='category-v2'
+    st.session_state.screener_model_version='category-v3'
 if 'screener_results' not in st.session_state:
     st.session_state.screener_results={}
 if 'screener_running' not in st.session_state:
@@ -594,6 +604,7 @@ if st.session_state.screener_results:
             'P/B':round(result['pb'],2) if result.get('pb') is not None else None,
             'ROE (%)':round(result['roe'],1) if result.get('roe') is not None else None,
             'Signal':result.get('status','Saknas'),
+            'Behöver kompletteras':result.get('missing','Rapporterat substansvärde per aktie' if result.get('category')=='Investmentbolag / kapitalförvaltning' else 'EPRA-substansvärde per aktie' if result.get('category')=='Fastigheter' else 'Solvens- och kapitalkrav' if result.get('category')=='Försäkring' else ''),
             'Rabatt mot historisk P/E (%)':round(-result['gap'],1) if result.get('gap') is not None else None,
             'Nuvarande P/E':round(result['pe'],1) if result.get('pe') is not None else None,
             'Historisk median P/E':round(result['median'],1) if result.get('median') is not None else None,
