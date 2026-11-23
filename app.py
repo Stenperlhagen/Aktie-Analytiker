@@ -2095,8 +2095,50 @@ with three:
     st.caption('Detta är en transparent indikatoranalys, inte en statistiskt kalibrerad sannolikhet för uppgång eller nedgång. Tröskelvärdena är metodval, inte empiriskt fastställda prognoser. Värdering kräver dessutom jämförelse mot bransch och historiska multiplar. Banken, investmentbolag och fastighetsbolag behöver andra nyckeltal.')
 
 
+def investment_score(v, info):
+    # Explicit heuristic, not a probability or investment recommendation.
+    category=v.get('category')
+    operating=category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag')
+    items=[]
+    def add(name,value,low,high,weight,unit):
+        x=numeric(value)
+        if x is None or abs(x)==float('inf'): return
+        points=max(0,min(100,100*(x-low)/(high-low)))
+        items.append({'Område':name,'Nyckeltal':show(x,unit,1),'Poäng':round(points,1),'Vikt':weight})
+    if not v.get('audit') and v.get('target') is not None:
+        add('Värdering',v.get('upside'),-30,40,25,' %')
+    roe=val(info,'returnOnEquity')
+    if operating or category=='Bank / finansiella tjänster':
+        if roe is not None: add('Lönsamhet (ROE)',roe*100,0,20,20,' %')
+    if operating:
+        growth=val(info,'revenueGrowth')
+        if growth is not None: add('Omsättningstillväxt',growth*100,-10,15,20,' %')
+        debt=v.get('inputs',{}).get('Nettoskuld')
+        earnings=v.get('inputs',{}).get('EBITA')
+        if earnings is not None and earnings>0 and debt is not None:
+            add('Nettoskuld / EBITA',debt/earnings,5,0,15,'×')
+        ocf=val(info,'operatingCashflow')
+        sales=val(info,'totalRevenue')
+        if ocf is not None and sales and sales>0:
+            add('Operativ kassaflödesmarginal',100*ocf/sales,0,15,15,' %')
+    expected=95 if operating else 45 if category=='Bank / finansiella tjänster' else 25
+    coverage=sum(x['Vikt'] for x in items)
+    score=sum(x['Poäng']*x['Vikt'] for x in items)/coverage if operating and coverage>=70 and len(items)>=4 else None
+    return score,items,coverage/expected*100
+
 with four:
     st.subheader('Bolagsvärdering – '+company)
+    score,score_items,score_coverage=investment_score(valuation_result,info)
+    st.markdown('#### Fundamentalt investeringsbetyg')
+    st.metric('Investeringsbetyg',show(score,' / 100',0))
+    st.caption('Indikatorbaserad modell, ej historiskt kalibrerad. Datatäckning: '+show(score_coverage,' %',0)+'. Fullständigt betyg visas endast för rörelsedrivande bolag med tillräckliga nyckeltal; övriga sektorer kräver separata modeller.')
+    if score_items:
+        st.dataframe(pd.DataFrame(score_items),hide_index=True,use_container_width=True)
+    if score is None:
+        st.info('Otillräckligt underlag för ett sammanvägt investeringsbetyg.')
+    else:
+        st.write('Fundamental indikatorbedömning: **'+('Stark' if score>=75 else 'Blandad' if score>=50 else 'Svag')+'**. Bedömningen är inte en köp- eller säljsignal.')
+
     v=valuation_result
     st.caption('Samma automatiska modell som riktkursrutan och aktiescreenern. Inga analytikerriktkurser.')
     st.write('**Kategori:** '+v['category']+' · '+str(v.get('profile') or 'Sektormodell'))
