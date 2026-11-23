@@ -62,46 +62,42 @@ def fetch(ticker):
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def news(company):
-    """Prova breda Google News RSS-sökningar och redovisa anslutningsfel."""
+    """Breda nyhetssökningar med flera RSS-källor och verifierad datumfiltrering."""
     since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=183)
     search_name = re.sub(r'\\s+[AB]$', '', company, flags=re.I).strip()
     searches = [
-        f'"{search_name}" when:6m',
-        f'{search_name} aktie OR rapport OR förvärv when:6m',
+        ('Google News', 'https://news.google.com/rss/search?' + urllib.parse.urlencode({
+            'q': f'"{search_name}"', 'hl': 'sv', 'gl': 'SE', 'ceid': 'SE:sv'})),
+        ('Google News bred', 'https://news.google.com/rss/search?' + urllib.parse.urlencode({
+            'q': f'{search_name} börs', 'hl': 'sv', 'gl': 'SE', 'ceid': 'SE:sv'})),
+        ('Bing News', 'https://www.bing.com/news/search?' + urllib.parse.urlencode({
+            'q': f'"{search_name}"', 'format': 'rss', 'setlang': 'sv'})),
     ]
-    out, seen, errors, counts = [], set(), [], []
-    for query in searches:
-        url = 'https://news.google.com/rss/search?' + urllib.parse.urlencode({
-            'q': query, 'hl': 'sv', 'gl': 'SE', 'ceid': 'SE:sv'
-        })
+    out, seen, diagnostics = [], set(), []
+    for source, url in searches:
         try:
-            response = requests.get(url, timeout=15, headers={
-                'User-Agent': 'Mozilla/5.0 (compatible; EquityLab/1.0)'
-            })
+            response = requests.get(url, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
             response.raise_for_status()
             feed = feedparser.parse(response.content)
+            diagnostics.append(f'{source}: HTTP {response.status_code}, {len(response.content)} byte, {len(feed.entries)} poster, typ {response.headers.get("content-type", "okänd")}')
             if feed.bozo and not feed.entries:
-                raise ValueError(str(feed.bozo_exception))
-            counts.append(f'{query}: {len(feed.entries)} träffar i RSS-flödet')
+                diagnostics.append(f'{source} – parserfel: {str(feed.bozo_exception)[:180]}')
             for entry in feed.entries:
-                published = entry.get('published_parsed')
+                published = entry.get('published_parsed') or entry.get('updated_parsed')
                 if not published:
                     continue
                 date = dt.datetime(*published[:6], tzinfo=dt.timezone.utc)
-                if date < since or date > dt.datetime.now(dt.timezone.utc):
+                if not since <= date <= dt.datetime.now(dt.timezone.utc):
                     continue
-                title = entry.get('title', '').strip()
-                link = entry.get('link', '').strip()
+                title, link = entry.get('title', '').strip(), entry.get('link', '').strip()
                 if not title or not link or link in seen:
                     continue
                 seen.add(link)
-                out.append({'Datum': date.date().isoformat(), 'Rubrik': title, 'Länk': link})
+                out.append({'Datum': date.date().isoformat(), 'Rubrik': title, 'Länk': link, 'Källa': source})
         except Exception as exc:
-            errors.append(f'{type(exc).__name__}: {str(exc)[:200]}')
-        if len(out) >= 20:
-            break
-    out.sort(key=lambda item: item['Datum'], reverse=True)
-    return out[:35], errors, counts
+            diagnostics.append(f'{source} – fel: {type(exc).__name__}: {str(exc)[:180]}')
+    out.sort(key=lambda x: x['Datum'], reverse=True)
+    return out[:35], diagnostics
 
 def parse_file(upload):
     raw=upload.getvalue(); name=upload.name.lower()
@@ -311,12 +307,12 @@ with two:
             raw_table.columns = [str(c.date()) if hasattr(c, 'date') else str(c) for c in raw_table.columns]
             st.dataframe(raw_table, use_container_width=True)
 with three:
-    st.caption('Publicerade artiklar de senaste sex månaderna via Google News RSS. Artiklar kan handla om andra bolag med liknande namn.')
+    st.caption('Publicerade artiklar de senaste sex månaderna via Google News och Bing News RSS. Artiklar kan handla om andra bolag med liknande namn.')
     if st.button('Uppdatera nyheter', key='refresh_news'):
         news.clear()
         st.rerun()
     with st.spinner('Söker nyheter…'):
-        items, news_errors, news_counts = news(company)
+        items, news_diagnostics = news(company)
     if items:
         st.success(f'{len(items)} artiklar hittades.')
         for item in items:
@@ -324,11 +320,9 @@ with three:
     else:
         st.warning('Inga artiklar kunde hämtas. Det betyder inte att bolaget saknar nyheter.')
     with st.expander('Visa nyhetskällans diagnostik'):
-        for line in news_counts:
+        for line in news_diagnostics:
             st.text(line)
-        for err in news_errors:
-            st.code(err)
-        if not news_counts and not news_errors:
+        if not news_diagnostics:
             st.text('Ingen diagnostik tillgänglig.')
     search_link = 'https://www.google.com/search?' + urllib.parse.urlencode({
         'q': f'{company} pressmeddelanden senaste sex månaderna'
