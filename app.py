@@ -840,8 +840,9 @@ with three:
     st.markdown(f'[Sök pressmeddelanden i webbläsaren]({search_link})')
 with four:
     st.subheader(f'Analys om bolaget – {company}')
-    st.markdown('### Framtidsvärdering – fem år')
-    st.caption('Automatiska rapportvärden från ROIC AI. Tre justerbara scenarier visar möjlig framtida avkastning, inte prognoser eller köprekommendationer.')
+    st.markdown('### Vad kan aktien vara värd om fem år?')
+    st.caption('Utifrån bolagets rapporterade resultat beräknar modellen ett möjligt framtida aktiepris och vad det skulle innebära för din avkastning.')
+    st.markdown('**Så använder du analysen:** Börja med resultatet. Öppna sedan antagandena om du vill testa högre eller lägre tillväxt, lönsamhet och värdering.')
     def scenario_field(record, keys):
         for key in keys:
             result = numeric(record.get(key))
@@ -872,17 +873,22 @@ with four:
         latest_margin = forecast_ebita/forecast_revenue
         suggested_growth = max(-10.0,min(20.0,round(100*historical_growth,1))) if historical_growth is not None else 5.0
         suggested_margin = max(0.0,min(35.0,round(latest_margin*100,1)))
-        st.caption(f'Basår: {forecast_period} · Rapportvaluta: {forecast_currency} · Historisk omsättningstillväxt: '+(f'{historical_growth*100:.1f} %' if historical_growth is not None else 'otillräcklig historik'))
-        left, middle, right = st.columns(3)
-        with left:
-            base_growth = st.slider('Årlig omsättningstillväxt i basscenariot (%)',-15.0,25.0,float(suggested_growth),0.5,key='future_growth')
-        with middle:
-            base_margin = st.slider('EBITA-marginal år 5 i basscenariot (%)',0.0,40.0,float(suggested_margin),0.5,key='future_margin')
-        with right:
-            base_multiple = st.slider('EV/EBITA år 5 i basscenariot (×)',4.0,25.0,12.0,0.5,key='future_multiple')
-        st.caption('EV/EBITA-multipeln är ett antagande, inte ett verifierat framtida marknadspris. Negativt/positivt scenario ändrar tillväxt ±5 procentenheter, marginal ±2 procentenheter och multipel ±3×.')
-        hurdle = st.slider('Avkastningskrav på aktien per år (%)',5.0,20.0,10.0,0.5,key='required_equity_return')
-        st.caption('Avkastningskravet används för att diskontera ett möjligt aktievärde om fem år. Detta är en exitmultipelmodell, inte en fullständig kassaflödesvärdering (DCF).')
+        st.markdown('#### 1. Utgångsläge')
+        baseline_a,baseline_b,baseline_c=st.columns(3)
+        baseline_a.metric('Omsättning senaste helår',show(forecast_revenue/1e6,' M '+str(forecast_currency),0))
+        baseline_b.metric('EBITA-marginal',show(latest_margin*100,' %',1))
+        baseline_c.metric('Historisk omsättningstillväxt',show(historical_growth*100,' %/år',1) if historical_growth is not None else 'Saknas')
+        st.caption('Rapportperiod: '+forecast_period+' · Historiken avser endast tillgängliga jämförbara årsperioder.')
+        with st.expander('2. Justera antagandena för femårsprognosen',expanded=False):
+            st.caption('Ändra dessa värden för att se hur värderingen påverkas. Förvalen är historikbaserade där data finns, men framtida multipel och avkastningskrav är modellantaganden.')
+            left,middle=st.columns(2)
+            with left:
+                base_growth=st.slider('Omsättningstillväxt per år',-15.0,25.0,float(suggested_growth),0.5,key='future_growth',help='Hur mycket omsättningen antas växa varje år under fem år.')
+                base_margin=st.slider('EBITA-marginal om fem år',0.0,40.0,float(suggested_margin),0.5,key='future_margin',help='Hur stor del av omsättningen som antas bli EBITA år fem.')
+            with middle:
+                base_multiple=st.slider('EV/EBITA vid försäljning år fem',4.0,25.0,12.0,0.5,key='future_multiple',help='Antaget företagsvärde som multipel av EBITA om fem år. 12× är inte en verifierad marknadsvärdering.')
+                hurdle=st.slider('Ditt årliga avkastningskrav',5.0,20.0,10.0,0.5,key='required_equity_return',help='Används för att räkna tillbaka det framtida värdet till ett motiverat pris idag.')
+            st.caption('Negativt och positivt scenario prövar ±5 procentenheter tillväxt, ±2 procentenheter marginal och ±3× värderingsmultipel.')
         # Nettoskuld måste komma från samma årsbalans som EBITA.
         balance_period = next((x for x in _roic_data.get('balance',[]) if str(x.get('period_end_date') or '')[:10]==forecast_period and x.get('currency')==forecast_currency),None)
         debt_annual = scenario_field(balance_period or {},('bs_total_debt','total_debt','totalDebt'))
@@ -921,24 +927,33 @@ with four:
                 'Motiverat pris idag':show(fair_price,' '+str(quote_ccy),2) if fair_price is not None else 'Saknas',
                 'Säkerhetsmarginal':show(safety_margin,' %',1) if safety_margin is not None else 'Saknas'
             })
-        st.dataframe(pd.DataFrame(scenario_rows),hide_index=True,use_container_width=True)
+        st.markdown('#### 3. Resultat – tre möjliga utvecklingar')
+        if can_value:
+            st.caption('Beräknade priser och kursavkastning, exklusive utdelning. Alla resultat påverkas av antagandena ovan.')
+            for item in scenario_rows:
+                with st.container(border=True):
+                    st.markdown('**'+item['Scenario']+' scenario**')
+                    sc1,sc2,sc3=st.columns(3)
+                    sc1.metric('Aktiekurs om fem år',item['Aktiekurs år 5'])
+                    sc2.metric('Årlig kursavkastning',item['Avkastning/år'])
+                    sc3.metric('Motiverat pris idag',item['Motiverat pris idag'])
+        else:
+            st.info('Scenariernas resultat och EBITA kan beräknas, men ett aktiepris kräver verifierad nettoskuld och valuta.')
+        with st.expander('Visa detaljerad scenariotabell'):
+            st.dataframe(pd.DataFrame(scenario_rows),hide_index=True,use_container_width=True)
         if can_value:
             base_case = scenario_rows[1]
             base_future_ev = forecast_revenue*(1+base_growth/100)**5*(base_margin/100)*base_multiple
             base_equity_report = max(0.0,base_future_ev-annual_netdebt)
             base_fair_price = price*base_equity_report/(market_cap*market_fx)/(1+hurdle/100)**5
             base_return = (base_equity_report/(market_cap*market_fx))**(1/5)-1 if base_equity_report>0 else -1.0
-            fair_col, return_col, margin_col = st.columns(3)
-            fair_col.metric('Motiverat pris idag – bas',show(base_fair_price,' '+str(quote_ccy),2))
-            return_col.metric('Årlig kursavkastning – bas',show(base_return*100,' %',1))
-            margin_col.metric('Säkerhetsmarginal – bas',show((1-price/base_fair_price)*100,' %',1) if base_fair_price>0 else 'Saknas')
-            st.caption('Motiverat pris idag = diskonterat framtida aktievärde vid valt avkastningskrav. Säkerhetsmarginal = 1 − dagens kurs / motiverat pris. Negativ säkerhetsmarginal betyder att kursen överstiger modellvärdet.')
+            st.caption('Motiverat pris idag diskonterar värdet om fem år med avkastningskravet. Säkerhetsmarginalen är '+show((1-price/base_fair_price)*100,' %',1)+' i basscenariot.' if base_fair_price>0 else 'Basscenariot ger inget positivt motiverat aktiepris.')
             # Omvänd värdering: vilken omsättningstillväxt behövs för att nå avkastningskravet?
             target_equity = market_cap*market_fx*(1+hurdle/100)**5
             required_ev = target_equity+annual_netdebt
             required_revenue = required_ev/(base_multiple*(base_margin/100)) if base_multiple>0 and base_margin>0 and required_ev>0 else None
             required_growth = ((required_revenue/forecast_revenue)**(1/5)-1)*100 if required_revenue is not None and required_revenue>0 else None
-            st.markdown('**Vilken tillväxt krävs för att nå avkastningskravet?**')
+            st.markdown('#### Vad måste bolaget prestera för att nå ditt avkastningskrav?')
             if required_growth is None:
                 st.info('Kan inte beräknas med dessa antaganden. Kontrollera positiv marginal och framtida företagsvärde.')
             else:
@@ -947,13 +962,13 @@ with four:
                     difference=required_growth-historical_growth*100
                     st.write('Krävd tillväxt ligger '+show(abs(difference),' procentenheter ',1)+('över' if difference>0 else 'under eller i nivå med')+' den senast uppmätta historiska tillväxttakten.')
                 st.caption('Omvänd beräkning håller EBITA-marginal, exitmultipel och nettoskuld oförändrade enligt basscenariot. Den är inte en prognos.')
-            st.markdown('**Vad talar för och emot en investering?**')
+            st.markdown('#### Möjligheter och risker')
             if historical_growth is not None and historical_growth>0:
                 st.write(f'Förutsättning: omsättningen har ökat med {historical_growth*100:.1f} % per år mellan de två senaste jämförbara årsrapporterna. Det är historik, inte en garanti för framtida tillväxt.')
             if latest_margin>0:
                 st.write(f'Förutsättning: senaste rapporterade EBITA-marginal är {latest_margin*100:.1f} %. Scenarierna prövar hur marginalförändringar påverkar aktievärdet.')
             st.write('Risk: en lägre tillväxt, pressade marginaler eller lägre framtida värderingsmultipel kan ge betydligt sämre avkastning. Modellen antar dessutom oförändrad nettoskuld.')
-            st.write('Basscenariots beräknade årliga kursavkastning är **'+str(base_case['Avkastning/år'])+'**. Det är en känslighetsberäkning, inte ett investeringsbetyg.')
+            st.caption('Scenarierna är känslighetsberäkningar, inte prognoser. Oförändrad nettoskuld och antal aktier antas; utdelning och framtida finansieringsbehov ingår inte.')
     st.divider()
     st.markdown('#### Historisk poängmodell – äldre jämförelse')
     st.caption('Den äldre färgmodellen är inte kalibrerad för framtida tillväxt och används inte för scenariovärderingen ovan.')
