@@ -454,18 +454,11 @@ dividend_yield = val(info,'dividendYield')
 # Yahoo kan ange yield som procenttal eller decimal; avstå om formatet inte kan säkerställas.
 if dividend_yield is not None:
     dividend_yield = dividend_yield*100 if 0<=dividend_yield<=1 else (dividend_yield if 1<dividend_yield<=30 else None)
-# Betsson: offentlig, periodmärkt rapportuppgift från delårsrapporten 2026-10-22.
-# Visas separat från CAGR eftersom niomånaderstillväxt inte är flerårig CAGR.
-official_growth = None
-if ticker == 'BETS-B.ST':
-    official_growth = (922.1 / 893.1 - 1) * 100
-    if sales_growth_pct is None:
-        sales_growth_pct = official_growth
 st.markdown('### Finansiell översikt')
 overview_items = [
     ('Aktiekurs',show(price,' '+(quote_ccy or ''),2)),
     ('Omsättning (LTM/helår)',show(revenue/1e6,' M',0) if revenue is not None else 'Saknas'),
-    ('Omsättningstillväxt' + (' (jan–sep, YoY)' if ticker == 'BETS-B.ST' and official_growth is not None else ''),show(sales_growth_pct,' %' if ticker == 'BETS-B.ST' and official_growth is not None else ' %/år',1) if sales_growth_pct is not None else 'Saknas'),
+    ('Omsättningstillväxt',show(sales_growth_pct,' %/år',1) if sales_growth_pct is not None else 'Saknas'),
     ('Rörelsemarginal',show(margin*100,' %') if margin is not None else 'Saknas'),
     ('EBITA (helår)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas'),
     ('Avkastning på eget kapital (ROE)',show(roe_overview,' %',1) if roe_overview is not None else 'Saknas'),
@@ -479,8 +472,6 @@ overview_items = [
 for start in range(0,len(overview_items),4):
     cols=st.columns(4)
     for col,(label,value) in zip(cols,overview_items[start:start+4]): col.metric(label,value)
-if ticker == 'BETS-B.ST':
-    st.caption('Betssons omsättningstillväxt jan–sep 2026 mot jan–sep 2025 beräknas från officiellt rapporterade 922,1 respektive 893,1 MEUR. Källa: https://www.betssonab.com/investors/reports-and-presentations/betsson-ab-interim-report-january-september-2026')
 st.caption('Omsättning och kassaflöde kan avse olika perioder. Omsättningstillväxt = CAGR över tillgängliga rapporterade årsperioder. EBITA visas bara om det finns som separat rapporterad post; EBIT och EBITDA används aldrig som ersättning. EV/EBITA visas endast när rapport- och handelsvaluta matchar. ROE bygger på senaste rapporterade nettoresultat och eget kapital och är en förenklad kvot, inte ett genomsnittligt eget kapital. M = miljoner.')
 
 one,two,three,four,five=st.tabs(['Kurs och historik','Rapporterade data','Nyheter – 6 månader','Dokument och scenarier','Analys om bolaget'])
