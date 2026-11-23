@@ -546,26 +546,46 @@ _roic_data, _roic_error = {}, None
 if roic_key():
     _roic_data,_roic_error = roic_company_data(ticker,roic_key())
 _roic_income=_roic_data.get('income',[])
-# P/E: använd endast verifierad valuta och samma årsperiod för EPS.
+# P/E: använd års-EPS från samma rapportår som ROIC:s verifierade rapportvaluta.
 pe_source = 'Yahoo Finance trailingPE' if pe is not None else 'Saknas'
-eps_source_currency = report_ccy
+eps_source_currency = None
 eps_report_period = None
-if eps is not None and eps>0 and pe is None and quote_ccy:
+if pe is None and price is not None and price>0 and quote_ccy:
     if _roic_income and isinstance(_roic_income[0].get('currency'),str):
-        # Yahoo-rapportens EPS kan inte säkert kopplas till ROIC:s år utan datumkontroll.
-        roic_eps = _roic_income[0].get('eps_diluted')
-        if roic_eps is None: roic_eps = _roic_income[0].get('eps_basic')
-        if isinstance(roic_eps,(int,float)) and roic_eps>0:
-            eps = roic_eps
-            eps_source_currency = _roic_income[0]['currency']
-            eps_report_period = _roic_income[0].get('period_end_date')
-            rate = fx_rate(eps_source_currency,quote_ccy)
-            if rate is not None and price is not None and rate>0:
-                pe = price/(eps*rate)
-                pe_source = 'Beräknat från ROIC års-EPS och Yahoo valutakurs'
-    elif eps_source_currency and eps_source_currency==quote_ccy and price is not None:
+        report = _roic_income[0]
+        report_end = str(report.get('period_end_date') or '')[:10]
+        report_year = report_end[:4]
+        eps_value = None
+        eps_origin = None
+        # Prova rapporterad EPS från ROIC, utan att anta ett enskilt fältnamn.
+        for key in ('eps_diluted','eps_basic','eps','is_eps_diluted','is_eps_basic','is_earnings_per_share_diluted','is_earnings_per_share_basic'):
+            candidate = numeric(report.get(key))
+            if candidate is not None and candidate>0:
+                eps_value,eps_origin=candidate,'ROIC'
+                break
+        # Yahoo års-EPS får bara användas när årsperioden överensstämmer.
+        if eps_value is None and report_year and fin is not None and not fin.empty:
+            for column in fin.columns:
+                try: column_year=str(pd.Timestamp(column).year)
+                except (TypeError,ValueError): continue
+                if column_year!=report_year: continue
+                for row in ('Diluted EPS','Basic EPS'):
+                    if row in fin.index:
+                        candidate=numeric(fin.loc[row,column])
+                        if candidate is not None and candidate>0:
+                            eps_value,eps_origin=candidate,'Yahoo årsresultat'
+                            break
+                if eps_value is not None: break
+        if eps_value is not None:
+            eps_source_currency=report['currency']
+            eps_report_period=report_end
+            rate=fx_rate(eps_source_currency,quote_ccy)
+            if rate is not None and rate>0:
+                pe=price/(eps_value*rate)
+                pe_source='Beräknat: '+eps_origin+' års-EPS '+report_year+', '+eps_source_currency+'/'+quote_ccy+' valutakurs'
+    elif report_ccy and report_ccy==quote_ccy and eps is not None and eps>0:
         pe=price/eps
-        pe_source='Beräknat från Yahoo EPS i handelsvalutan'
+        pe_source='Beräknat från Yahoo EPS (samma valuta)'
 # Enterprise value and EBITA must use the same currency.
 ev_ebita = ((market_cap+netdebt)/ebita if market_cap is not None and netdebt is not None and ebita is not None and ebita>0 and quote_ccy and report_ccy and quote_ccy==report_ccy else None)
 # Tre kompletterande nyckeltal: kassagenerering, kapitalavkastning och utdelning.
