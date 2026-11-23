@@ -20,41 +20,6 @@ GROUPS={
 'Material och skog': {'Boliden':'BOL.ST','SSAB B':'SSAB-B.ST','SCA B':'SCA-B.ST','Holmen B':'HOLM-B.ST','Billerud':'BILL.ST','Stora Enso R':'STE-R.ST','Gränges':'GRNG.ST','Hexpol B':'HPOL-B.ST','Alleima':'ALLEI.ST','Lundin Mining':'LUMI.ST'},
 'Övriga bolag': {'Volati B':'VOLAT-B.ST','Salix Group':'SALIX.ST','Röko':'ROKO.ST','Asker Healthcare':'ASKER.ST','Verisure':'VSURE.ST','Paradox Interactive':'PDX.ST'}
 }
-# Mid Cap-listan kan importeras från en verifierad Nasdaq-export.
-# Importen ändrar inte den befintliga bolagslistan eller värderingsmodellen.
-def load_midcap_csv(upload):
-    data = pd.read_csv(upload, sep=None, engine='python', encoding='utf-8-sig', dtype=str).fillna('')
-    normalized = {str(c).strip().lower(): c for c in data.columns}
-    def column(*names):
-        for n in names:
-            if n in normalized:
-                return normalized[n]
-        return None
-    name_col = column('name', 'company', 'company name', 'bolag', 'bolagsnamn', 'instrument name', 'security name')
-    symbol_col = column('symbol', 'ticker', 'short name', 'shortname', 'kortnamn')
-    segment_col = column('segment', 'market segment', 'market cap', 'market capitalization segment', 'list')
-    market_col = column('market', 'exchange', 'marketplace', 'börs', 'market place')
-    if not name_col or not symbol_col:
-        raise ValueError('CSV-filen måste innehålla kolumner för bolagsnamn (Name) och kortnamn (Symbol).')
-    if segment_col:
-        data = data[data[segment_col].str.contains(r'mid\\s*cap', case=False, na=False, regex=True)]
-    if market_col:
-        data = data[data[market_col].str.contains(r'stockholm|nasdaq stockholm|xsto', case=False, na=False, regex=True)]
-    out = {}
-    for _, record in data.iterrows():
-        name = str(record[name_col]).strip()
-        symbol = str(record[symbol_col]).strip().upper().replace(' ', '-')
-        if not name or not symbol:
-            continue
-        if symbol.endswith('.ST'):
-            ticker = symbol
-        elif '.' not in symbol:
-            ticker = symbol + '.ST'
-        else:
-            continue
-        out[name] = ticker
-    return dict(sorted(out.items(), key=lambda x: x[0].casefold()))
-
 CAT={n:(t,g) for g,items in GROUPS.items() for n,t in items.items()}
 
 def numeric(v):
@@ -112,43 +77,51 @@ def parse_file(upload):
     return ''
 
 st.title('EquityLab')
-st.caption('Automatisk bolagsöversikt · Svenska börsbolag och Mid Cap · Egna rapporter · Scenariovärdering')
-st.info('Data hämtas vid val av bolag via Yahoo Finance (inofficiell källa, kan vara fördröjd eller ofullständig). Saknade fält visas som ”Saknas” – inga värden hittas på. Källorna bör kontrolleras mot bolagets rapporter.')
+st.caption('Automatisk bolagsöversikt · Svenska börsbolag · Egna rapporter · Scenariovärdering')
+st.info('Bolagslistan är ett brett urval och inte en verifierad fullständig Nasdaq-segmentlista. Data hämtas vid val av bolag via Yahoo Finance (inofficiell källa, kan vara fördröjd eller ofullständig). Saknade fält visas som ”Saknas” – inga värden hittas på. Källorna bör kontrolleras mot bolagets rapporter.')
+# Kompletterande svenska bolag. Börssegment kan ändras vid Nasdaqs omklassificeringar.
+# Listan är ett sökbart urval, inte en garanti för en fullständig aktuell segmentförteckning.
+ADDITIONAL_COMPANIES = {
+    'AcadeMedia':'ACAD.ST','Addvise B':'ADDV-B.ST','Arjo B':'ARJO-B.ST',
+    'Ascelia Pharma':'ACE.ST','Bactiguard B':'BACTI-B.ST','Bergman & Beving B':'BERG-B.ST',
+    'Betsson B':'BETS-B.ST','BHG Group':'BHG.ST','Boozt':'BOOZT.ST',
+    'Cibus Nordic Real Estate':'CIBUS.ST','Cloetta B':'CLA-B.ST','Coala-Life':'COALA.ST',
+    'CTT Systems':'CTT.ST','Duni':'DUNI.ST','Eastnine':'EAST.ST',
+    'Elanders B':'ELAN-B.ST','Engcon B':'ENGCON-B.ST','Fenix Outdoor B':'FOI-B.ST',
+    'Fortnox':'FNOX.ST','Garo':'GARO.ST','Hansa Biopharma':'HNSA.ST',
+    'Heba B':'HEBA-B.ST','Hexpol B':'HPOL-B.ST','Instalco':'INSTAL.ST',
+    'Inwido':'INWI.ST','Karnov Group':'KAR.ST','Knowit':'KNOW.ST',
+    'Lime Technologies':'LIME.ST','Maha Energy':'MAHA-A.ST','Medcap':'MCAP.ST',
+    'Midsona B':'MSON-B.ST','MilDef Group':'MILDEF.ST','Momentum Group B':'MMGR-B.ST',
+    'Nelly Group':'NELLY.ST','Nolato B':'NOLA-B.ST','OEM International B':'OEM-B.ST',
+    'Scandi Standard':'SCST.ST','Scandic Hotels':'SHOT.ST','Scandinavian Enviro Systems':'SES.ST',
+    'Sdiptech B':'SDIP-B.ST','Senzime':'SEZI.ST','Scandinavian Tobacco Group':'STG.CO',
+    'SinterCast':'SINT.ST','Sleep Cycle':'SLEEP.ST','Softronic B':'SOF-B.ST',
+    'Solid Försäkring':'SFAB.ST','Stillfront Group':'SF.ST','Storytel B':'STORY-B.ST',
+    'Studsvik':'SVIK.ST','Surgical Science':'SUS.ST','SynAct Pharma':'SYNACT.ST',
+    'TF Bank':'TFBANK.ST','Tobii Dynavox':'TDVOX.ST','Troax Group':'TROAX.ST',
+    'Vestum':'VESTUM.ST','VBG Group B':'VBG-B.ST','Volati B':'VOLAT-B.ST',
+    'Wästbygg Gruppen B':'WBGR-B.ST','XANO Industri B':'XANO-B.ST'
+}
+ALL_COMPANIES = {**{name:ticker for name,(ticker,_) in CAT.items()}, **ADDITIONAL_COMPANIES}
+
 with st.sidebar:
     st.header('Välj bolag')
-    universe = st.radio('Börslista', ['Befintliga svenska bolag', 'Nasdaq Stockholm Mid Cap'], horizontal=False)
-    midcap = {}
-    if universe == 'Nasdaq Stockholm Mid Cap':
-        st.caption('Importera en aktuell, verifierad Nasdaq-lista. Appen gissar inte vilka bolag som ingår i Mid Cap.')
-        midcap_file = st.file_uploader('Nasdaq Mid Cap-lista (CSV)', type=['csv'], key='midcap_list')
-        if midcap_file is not None:
-            try:
-                midcap = load_midcap_csv(midcap_file)
-                if midcap:
-                    st.success(f'{len(midcap)} aktier importerade.')
-                    st.caption('Kontrollera att filen endast innehåller Nasdaq Stockholm Mid Cap. Bolag med flera aktieslag kan förekomma flera gånger.')
-                else:
-                    st.warning('Inga Mid Cap-aktier kunde identifieras i filen.')
-            except Exception as ex:
-                st.error(f'Kunde inte läsa listan: {ex}')
-        else:
-            st.info('Ladda upp Nasdaqs Mid Cap-lista för att visa och analysera bolagen.')
-            st.download_button('Ladda ner CSV-mall', data='Name,Symbol,Segment,Market\\nExempelbolag,EXEMPEL,Mid Cap,Nasdaq Stockholm\\n', file_name='midcap_mall.csv', mime='text/csv')
-    q=st.text_input('Sök bolagsnamn',placeholder='T.ex. Investor, Volati, Atlas Copco')
-    if universe == 'Nasdaq Stockholm Mid Cap':
-        options=[n for n in midcap if q.casefold() in n.casefold()]
-        name=st.selectbox('Mid Cap-bolag',options) if options else None
-        ticker=midcap[name] if name else ''
-    else:
-        sector=st.selectbox('Bransch', ['Alla']+list(GROUPS))
-        options=[n for n,(t,g) in CAT.items() if (sector=='Alla' or g==sector) and q.casefold() in n.casefold()]
-        if not options:
-            st.warning('Inga träffar. Du kan ange en egen Yahoo Finance-ticker nedan.')
-        name=st.selectbox('Bolag',options) if options else None
-        custom=st.text_input('Egen ticker (valfritt)',placeholder='Exempel: VOLAT-B.ST')
-        ticker=custom.strip().upper() or (CAT[name][0] if name else '')
+    st.caption('Sök svenska börsbolag i samma lista, oavsett börssegment.')
+    q=st.text_input('Sök bolagsnamn eller ticker',placeholder='T.ex. Volati, Investor, VBG')
+    options=sorted(
+        [n for n,t in ALL_COMPANIES.items() if q.casefold() in n.casefold() or q.casefold() in t.casefold()],
+        key=str.casefold
+    )
+    if not options:
+        st.warning('Inga träffar i listan. Ange en egen Yahoo Finance-ticker nedan.')
+    name=st.selectbox('Bolag',options) if options else None
+    custom=st.text_input('Egen ticker (om bolaget saknas)',placeholder='Exempel: VOLAT-B.ST')
+    ticker=custom.strip().upper() or (ALL_COMPANIES[name] if name else '')
     st.caption(f'Ticker: {ticker or "–"}')
-    if st.button('Uppdatera data',use_container_width=True): st.cache_data.clear();st.rerun()
+    if st.button('Uppdatera data',use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
 if not ticker:st.stop()
 with st.spinner(f'Hämtar data för {name or ticker}…'):
     try: info,hist,fin,cash,balance=fetch(ticker)
