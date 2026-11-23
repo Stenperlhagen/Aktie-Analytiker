@@ -999,7 +999,7 @@ else:
 st.caption('Detta är en historisk multipeljämförelse, inte en fullständig bolagsvärdering. DCF och sammanvägd köp-/säljsignal är pausade tills de har validerats.')
 st.divider()
 
-one,two,three,four,five=st.tabs(['Kurs och historik','Finansiella rapporter','Nyheter – 6 månader','Investeringsanalys','Bolagsvärdering'])
+one,two,three,four=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering'])
 with one:
     if not hist.empty:
         h=hist.reset_index();h['Datum']=pd.to_datetime(h['Date']).dt.tz_localize(None)
@@ -1326,54 +1326,6 @@ with two:
     st.caption('Datatäckning visar vilka rapportserier som har hämtats, inte att varje post är reviderad eller fullständigt kvalitetssäkrad. Kontrollera viktiga värden mot bolagets publicerade rapporter.')
 
 with three:
-    st.caption('Nyheter från de senaste sex månaderna. Sökningen körs först när du begär den, så bolagsbyten går snabbare.')
-    if st.button('Hämta nyheter för valt bolag', key='refresh_news'):
-        news.clear()
-        st.session_state['news_requested_for'] = ticker
-    if st.session_state.get('news_requested_for') == ticker:
-        with st.spinner('Hämtar nyheter…'):
-            items, news_diagnostics = news(company)
-        if items:
-            st.success(f'{len(items)} artiklar hittades.')
-            for item in items:
-                st.markdown(f'**{item["Datum"]}** · [{item["Rubrik"]}]({item["Länk"]})')
-        else:
-            st.warning('Inga artiklar kunde hämtas. Det betyder inte att bolaget saknar nyheter.')
-        with st.expander('Visa nyhetskällans diagnostik'):
-            for line in news_diagnostics:
-                st.text(line)
-    else:
-        st.info('Klicka på Hämta nyheter för valt bolag för att starta sökningen.')
-    search_link = 'https://www.google.com/search?' + urllib.parse.urlencode({
-        'q': f'{company} pressmeddelanden senaste sex månaderna'
-    })
-    st.markdown(f'[Sök pressmeddelanden i webbläsaren]({search_link})')
-# Urval av noterade jämförelsebolag. Urvalet är en analytisk bedömning,
-# inte en automatisk bekräftelse på identiska affärsmodeller.
-PEER_UNIVERSE={
-    'BETS-B.ST':[('FDJ United','FDJU.PA','Speloperatör, annan geografisk mix'),('Flutter Entertainment','FLUT','Speloperatör, annan storlek och geografisk mix')],
-    'VOLO.ST':[('Bergman & Beving','BERG-B.ST','Svensk förvärvsgrupp'),('Lagercrantz','LAGR-B.ST','Svensk förvärvsgrupp'),('Indutrade','INDT.ST','Svensk förvärvsgrupp')],
-    'SALIX.ST':[('Bergman & Beving','BERG-B.ST','Industridistribution'),('Addtech','ADDT-B.ST','Teknikhandel och förvärv'),('Lagercrantz','LAGR-B.ST','Teknik- och industrigrupp')],
-}
-@st.cache_data(ttl=21600,show_spinner=False)
-def peer_snapshot(symbol):
-    try:
-        obj=yf.Ticker(symbol)
-        data=obj.info or {}
-        p=numeric(data.get('trailingPE'))
-        m=numeric(data.get('operatingMargins'))
-        g=numeric(data.get('revenueGrowth'))
-        d=numeric(data.get('totalDebt'))
-        c=numeric(data.get('totalCash'))
-        e=numeric(data.get('ebitda'))
-        leverage=(d-c)/e if d is not None and c is not None and e is not None and e>0 else None
-        return {'pe':p if p is not None and p>0 else None,'margin':m*100 if m is not None else None,
-                'growth':g*100 if g is not None else None,'leverage':leverage,
-                'currency':data.get('currency'),'source':'Yahoo Finance'}
-    except Exception:
-        return {}
-
-with four:
     st.subheader(f'Investeringsanalys – {company}')
     st.markdown('### Investeringsprocess i fem steg')
     st.caption('Följ bolaget från affärsmodell och finansiell kvalitet till bransch, värdering och uppföljning. Kontrollera underlaget innan en investeringsbedömning görs.')
@@ -1437,7 +1389,7 @@ with four:
         st.markdown('**05 · Värdering och uppföljning**')
         st.write('Aktuell kurs: **'+(show(price,' '+str(quote_ccy),2) if price is not None else 'Saknas')+'**.')
         st.write('Kontrollerat motiverat värde: **Ej fastställt**. Tidigare automatiska DCF- och rabattbedömningar är inte godkända som investeringssignal.')
-        st.caption('Följ kvartalsrapporter, prognosförändringar, kassaflöde och värderingsantaganden. Använd flikarna Nyheter och Bolagsvärdering för underlaget.')
+        st.caption('Följ kvartalsrapporter, prognosförändringar, kassaflöde och värderingsantaganden. Använd fliken Bolagsvärdering och bolagens publicerade rapporter för underlaget.')
     st.markdown('#### Samlad bedömning')
     st.info('Analysen är ännu inte tillräckligt verifierad för en köp-/säljbedömning. Finansiell historik finns delvis, men branschbedömning och kvalitetssäkrad värdering återstår.')
     st.divider()
@@ -1787,7 +1739,7 @@ with four:
     st.caption('Detta är en transparent indikatoranalys, inte en statistiskt kalibrerad sannolikhet för uppgång eller nedgång. Tröskelvärdena är metodval, inte empiriskt fastställda prognoser. Värdering kräver dessutom jämförelse mot bransch och historiska multiplar. Banken, investmentbolag och fastighetsbolag behöver andra nyckeltal.')
 
 
-with five:
+with four:
     st.subheader(f'Bolagsvärdering – {company}')
     st.caption('Automatiska historikbaserade antaganden och öppet redovisade modellpolicyer. Inga manuella reglage. Resultaten är inte riktkurser eller köprekommendationer.')
     if price is None or price<=0 or not quote_ccy:
