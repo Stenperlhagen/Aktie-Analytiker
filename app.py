@@ -1170,7 +1170,7 @@ with two:
     coverage=[]
     for label,frame in coverage_frames:
         count=len(frame.columns) if isinstance(frame,pd.DataFrame) and not frame.empty else 0
-        coverage.append({'Rapport':label,'Tillgängliga perioder':count,'Status':'Tillgänglig' if count else 'Saknas'})
+        coverage.append({'Rapport':label,'Tillgängliga perioder':count})
     st.dataframe(pd.DataFrame(coverage),hide_index=True,use_container_width=True)
     st.caption('Datatäckning visar vilka rapportserier som har hämtats, inte att varje post är reviderad eller fullständigt kvalitetssäkrad. Kontrollera viktiga värden mot bolagets publicerade rapporter.')
 
