@@ -698,6 +698,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
             imap={'Total Revenue':('is_sales_revenue_turnover','revenue','total_revenue'),
                   'Operating Income':('is_operating_income','operating_income','ebit'),
                   'EBITA':('is_ebita','ebita'),
+                  'Amortization Of Intangibles':('is_amortization_of_intangibles','amortization_of_intangibles'),
                   'Net Income Common Stockholders':('net_income_common_stockholders','is_net_income_common_stockholders'),
                   'Interest Expense':('is_interest_expense','interest_expense')}
             bmap={'Total Debt':('bs_total_debt','total_debt','totalDebt'),
@@ -786,13 +787,15 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
             common=sorted(set(fin.columns)&set(balance.columns),reverse=True)
             if common:
                 period=common[0]
-                earnings=row(fin,['EBITA','Adjusted EBITA','Normalized EBITA'],period)
+                earnings=row(fin,['EBITA'],period)
                 if earnings is None:
                     ebit=row(fin,['Operating Income','EBIT'],period)
-                    amort=row(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period) if period in cash.columns else None
+                    amort=row(fin,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+                    if amort is None and period in cash.columns:
+                        amort=row(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
                     if ebit is not None:
                         earnings=ebit+abs(amort) if amort is not None else ebit
-                        earnings_label='EBITA (beräknad)' if amort is not None else 'EBIT (proxy)'
+                        earnings_label='EBITA (beräknad)' if amort is not None else 'EBIT'
                 debt=row(balance,['Net Debt'],period)
                 if debt is None:
                     gross=row(balance,['Total Debt'],period)
@@ -835,7 +838,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
                 fcff=None
                 out['period']='2026-09-30'
                 out['source']='https://financialfilings.com/filings/aak/interim-quarterly-report/2026/74641045/'
-                out['missing'].append('AAK: separat EBITA och normaliserad FCFF ej verifierade; rapporterad EBIT används endast som konservativ proxy.')
+                out['missing'].append('AAK: separat EBITA och normaliserad FCFF ej verifierade; rapporterad EBIT används i separat EV/EBIT-modell.')
             # Kontrollera enheter och kapitalstruktur för ALLA bolag, inte bara specialfallen.
             market_cap=val(info,'marketCap') or val(quick,'market_cap')
             audit=[]
@@ -858,9 +861,15 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
             if (preferred is not None and preferred>0) or symbol=='VOLO.ST':
                 audit.append('Preferenskapital: marknadsvärde och rättigheter måste verifieras innan stamaktievärdet kan användas som köpsignal')
             out['audit']=audit
-            out['inputs']={('EBIT (proxy)' if symbol=='AAK.ST' else earnings_label):earnings,'Nettoskuld':debt,'Antal aktier':shares,'FCFF':fcff,'Valutakurs':fx}
-            multiple_value=comparable_ev_ebita(earnings,debt,shares,m,fx)
-            if multiple_value is not None: out['models']['EV/EBIT (EBITA-proxy)' if symbol=='AAK.ST' or earnings_label=='EBIT (proxy)' else 'EV/EBITA']=multiple_value
+            out['inputs']={('EBIT' if symbol=='AAK.ST' else earnings_label):earnings,'Nettoskuld':debt,'Antal aktier':shares,'FCFF':fcff,'Valutakurs':fx}
+            use_ebit=symbol=='AAK.ST' or earnings_label=='EBIT'
+            # Explicit separate illustrative EBIT multiple, not a measured peer median.
+            effective_multiple=max(1.0,m-1.0) if use_ebit else m
+            if use_ebit:
+                out['assumptions'].pop('EV/EBITA',None)
+                out['assumptions']['EV/EBIT']=effective_multiple
+            multiple_value=comparable_ev_ebita(earnings,debt,shares,effective_multiple,fx)
+            if multiple_value is not None: out['models']['EV/EBIT' if use_ebit else 'EV/EBITA']=multiple_value
             else: out['missing'].append('EV/EBITA: jämförbar EBITA, nettoskuld, aktier eller valuta')
             if fcff is not None and fcff>0 and debt is not None and shares and shares>0 and fx and fx>0:
                 rate=w/100
@@ -936,10 +945,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v9':
+if st.session_state.get('screener_model_version')!='unified-v10':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v9'
+    st.session_state['screener_model_version']='unified-v10'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 with st.sidebar:
@@ -964,10 +973,10 @@ with st.sidebar:
     st.caption('Sök bland samtliga bolag. Resultatet visas i huvudfönstret.')
     universe=list(dict.fromkeys(ALL_COMPANIES.values()))
     screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
-    if st.session_state.get('screener_model_version')!='unified-v9':
+    if st.session_state.get('screener_model_version')!='unified-v10':
         st.session_state.screener_results={}
         st.session_state.screener_running=False
-        st.session_state.screener_model_version='unified-v9'
+        st.session_state.screener_model_version='unified-v10'
     if 'screener_results' not in st.session_state:
         st.session_state.screener_results={}
     if 'screener_running' not in st.session_state:
@@ -1230,6 +1239,7 @@ overview_items = [
     ('Omsättningstillväxt',show(sales_growth_pct,' %/år',1) if sales_growth_pct is not None else 'Saknas'),
     ('Rörelsemarginal',show(margin*100,' %') if margin is not None else 'Saknas'),
     ('EBITA (värderingsperiod)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas'),
+    ('EBIT (värderingsperiod)',show(valuation_inputs.get('EBIT')/1e6,' M',0) if valuation_inputs.get('EBIT') is not None else 'Saknas'),
     ('Avkastning på eget kapital (ROE)',show(roe_overview,' %',1) if roe_overview is not None else 'Saknas'),
     ('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),
     ('P/E (R12)',show(pe,'×') if pe is not None else 'Saknas'),
