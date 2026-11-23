@@ -682,6 +682,54 @@ def valuation_category(symbol, info=None):
     return 'Rörelsedrivande bolag'
 
 def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
+    # ROIC primary for matching annual statements; never mix currencies or periods.
+    primary_source='Yahoo Finance'
+    key=roic_key()
+    if key:
+        try:
+            data,_=roic_company_data(symbol,key)
+            income=data.get('income',[])
+            balances=data.get('balance',[])
+            def field(record,keys):
+                return val(record,*keys)
+            imap={'Total Revenue':('is_sales_revenue_turnover','revenue','total_revenue'),
+                  'Operating Income':('is_operating_income','operating_income','ebit'),
+                  'EBITA':('is_ebita','ebita'),
+                  'Net Income Common Stockholders':('net_income_common_stockholders','is_net_income_common_stockholders'),
+                  'Interest Expense':('is_interest_expense','interest_expense')}
+            bmap={'Total Debt':('bs_total_debt','total_debt','totalDebt'),
+                  'Cash And Cash Equivalents':('bs_cash_and_cash_equivalents','cash_and_cash_equivalents'),
+                  'Net Debt':('bs_net_debt','net_debt'),
+                  'Common Stock Equity':('bs_common_stock_equity','common_stock_equity')}
+            if income and balances:
+                ccy=income[0].get('currency')
+                paired=[]
+                for inc in income:
+                    for bal in balances:
+                        if ccy and inc.get('currency')==ccy and bal.get('currency')==ccy and inc.get('period_end_date')==bal.get('period_end_date'):
+                            paired.append((inc,bal))
+                if paired:
+                    fi={pd.Timestamp(i['period_end_date']):{k:field(i,v) for k,v in imap.items()} for i,b in paired}
+                    ba={pd.Timestamp(b['period_end_date']):{k:field(b,v) for k,v in bmap.items()} for i,b in paired}
+                    rf=pd.DataFrame(fi).dropna(how='all')
+                    rb=pd.DataFrame(ba).dropna(how='all')
+                    if not rf.empty and not rb.empty:
+                        latest_period=max(rf.columns)
+                        usable=any(k in rf.index and numeric(rf.at[k,latest_period]) is not None for k in ('EBITA','Operating Income'))
+                        debt_ok=('Net Debt' in rb.index and numeric(rb.at['Net Debt',latest_period]) is not None) or all(k in rb.index and numeric(rb.at[k,latest_period]) is not None for k in ('Total Debt','Cash And Cash Equivalents'))
+                        if usable and debt_ok and (fin.empty or latest_period>=max(pd.Timestamp(p) for p in fin.columns)):
+                            if info.get('financialCurrency')==ccy:
+                                rf=rf.combine_first(fin.reindex(columns=rf.columns))
+                                rb=rb.combine_first(balance.reindex(columns=rb.columns))
+                                primary_source='ROIC.ai + Yahoo Finance (matchad period och valuta)'
+                            else:
+                                cash=pd.DataFrame()
+                                primary_source='ROIC.ai'
+                            fin,balance=rf,rb
+                            info=dict(info,financialCurrency=ccy)
+        except Exception:
+            primary_source='Yahoo Finance (ROIC ej tillgänglig)'
+
     category=valuation_category(symbol,info)
     profile=operating_valuation_profile(symbol,info)
     params=VALUATION_PROFILES.get(profile)
@@ -696,6 +744,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
         cap=val(info,'marketCap') or val(quick,'market_cap')
         if cap and price and price>0 and symbol not in {'VOLO.ST'}: shares=cap/price
     out={'category':category,'profile':profile,'price':price,'currency':currency,'target':None,'method':'','missing':[],'models':{}}
+    out['source']=primary_source
     def row(frame,labels,period):
         for label in labels:
             if label in frame.index:
@@ -862,10 +911,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v5':
+if st.session_state.get('screener_model_version')!='unified-v6':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v5'
+    st.session_state['screener_model_version']='unified-v6'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 with st.sidebar:
@@ -890,10 +939,10 @@ with st.sidebar:
     st.caption('Sök bland samtliga bolag. Resultatet visas i huvudfönstret.')
     universe=list(dict.fromkeys(ALL_COMPANIES.values()))
     screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
-    if st.session_state.get('screener_model_version')!='unified-v5':
+    if st.session_state.get('screener_model_version')!='unified-v6':
         st.session_state.screener_results={}
         st.session_state.screener_running=False
-        st.session_state.screener_model_version='unified-v5'
+        st.session_state.screener_model_version='unified-v6'
     if 'screener_results' not in st.session_state:
         st.session_state.screener_results={}
     if 'screener_running' not in st.session_state:
