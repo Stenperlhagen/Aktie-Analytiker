@@ -819,6 +819,7 @@ def screener_snapshot(symbol):
         return {'status':'Kunde inte hämtas'}
 
 if st.session_state.screener_results:
+    screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
     st.subheader('Resultat från aktiescreenern')
     scan_rows=[]
     for symbol,result in st.session_state.screener_results.items():
