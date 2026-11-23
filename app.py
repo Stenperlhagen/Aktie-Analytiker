@@ -487,6 +487,27 @@ REPORTED_NAV={
     'LATO-B.ST':{'nav':223.0,'date':'2026-11-02','source':'https://www.mfn.se/cis/a/latour/delarsrapport-januari-september-2026-d993ea5e.iframe','kind':'Substansvärde'},
     'INDU-C.ST':{'nav':517.0,'date':'2026-09-30','source':'https://mfn.se/a/industrivarden/delarsrapport-1-januari-30-september-2026.iframe','kind':'Substansvärde'}
 }
+def borsapi_key():
+    try: return str(st.secrets.get('BORSAPI_API_KEY','')).strip()
+    except Exception: return ''
+
+@st.cache_data(ttl=86400,show_spinner=False)
+def borsapi_reports(symbol,api_key):
+    """Sekundär rapportkälla för hela universum, inte bara utvalda bolag."""
+    if not api_key: return {},'BörsAPI-nyckel saknas'
+    code=symbol.removesuffix('.ST').removesuffix('.CO')
+    try:
+        response=requests.get(
+            'https://borsapi.se/api/v1/companies/'+urllib.parse.quote(code,safe='')+'/reports',
+            params={'period_type':'year','entity_type':'CONSOLIDATED','merge':'true','limit':5},
+            headers={'Authorization':'Bearer '+api_key},timeout=18)
+        if not response.ok: return {},'BörsAPI HTTP '+str(response.status_code)
+        payload=response.json()
+        data=payload.get('data',[]) if isinstance(payload,dict) else []
+        return {'periods':data if isinstance(data,list) else []},''
+    except Exception as exc:
+        return {},type(exc).__name__
+
 def valuation_category(symbol, info=None):
     """Konservativ kategorisering: särskilda affärsmodeller kräver andra metoder."""
     if symbol in INVESTMENT_TICKERS: return 'Investmentbolag / kapitalförvaltning'
@@ -512,6 +533,10 @@ def screener_snapshot(symbol):
         obj=yf.Ticker(symbol)
         info=obj.info or {}
         category=valuation_category(symbol,info)
+        # Försök komplettera varje bolag med en andra, rapportbaserad källa.
+        extra,extra_error=borsapi_reports(symbol,borsapi_key())
+        report_count=len(extra.get('periods',[]))
+
         if category!='Rörelsedrivande bolag':
             # Använd sektorsrelevanta nyckeltal men ge inte falska substansrabatter.
             pb=numeric(info.get('priceToBook'))
@@ -542,6 +567,7 @@ def screener_snapshot(symbol):
             else:
                 data['status']='Ej klassificerad'
                 data['method']='Granskning krävs'
+            data['secondary_report_periods']=report_count
             return data
         current_pe=numeric(info.get('trailingPE'))
         price=numeric(info.get('currentPrice') or info.get('regularMarketPrice'))
@@ -573,19 +599,21 @@ def screener_snapshot(symbol):
         return {'status':'Intressant att analysera vidare' if gap<=-20 else 'Högt värderad' if gap>=20 else 'Avvakta',
                 'pe':current_pe,'median':median,'gap':gap,'price':price,
                 'indicative_price':price*median/current_pe,'observations':len(pe_values),
-                'currency':info.get('currency'),'category':category}
+                'currency':info.get('currency'),'category':category,'secondary_report_periods':report_count}
     except Exception:
         return {'status':'Kunde inte hämtas'}
 
 st.markdown('### Hitta undervärderade aktier')
+if not borsapi_key():
+    st.caption('Extra rapportkälla: BörsAPI kan aktiveras med BORSAPI_API_KEY i Streamlit Secrets. Utan nyckeln används Yahoo. BörsAPI:s standardiserade rapporter är inte samma sak som rapporterat substansvärde.')
 st.caption('Bolagen klassificeras efter värderingsmetod. P/E-signaler visas bara för rörelsedrivande bolag. Investmentbolag, banker, försäkringsbolag och fastighetsbolag markeras separat tills rätt värderingsmodell finns. En rabatt är inte ett köpbeslut.')
 universe=list(dict.fromkeys(ALL_COMPANIES.values()))
 screener_names={ticker:name for name,ticker in ALL_COMPANIES.items()}
 # Tidigare screeningresultat beräknades utan kategorifilter och måste förnyas.
-if st.session_state.get('screener_model_version')!='category-v4':
+if st.session_state.get('screener_model_version')!='category-v5':
     st.session_state.screener_results={}
     st.session_state.screener_running=False
-    st.session_state.screener_model_version='category-v4'
+    st.session_state.screener_model_version='category-v5'
 if 'screener_results' not in st.session_state:
     st.session_state.screener_results={}
 if 'screener_running' not in st.session_state:
@@ -614,6 +642,7 @@ if st.session_state.screener_results:
         scan_rows.append({
             'Bolag':screener_names.get(symbol,symbol),'Ticker':symbol,
             'Värderingskategori':result.get('category',valuation_category(symbol)),
+            'Rapportperioder (BörsAPI)':result.get('secondary_report_periods'),
             'Metod':result.get('method','P/E-historik' if result.get('category')=='Rörelsedrivande bolag' else 'Ej fastställd'),
             'P/B':round(result['pb'],2) if result.get('pb') is not None else None,
             'Rapporterat substansvärde/aktie':result.get('nav'),
