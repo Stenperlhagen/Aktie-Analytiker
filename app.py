@@ -208,6 +208,31 @@ def extended_financials(ticker):
             errors[key] = f'{type(exc).__name__}: {str(exc)[:120]}'
     return result, errors
 
+# Jämförelsebolag och dataladdare för Investeringsanalys.
+# Definitionerna måste finnas innan fliken använder dem.
+PEER_UNIVERSE={
+    'BETS-B.ST':[('Evolution','EVO.ST','Spelbransch, annan affärsmodell'),('Flutter Entertainment','FLUT','Internationell speloperatör')],
+    'VOLO.ST':[('Bergman & Beving','BERG-B.ST','Svensk industrigrupp'),('Lagercrantz','LAGR-B.ST','Svensk industrigrupp'),('Indutrade','INDT.ST','Svensk industrigrupp')],
+    'SALIX.ST':[('Bergman & Beving','BERG-B.ST','Svensk industrigrupp'),('Addtech','ADDT-B.ST','Svensk industrigrupp'),('Lagercrantz','LAGR-B.ST','Svensk industrigrupp')]
+}
+@st.cache_data(ttl=21600,show_spinner=False)
+def peer_snapshot(symbol):
+    try:
+        p=yf.Ticker(symbol).info or {}
+        pe=numeric(p.get('trailingPE'))
+        margin=numeric(p.get('operatingMargins'))
+        growth=numeric(p.get('revenueGrowth'))
+        debt=numeric(p.get('totalDebt'))
+        cash=numeric(p.get('totalCash'))
+        ebitda=numeric(p.get('ebitda'))
+        leverage=(debt-cash)/ebitda if None not in (debt,cash,ebitda) and ebitda>0 else None
+        return {'pe':pe if pe is not None and pe>0 else None,
+                'margin':margin*100 if margin is not None else None,
+                'growth':growth*100 if growth is not None else None,
+                'leverage':leverage}
+    except Exception:
+        return {}
+
 def assessment(fin, cash, balance, info, price, netdebt, ebitda, history, extended, quick=None):
     """Bedömning utan prognosantaganden eller uppfunna datapunkter."""
     def series(frame, keys):
