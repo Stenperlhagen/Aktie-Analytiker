@@ -693,7 +693,7 @@ elif _roic_income:
     st.caption('Kompletterande rapportdata från ROIC AI (årsperiod: '+str(_roic_income[0].get('period_end_date','okänd'))+', valuta: '+str(_roic_income[0].get('currency','okänd'))+').')
 st.caption('Omsättning och kassaflöde kan avse olika perioder. Omsättningstillväxt = CAGR över tillgängliga rapporterade årsperioder. EBITA visas bara om det finns som separat rapporterad post; EBIT och EBITDA används aldrig som ersättning. EV/EBITA visas endast när rapport- och handelsvaluta matchar. ROE bygger på senaste rapporterade nettoresultat och eget kapital och är en förenklad kvot, inte ett genomsnittligt eget kapital. M = miljoner.')
 
-one,two,three,four,five=st.tabs(['Kurs och historik','Rapporterade data','Nyheter – 6 månader','Dokument och scenarier','Analys om bolaget'])
+one,two,three,four=st.tabs(['Kurs och historik','Finansiella rapporter','Nyheter – 6 månader','Investeringsanalys'])
 with one:
     if not hist.empty:
         h=hist.reset_index();h['Datum']=pd.to_datetime(h['Date']).dt.tz_localize(None)
@@ -839,39 +839,6 @@ with three:
     })
     st.markdown(f'[Sök pressmeddelanden i webbläsaren]({search_link})')
 with four:
-    st.markdown('#### Dokumentbibliotek för denna analys')
-    uploads=st.file_uploader('Ladda upp årsredovisningar, kvartalsrapporter och egna kalkyler',type=['pdf','docx','xlsx','csv','txt'],accept_multiple_files=True)
-    documents=[]
-    for u in uploads or []:
-        try:
-            content=parse_file(u)
-            documents.append((u.name,content))
-            st.success(f'{u.name}: {len(content):,} tecken extraherade')
-        except Exception as ex:st.warning(f'{u.name} kunde inte läsas: {ex}')
-    if documents:
-        term=st.text_input('Sök i samtliga uppladdade filer',placeholder='Exempel: förvärv, kassaflöde, EBITA')
-        if term:
-            for filename,content in documents:
-                hits=list(re.finditer(re.escape(term),content,re.I))[:15]
-                if hits:
-                    with st.expander(f'{filename} – {len(hits)} träffar (max 15 visas)'):
-                        for m in hits:st.text(content[max(0,m.start()-180):min(len(content),m.end()+250)].replace('\n',' '))
-        st.download_button('Ladda ner extraherad dokumenttext',data='\n\n'.join(f'## {n}\n{c}' for n,c in documents),file_name='dokumentunderlag.txt')
-    st.markdown('#### Värderingsscenario (illustrativ modell)')
-    if eps is None or eps<=0:st.warning('EPS är saknat eller negativt. Ange ett eget positivt antagande om du vill använda P/E-modellen.')
-    a,b,c=st.columns(3)
-    base_eps=a.number_input('EPS – utgångsvärde',value=float(eps) if eps and eps>0 else 1.0,min_value=0.01)
-    growth=b.slider('Årlig vinsttillväxt (%)',-20,30,7)
-    target_pe=c.slider('P/E om fem år',3,40,15)
-    rate=st.slider('Diskonteringsränta (%)',0,25,10)
-    rows=[]
-    for scenario,g,m in [('Negativt',growth-5,target_pe*.75),('Bas',growth,target_pe),('Positivt',growth+5,target_pe*1.25)]:
-        future=base_eps*(1+g/100)**5*m;today=future/(1+rate/100)**5
-        rows.append({'Scenario':scenario,'Tillväxt %':g,'P/E år 5':round(m,1),'Riktkurs år 5':round(future,2),'Nuvärde':round(today,2),'Potential %':round((today/price-1)*100,1) if price and price>0 else None})
-    st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
-    st.caption('Modellen är en förenklad känslighetsanalys, inte investeringsrådgivning. Den passar sämre för banker, investmentbolag, fastighetsbolag och bolag med förlust.')
-    st.download_button('Exportera värdering (CSV)',pd.DataFrame(rows).to_csv(index=False).encode('utf-8-sig'),'vardering.csv','text/csv')
-with five:
     st.subheader(f'Analys om bolaget – {company}')
     st.markdown('### Framtidsvärdering – fem år')
     st.caption('Automatiska rapportvärden från ROIC AI. Tre justerbara scenarier visar möjlig framtida avkastning, inte prognoser eller köprekommendationer.')
