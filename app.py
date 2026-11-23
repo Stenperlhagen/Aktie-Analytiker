@@ -975,7 +975,46 @@ with three:
     })
     st.markdown(f'[Sök pressmeddelanden i webbläsaren]({search_link})')
 with four:
-    st.subheader(f'Analys om bolaget – {company}')
+    st.subheader(f'Investeringsanalys – {company}')
+    st.markdown('### Investeringsprocess i fem steg')
+    st.caption('Följ bolaget från affärsmodell och finansiell kvalitet till bransch, värdering och uppföljning. Kontrollera underlaget innan en investeringsbedömning görs.')
+    with st.container(border=True):
+        st.markdown('**01 · Investeringsram**')
+        st.write('Tidshorisont: fem år i prognosmodellen. En rimlig säkerhetsmarginal och risktolerans behöver alltid bedömas utifrån investerarens situation.')
+        st.caption('Investeringshorisonten är modellens, inte ett personligt råd.')
+    with st.container(border=True):
+        st.markdown('**02 · Bolagets kvalitet**')
+        q1,q2,q3=st.columns(3)
+        q1.metric('Omsättningstillväxt',show(sales_growth_pct,' %/år',1) if sales_growth_pct is not None else 'Saknas')
+        q2.metric('Rörelsemarginal',show(margin*100,' %',1) if margin is not None else 'Saknas')
+        q3.metric('Nettoskuld / EBITDA',show(netdebt_ebitda,'×',2) if netdebt_ebitda is not None else 'Saknas')
+        st.caption('Tillväxt, lönsamhet och skuldsättning är separata observationer. Ett enskilt nyckeltal avgör inte om bolaget är en bra investering.')
+        if opcf is not None:
+            st.write('Operativt kassaflöde: **'+show(opcf/1e6,' M',1)+'** (kontrollera rapportperiod under Finansiella rapporter).')
+        else:
+            st.write('Operativt kassaflöde saknas i hämtat underlag.')
+    with st.container(border=True):
+        st.markdown('**03 · Affärsmodell och konkurrens**')
+        st.write('Bransch: **'+str(info.get('industry') or 'Ej klassificerad')+'** · Sektor: **'+str(info.get('sector') or 'Ej klassificerad')+'**')
+        description=str(info.get('longBusinessSummary') or '').strip()
+        if description:
+            st.write(description[:650]+('…' if len(description)>650 else ''))
+        else:
+            st.caption('Bolagsbeskrivning saknas från datakällan.')
+        st.caption('Marknadsandelar, konkurrenters marginaler och konkurrensfördelar är ännu inte verifierade. Ingen automatisk kvalitetsbedömning görs för detta steg.')
+    with st.container(border=True):
+        st.markdown('**04 · Branschutsikter och risker**')
+        st.write('Granska reglering, konjunktur, konkurrens, geografisk exponering och hur dessa faktorer påverkar tillväxt och kassaflöde.')
+        st.caption('Dessa risker kräver verifierade bolagsrapporter och branschkällor. EquityLab saknar ännu ett kvalitetssäkrat, automatiskt branschunderlag och ger därför ingen poäng.')
+    with st.container(border=True):
+        st.markdown('**05 · Värdering och uppföljning**')
+        st.write('Aktuell kurs: **'+(show(price,' '+str(quote_ccy),2) if price is not None else 'Saknas')+'**.')
+        st.write('Kontrollerat motiverat värde: **Ej fastställt**. Tidigare automatiska DCF- och rabattbedömningar är inte godkända som investeringssignal.')
+        st.caption('Följ kvartalsrapporter, prognosförändringar, kassaflöde och värderingsantaganden. Använd flikarna Nyheter och Bolagsvärdering för underlaget.')
+    st.markdown('#### Samlad bedömning')
+    st.info('Analysen är ännu inte tillräckligt verifierad för en köp-/säljbedömning. Finansiell historik finns delvis, men branschbedömning och kvalitetssäkrad värdering återstår.')
+    st.divider()
+
     st.markdown('### Vad kan aktien vara värd om fem år?')
     st.caption('Utifrån bolagets rapporterade resultat beräknar modellen ett möjligt framtida aktiepris och vad det skulle innebära för din avkastning.')
     st.markdown('**Så använder du analysen:** Se de tre möjliga utfallen och kontrollera antagandena bakom beräkningen. Du behöver inte fylla i några siffror.')
