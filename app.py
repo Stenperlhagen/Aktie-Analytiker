@@ -558,6 +558,47 @@ def borsapi_reports(symbol,api_key):
     except Exception as exc:
         return {},type(exc).__name__
 
+# Branschspecifika MODELLANTAGANDEN – användarens egna scenariovärden, inte marknadskonsensus.
+VALUATION_PROFILES={
+    'Industrikonglomerat':(9.0,5.0,12.0),
+    'Förvärvsbolag':(9.0,7.0,14.0),
+    'Tillverkningsindustri':(9.0,3.0,11.0),
+    'Teknik och mjukvara':(10.0,9.0,17.0),
+    'IT-konsulter':(10.0,4.0,11.0),
+    'Konsumentvaror och detaljhandel':(9.0,3.0,10.0),
+    'Hälsovård och medicinteknik':(9.0,6.0,15.0),
+    'Bygg och installation':(10.0,3.0,10.0),
+    'Logistik och transport':(9.0,4.0,11.0)
+}
+PROFILE_TICKERS={
+    'Industrikonglomerat':{'VOLO.ST','STOR-B.ST','ROKO.ST'},
+    'Förvärvsbolag':{'SALIX.ST','INDT.ST','ADDT-B.ST','LIFCO-B.ST','LAGR-B.ST','BERG-B.ST','BEIA-B.ST','OEM-B.ST','MMGR-B.ST','ADDV-B.ST','ALIF-B.ST','MCAP.ST'},
+    'IT-konsulter':{'AFRY.ST','SWEC-B.ST','KNOW.ST','SOF-B.ST'},
+    'Bygg och installation':{'BRAV.ST','SKA-B.ST','NCC-B.ST','PEAB-B.ST','INSTAL.ST','WBGR-B.ST','LIND-B.ST','LIAB.ST','VESTUM.ST'},
+    'Logistik och transport':{'VOLV-B.ST','VOLV-A.ST','LOOMIS.ST','ELAN-B.ST','CTT.ST'},
+    'Teknik och mjukvara':{'VIT-B.ST','ANOD-B.ST','HMS.ST','SINCH.ST','TRUE-B.ST','YUBICO.ST','PDX.ST','SF.ST','STORY-B.ST','LIME.ST','FNOX.ST','SLEEP.ST','TDVOX.ST','ERIC-B.ST','TEL2-B.ST','TELIA.ST','HEXA-B.ST','SECT-B.ST','EMBRAC-B.ST'},
+    'Hälsovård och medicinteknik':{'AZN.ST','GETI-B.ST','SOBI.ST','EKTA-B.ST','BIOA-B.ST','CAMX.ST','BONEX.ST','VITR.ST','MCOV-B.ST','ASKER.ST','ARJO-B.ST','ACE.ST','BACTI-B.ST','HNSA.ST','SEZI.ST','SUS.ST','SYNACT.ST','COALA.ST'},
+    'Konsumentvaror och detaljhandel':{'HM-B.ST','ESSITY-B.ST','AXFO.ST','ELUX-B.ST','HUSQ-B.ST','THULE.ST','DOM.ST','SHOT.ST','SKIS-B.ST','BETS-B.ST','BILI-A.ST','NEWA-B.ST','BOKUS.ST','BMAX.ST','RUSTA.ST','RVRC.ST','BHG.ST','BOOZT.ST','CLA-B.ST','DUNI.ST','FOI-B.ST','NELLY.ST','SCST.ST','MSON-B.ST','EVO.ST','CLAS-B.ST','ATT.ST','HUM.ST','ACAD.ST','VSURE.ST','KAR.ST'}
+}
+PROFILE_BY_SYMBOL={symbol:category for category,symbols in PROFILE_TICKERS.items() for symbol in symbols}
+def operating_valuation_profile(symbol,info=None):
+    """Returnera profil bara när kategorin är identifierad; aldrig godtycklig 9/3/12-reserv."""
+    if symbol in PROFILE_BY_SYMBOL: return PROFILE_BY_SYMBOL[symbol]
+    industry=str((info or {}).get('industry') or '').lower()
+    sector=str((info or {}).get('sector') or '').lower()
+    if any(x in industry for x in ('software','semiconductor','electronic gaming','information technology services')):
+        return 'Teknik och mjukvara'
+    if any(x in industry for x in ('consulting services','engineering & construction consulting')):
+        return 'IT-konsulter'
+    if any(x in industry for x in ('building products','engineering & construction','construction')):
+        return 'Bygg och installation'
+    if any(x in industry for x in ('transportation','logistics','trucking','shipping','freight')):
+        return 'Logistik och transport'
+    if sector=='healthcare': return 'Hälsovård och medicinteknik'
+    if sector=='consumer cyclical' or sector=='consumer defensive': return 'Konsumentvaror och detaljhandel'
+    if sector in ('industrials','basic materials'): return 'Tillverkningsindustri'
+    return None
+
 def valuation_category(symbol, info=None):
     """Konservativ kategorisering: särskilda affärsmodeller kräver andra metoder."""
     if symbol in INVESTMENT_TICKERS: return 'Investmentbolag / kapitalförvaltning'
@@ -2057,6 +2098,17 @@ with four:
     if model_category!='Rörelsedrivande bolag':
         st.info('Modellerna nedan är anpassade för rörelsedrivande bolag. För '+model_category.lower()+' krävs sektorsanpassad värdering.')
     else:
+        profile_name=operating_valuation_profile(ticker,info)
+        profile_values=VALUATION_PROFILES.get(profile_name)
+        if profile_values is None:
+            st.warning('Ingen säker branschprofil identifierad. Välj en profil nedan innan du använder standardantagandena.')
+        profile_options=list(VALUATION_PROFILES)
+        chosen_profile=st.selectbox('Värderingsprofil',profile_options,
+            index=profile_options.index(profile_name) if profile_name in profile_options else None,
+            placeholder='Välj bolagets värderingsprofil…',key='valuation_profile_'+ticker)
+        active_profile=VALUATION_PROFILES.get(chosen_profile)
+        if active_profile:
+            st.caption('Branschantaganden: WACC '+str(active_profile[0]).replace('.',',')+' % · FCFF-tillväxt '+str(active_profile[1]).replace('.',',')+' % · EV/EBITA '+str(active_profile[2]).replace('.',',')+'×. Dessa är scenariovärden, inte rapporterade nyckeltal.')
         model_ccy=report_ccy or quote_ccy or 'SEK'
         model_fx=fx_rate(model_ccy,quote_ccy) if model_ccy and quote_ccy else None
         model_shares=shares_count if shares_count is not None and shares_count>0 else None
@@ -2079,13 +2131,13 @@ with four:
             input_ebita=m2.number_input('EBITA (miljoner '+model_ccy+')',value=float(model_ebita/1e6) if model_ebita is not None else 0.0,step=1.0,key='ebita_input_'+ticker)
             input_debt=m3.number_input('Nettoskuld (miljoner '+model_ccy+')',value=float(model_debt/1e6) if model_debt is not None else 0.0,step=1.0,key='netdebt_input_'+ticker)
             m4,m5,m6=st.columns(3)
-            input_wacc=m4.number_input('WACC (%) – eget antagande',min_value=3.0,max_value=30.0,value=9.0,step=0.5,key='wacc_input_'+ticker)
-            input_growth=m5.number_input('FCFF-tillväxt år 1–5 (%)',min_value=-30.0,max_value=30.0,value=3.0,step=0.5,key='growth_input_'+ticker)
+            input_wacc=m4.number_input('WACC (%) – eget antagande',min_value=3.0,max_value=30.0,value=float(active_profile[0]) if active_profile else 9.0,step=0.5,key='wacc_input_'+ticker+'_'+str(chosen_profile))
+            input_growth=m5.number_input('FCFF-tillväxt år 1–5 (%)',min_value=-30.0,max_value=30.0,value=float(active_profile[1]) if active_profile else 3.0,step=0.5,key='growth_input_'+ticker+'_'+str(chosen_profile))
             input_terminal=m6.number_input('Terminaltillväxt (%)',min_value=-2.0,max_value=4.0,value=2.0,step=0.5,key='terminal_input_'+ticker)
             m7,m8=st.columns(2)
-            input_multiple=m7.number_input('Rimlig EV/EBITA (×) – eget antagande',min_value=1.0,max_value=40.0,value=12.0,step=0.5,key='multiple_input_'+ticker)
+            input_multiple=m7.number_input('Rimlig EV/EBITA (×) – eget antagande',min_value=1.0,max_value=40.0,value=float(active_profile[2]) if active_profile else 12.0,step=0.5,key='multiple_input_'+ticker+'_'+str(chosen_profile))
             input_shares=m8.number_input('Antal aktier (miljoner)',min_value=0.0,value=float(model_shares/1e6) if model_shares is not None else 0.0,step=1.0,key='shares_input_'+ticker)
-        st.caption('WACC 9 %, FCFF-tillväxt 3 %, terminaltillväxt 2 % och EV/EBITA 12× är illustrativa standardantaganden, inte beräknade bolagsprognoser. Skatt i förifyllt FCFF-utkast antas vara 20,6 %.')
+        st.caption('Branschvärdena är användarvalda scenarioparametrar, inte verifierade marknadsgenomsnitt. Terminaltillväxten är separat 2 % som standard. Skatt i förifyllt FCFF-utkast antas vara 20,6 %.')
         if model_fx is None:
             st.warning('Valutakurs mellan rapportvaluta och handelsvaluta saknas. Ingen värdering kan visas.')
         elif input_shares<=0:
