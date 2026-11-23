@@ -2160,9 +2160,29 @@ def investment_score(v, info):
         sales=val(info,'totalRevenue')
         if ocf is not None and sales and sales>0:
             add('Operativ kassaflödesmarginal',100*ocf/sales,0,15,15,' %')
-    expected=95 if operating else 45 if category=='Bank / finansiella tjänster' else 25
+    if category=='Bank / finansiella tjänster':
+        roa=val(info,'returnOnAssets')
+        if roa is not None: add('Avkastning på tillgångar',roa*100,0,1.5,20,' %')
+        growth=val(info,'earningsGrowth')
+        if growth is not None: add('Vinsttillväxt',growth*100,-15,15,15,' %')
+        margin=val(info,'profitMargins')
+        if margin is not None: add('Nettomarginal',margin*100,0,30,20,' %')
+    elif category=='Fastigheter':
+        margin=val(info,'operatingMargins')
+        if margin is not None: add('Rörelsemarginal',margin*100,0,60,25,' %')
+        growth=val(info,'revenueGrowth')
+        if growth is not None: add('Intäktstillväxt',growth*100,-10,10,20,' %')
+        leverage=val(info,'debtToEquity')
+        if leverage is not None: add('Skuld / eget kapital',leverage,250,50,30,' %')
+    elif category=='Investmentbolag / kapitalförvaltning':
+        if roe is not None: add('Rapporterad ROE',roe*100,0,20,25,' %')
+        leverage=val(info,'debtToEquity')
+        if leverage is not None: add('Skuld / eget kapital',leverage,100,0,25,' %')
+    expected=95 if operating else 100 if category in ('Bank / finansiella tjänster','Fastigheter') else 75 if category=='Investmentbolag / kapitalförvaltning' else 25
     coverage=sum(x['Vikt'] for x in items)
-    score=sum(x['Poäng']*x['Vikt'] for x in items)/coverage if operating and coverage>=70 and len(items)>=4 else None
+    # Investment companies and research firms require more specific data before a composite score.
+    eligible=operating or category in ('Bank / finansiella tjänster','Fastigheter')
+    score=sum(x['Poäng']*x['Vikt'] for x in items)/coverage if eligible and coverage>=expected*.75 and len(items)>=4 and not v.get('audit') else None
     return score,items,coverage/expected*100
 
 with four:
@@ -2176,7 +2196,7 @@ with four:
     st.caption('ROIC = EBIT efter rapporterad effektiv skatt / genomsnittligt investerat kapital. WACC och avkastningskrav på eget kapital är separata modellantaganden.')
     st.markdown('#### Fundamentalt investeringsbetyg')
     st.metric('Investeringsbetyg',show(score,' / 100',0))
-    st.caption('Indikatorbaserad modell, ej historiskt kalibrerad. Datatäckning: '+show(score_coverage,' %',0)+'. Fullständigt betyg visas endast för rörelsedrivande bolag med tillräckliga nyckeltal; övriga sektorer kräver separata modeller.')
+    st.caption('Indikatorbaserad modell, ej historiskt kalibrerad. Datatäckning: '+show(score_coverage,' %',0)+'. Betyg visas för rörelsedrivande bolag, banker och fastighetsbolag med tillräckliga nyckeltal. Bankbetyget saknar ännu kapitaltäckning och kreditförluster; fastighetsbetyget saknar ännu belåningsgrad och räntetäckning. Övriga sektorer kräver ytterligare underlag.')
     if score_items:
         st.dataframe(pd.DataFrame(score_items),hide_index=True,use_container_width=True)
     if score is None:
