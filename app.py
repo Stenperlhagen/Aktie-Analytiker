@@ -1185,6 +1185,30 @@ with four:
     st.caption('Detta är en transparent indikatoranalys, inte en statistiskt kalibrerad sannolikhet för uppgång eller nedgång. Tröskelvärdena är metodval, inte empiriskt fastställda prognoser. Värdering kräver dessutom jämförelse mot bransch och historiska multiplar. Banken, investmentbolag och fastighetsbolag behöver andra nyckeltal.')
 
 
+@st.cache_data(ttl=86400,show_spinner=False)
+def swedish_ten_year_yield():
+    """Senast publicerad svensk tioårig statsobligationsränta, i procent."""
+    try:
+        response=requests.get('https://api.riksbank.se/swea/v1/Observations/Latest/SEGVB10YC',timeout=12)
+        response.raise_for_status()
+        payload=response.json()
+        records=payload if isinstance(payload,list) else [payload]
+        for record in records:
+            if not isinstance(record,dict): continue
+            raw=record.get('value',record.get('Value'))
+            value=numeric(raw)
+            date=str(record.get('date',record.get('Date','')))
+            if value is not None and -5<value<20 and date:
+                try:
+                    if (pd.Timestamp.now()-pd.Timestamp(date).tz_localize(None)).days>14:
+                        return None,None
+                except (ValueError,TypeError):
+                    return None,None
+                return float(value),date
+    except (requests.RequestException,ValueError,TypeError,KeyError):
+        pass
+    return None,None
+
 with five:
     st.subheader(f'Bolagsvärdering – {company}')
     st.caption('Automatiska historikbaserade antaganden och öppet redovisade modellpolicyer. Inga manuella reglage. Resultaten är inte riktkurser eller köprekommendationer.')
@@ -1265,12 +1289,26 @@ with five:
         dcf_growth=None
         if len(fcf_series)>=3 and fcf_series.iloc[0]>0 and fcf_series.iloc[-1]>0:
             dcf_growth=max(-10.0,min(12.0,((float(fcf_series.iloc[-1])/float(fcf_series.iloc[0]))**(1/(len(fcf_series)-1))-1)*100))
-        discount_rate=10.0
+        # CAPM för SEK: Riksbankens tioårsränta + observerad beta × antagen aktieriskpremie.
+        # Använd inte ränta i fel valuta och ersätt inte saknad beta med 1,0.
+        riskfree,rate_date=swedish_ten_year_yield() if quote_ccy=='SEK' else (None,None)
+        beta=numeric(info.get('beta'))
+        equity_risk_premium=5.5  # Öppen modellpolicy, inte observerad aktuell marknadsriskpremie.
+        discount_rate=(riskfree+beta*equity_risk_premium) if riskfree is not None and beta is not None and 0<beta<5 else None
         terminal_growth=2.0
-        st.caption('DCF använder historisk FCF-tillväxt från minst tre årsperioder (begränsad till −10–12 %). Avkastningskrav 10 % och terminaltillväxt 2 % är fasta, öppet redovisade modellantaganden.')
-        if fcf_annual is None or fcf_annual<=0 or fcf_fx is None or valid_shares is None or dcf_growth is None:
+        st.markdown('**Bolagets avkastningskrav (CAPM)**')
+        if discount_rate is None:
+            st.info('Riskbaserat avkastningskrav kan inte beräknas: svensk tioårsränta, verifierad beta eller SEK-handelsvaluta saknas. DCF visas därför inte med en godtycklig standardränta.')
+        else:
+            risk_a,risk_b,risk_c=st.columns(3)
+            risk_a.metric('Riskfri ränta',show(riskfree,' %',2))
+            risk_b.metric('Beta',show(beta,'×',2))
+            risk_c.metric('Avkastningskrav',show(discount_rate,' %',2))
+            st.caption('CAPM = '+show(riskfree,' %',2)+' + '+show(beta,'×',2)+' × 5,5 % aktieriskpremie. Statsobligationsränta: Riksbanken '+str(rate_date)+'. Beta: Yahoo Finance. Aktieriskpremien 5,5 % är ett modellantagande.')
+        st.caption('DCF använder historisk FCF-tillväxt från minst tre årsperioder (begränsad till −10–12 %) och terminaltillväxt 2 % (modellantagande).')
+        if fcf_annual is None or fcf_annual<=0 or fcf_fx is None or valid_shares is None or dcf_growth is None or discount_rate is None or discount_rate<=terminal_growth:
             dcf_fair=None
-            st.info('DCF kräver positivt FCF, minst tre jämförbara år, rapportvaluta och antal aktier. Saknas underlag beräknas inget värde.')
+            st.info('DCF kräver positivt FCF, minst tre jämförbara år, rapportvaluta, antal aktier och ett riskbaserat avkastningskrav över terminaltillväxten. Saknas underlag beräknas inget värde.')
         else:
             fcf_quote=fcf_annual*fcf_fx
             projected=[fcf_quote*(1+dcf_growth/100)**year for year in range(1,6)]
