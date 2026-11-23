@@ -1051,7 +1051,14 @@ if valid_price and valid_current_pe and valid_history:
     v1.metric('Aktuell aktiekurs',show(price,' '+str(quote_ccy),2))
     v2.metric('Nuvarande P/E',show(pe,'×',1))
     v3.metric('Historisk median P/E',show(global_pe_median,'×',1))
-    v4.metric(status,show(abs(relative_gap),' %',1))
+    signal_color='#15803d' if relative_gap<0 else '#b42332' if relative_gap>0 else '#64748b'
+    v4.markdown(
+        '<div style="background:#f3f5f9;border:1px solid #e3e8f0;border-radius:15px;padding:15px;min-height:112px;">'
+        '<div style="font-size:0.95rem;color:#374151;margin-bottom:8px;">'+status+'</div>'
+        '<div style="font-size:2.15rem;font-weight:700;line-height:1.25;color:'+signal_color+';">'
+        +show(abs(relative_gap),' %',1)+'</div></div>',
+        unsafe_allow_html=True
+    )
     if relative_gap>0:
         st.caption('**Tolkning:** Aktien är '+show(abs(relative_gap),' %',1)+' dyrare sett till P/E än sin historiska nivå. Det kan tyda på relativ övervärdering, men bevisar inte att aktien är övervärderad.')
     elif relative_gap<0:
