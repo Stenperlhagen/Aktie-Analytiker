@@ -69,18 +69,29 @@ def roic_company_data(ticker, api_key):
         if not matches:
             detail=(' HTTP '+','.join(errors) if errors else '')
             return {},'ROIC sökning gav inga instrument för '+ticker+'.'+detail
-        def norm(value):
-            return str(value or '').upper().replace('.ST','').replace('-','.').replace(' ','').strip()
-        desired=norm(symbol)
-        candidates=[m for m in matches if norm(m.get('symbol') or m.get('ticker') or m.get('code'))==desired]
+        def parts(value):
+            raw=str(value or '').upper().strip()
+            exchange,_,code=raw.partition(':')
+            if not code: exchange,code='',exchange
+            code=code.removesuffix('.ST').replace('-','').replace('_','').replace('.','').replace(' ','')
+            return exchange,code
+        _,desired=parts(symbol)
+        candidates=[]
+        for m in matches:
+            raw_symbol=m.get('symbol') or m.get('ticker') or m.get('code')
+            exchange,code=parts(raw_symbol)
+            if code!=desired: continue
+            venue=str(m.get('exchange') or m.get('exchange_code') or m.get('mic') or exchange).upper()
+            if venue and not any(tag in venue for tag in ('STO','XSTO','STOCKHOLM')):
+                continue
+            candidates.append(m)
         if not candidates:
-            # Visar enbart ofarliga symboler för felsökning; ingen nyckel eller rådata.
             examples=[str(m.get('symbol') or m.get('ticker') or m.get('code') or '?')[:35] for m in matches[:5]]
-            return {},'ROIC hittade instrument, men ingen säker matchning för '+ticker+'. Exempel: '+', '.join(examples)
-        swedish=[m for m in candidates if any(tag in str(m.get('exchange') or m.get('exchange_code') or m.get('mic') or '').upper() for tag in ('XSTO','STO','STOCKHOLM'))]
-        selected=swedish or candidates
-        if len(selected)!=1:
-            return {},'ROIC gav flera möjliga träffar för '+ticker+'; börsidentifiering behöver kontrolleras.'
+            return {},'ROIC hittade instrument men ingen säker Stockholmsträff för '+ticker+'. Exempel: '+', '.join(examples)
+        unique={str(m.get('symbol') or m.get('ticker') or m.get('code')):m for m in candidates}
+        if len(unique)!=1:
+            return {},'ROIC gav flera möjliga Stockholmsträffar för '+ticker+'; välj inte automatiskt.'
+        selected=list(unique.values())
         match=selected[0]
         isin=match.get('isin') or match.get('ISIN')
         if not isin:
