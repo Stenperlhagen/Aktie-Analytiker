@@ -1051,9 +1051,28 @@ with two:
             reason='Jämförelsebasen är noll eller negativ'
         else:
             yoy=(latest_value/prior_value-1)*100
+        # Kvartal mot närmast föregående kvartal med redan hämtad data.
+        previous_quarter_date=None
+        previous_quarter_value=None
+        previous_quarter_change=None
+        q_target=latest_date-pd.DateOffset(months=3)
+        q_candidates=series.iloc[1:]
+        q_candidates=q_candidates[abs((q_candidates.index-q_target).days)<=40]
+        if not q_candidates.empty:
+            previous_quarter_date=min(q_candidates.index,key=lambda d:abs((d-q_target).days))
+            previous_quarter_value=float(q_candidates.loc[previous_quarter_date])
+            if previous_quarter_value>0:
+                previous_quarter_change=(latest_value/previous_quarter_value-1)*100
+        # För balansposter visar vi jämförelse med föregående balansdag,
+        # men inte en godtycklig tolkning av bättre eller sämre.
+        if label in ('Räntebärande skulder','Likvida medel') and prior_value is not None and prior_value>0:
+            yoy=(latest_value/prior_value-1)*100
+            reason='Balanspost: förändringen är inte automatiskt positiv eller negativ'
         quarterly_rows.append({
             'Nyckeltal':label,'Senaste kvartal':str(latest_date.date()),
             'Rapporterat värde':show(latest_value/1e6,' M',1) if unit=='M' else show(latest_value,'',2),
+            'Föregående kvartal':str(previous_quarter_date.date()) if previous_quarter_date is not None else 'Saknas',
+            'Förändring mot föregående kvartal':show(previous_quarter_change,' %',1) if previous_quarter_change is not None else 'Saknas',
             'Jämförelsekvartal':str(prior_date.date()) if prior_date is not None else 'Saknas',
             'Värde föregående år':(show(prior_value/1e6,' M',1) if unit=='M' else show(prior_value,'',2)) if prior_value is not None else 'Saknas',
             'Förändring mot samma kvartal föregående år':show(yoy,' %',1) if yoy is not None else 'Saknas',
@@ -1062,7 +1081,7 @@ with two:
         })
     if quarterly_rows:
         st.dataframe(pd.DataFrame(quarterly_rows),hide_index=True,use_container_width=True)
-        st.caption('Årsjämförelsen använder närmaste rapportperiod inom 45 dagar från motsvarande kvartal föregående år. Om datakällan bara har fyra kvartal kan jämförelsen inte beräknas. Procentuell förändring visas även för negativa aktuella värden när föregående års värde är positivt. Balansposter redovisas separat.')
+        st.caption('Kvartalsjämförelsen använder närmaste föregående kvartal inom 40 dagar; årsjämförelsen använder närmaste rapportperiod inom 45 dagar från motsvarande kvartal föregående år. Om datakällan bara har fyra kvartal kan jämförelsen inte beräknas. Procentuell förändring visas även för negativa aktuella värden när föregående års värde är positivt. Balansposter redovisas separat.')
     else:
         st.info('Kvartalsrapporter saknas hos den anslutna datakällan för detta bolag.')
 
