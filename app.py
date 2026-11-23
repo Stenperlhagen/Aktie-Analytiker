@@ -693,6 +693,53 @@ elif _roic_income:
     st.caption('Kompletterande rapportdata från ROIC AI (årsperiod: '+str(_roic_income[0].get('period_end_date','okänd'))+', valuta: '+str(_roic_income[0].get('currency','okänd'))+').')
 st.caption('Omsättning och kassaflöde kan avse olika perioder. Omsättningstillväxt = CAGR över tillgängliga rapporterade årsperioder. EBITA visas bara om det finns som separat rapporterad post; EBIT och EBITDA används aldrig som ersättning. EV/EBITA visas endast när rapport- och handelsvaluta matchar. ROE bygger på senaste rapporterade nettoresultat och eget kapital och är en förenklad kvot, inte ett genomsnittligt eget kapital. M = miljoner.')
 
+# Gemensam värderingsindikator ovanför alla flikar.
+# Baseras på verifierbar års-EPS och historisk P/E-median, aldrig enbart dagens P/E.
+global_pe_samples=[]
+global_pe_frame=extended.get('valuation_history',pd.DataFrame())
+if isinstance(global_pe_frame,pd.DataFrame) and not global_pe_frame.empty:
+    for pe_label in ('PeRatio','PE Ratio','Trailing P/E','Trailing PE','peRatio','trailingPE','TrailingPeRatio'):
+        if pe_label in global_pe_frame.index:
+            global_pe_samples+=pd.to_numeric(global_pe_frame.loc[pe_label],errors='coerce').dropna().tolist()
+        if pe_label in global_pe_frame.columns:
+            global_pe_samples+=pd.to_numeric(global_pe_frame[pe_label],errors='coerce').dropna().tolist()
+global_pe_samples=[float(x) for x in global_pe_samples if 0<float(x)<=80]
+global_pe_median=float(pd.Series(global_pe_samples).median()) if len(global_pe_samples)>=3 else None
+global_eps=None
+global_eps_period=None
+if _roic_income and quote_ccy:
+    latest_annual=_roic_income[0]
+    annual_ccy=latest_annual.get('currency')
+    for eps_key in ('eps_diluted','eps_basic','eps','is_eps_diluted','is_eps_basic','is_earnings_per_share_diluted','is_earnings_per_share_basic'):
+        candidate=numeric(latest_annual.get(eps_key))
+        if candidate is not None and candidate>0:
+            global_eps=candidate
+            global_eps_period=str(latest_annual.get('period_end_date') or '')
+            break
+    if global_eps is not None:
+        eps_fx=fx_rate(annual_ccy,quote_ccy)
+        global_eps=global_eps*eps_fx if eps_fx is not None and eps_fx>0 else None
+global_fair=global_eps*global_pe_median if global_eps is not None and global_pe_median is not None else None
+st.markdown('### Värdering jämfört med dagens aktiekurs')
+if global_fair is not None and global_fair>0 and price is not None and price>0:
+    # Rabatt/premie uttrycks som hur mycket marknadspriset avviker från beräknat värde.
+    deviation=(price/global_fair-1)*100
+    relation=('Premie' if deviation>0 else 'Rabatt' if deviation<0 else 'I nivå med modellvärdet')
+    v1,v2,v3=st.columns(3)
+    v1.metric('Aktuell aktiekurs',show(price,' '+str(quote_ccy),2))
+    v2.metric('Beräknat värde (P/E)',show(global_fair,' '+str(quote_ccy),2))
+    v3.metric(relation,show(abs(deviation),' %',1) if deviation!=0 else '0,0 %')
+    if deviation>0:
+        st.caption('Premie: aktien handlas '+show(deviation,' %',1)+' ÖVER modellens P/E-värde. Det betyder inte automatiskt att den bör säljas.')
+    elif deviation<0:
+        st.caption('Rabatt: aktien handlas '+show(abs(deviation),' %',1)+' UNDER modellens P/E-värde. Det betyder inte automatiskt att den bör köpas.')
+    else:
+        st.caption('Aktiekursen motsvarar modellens P/E-värde.')
+    st.caption('Underlag: rapporterad års-EPS '+str(global_eps_period)+' och medianen av '+str(len(global_pe_samples))+' historiska P/E-observationer. Detta är en indikativ P/E-värdering, inte ett sammanvägt DCF-värde.')
+else:
+    st.caption('Rabatt eller premie kan inte fastställas: jämförbar års-EPS, historisk P/E-median eller aktiekurs saknas. Inget värde uppskattas.')
+st.divider()
+
 one,two,three,four,five=st.tabs(['Kurs och historik','Finansiella rapporter','Nyheter – 6 månader','Investeringsanalys','Bolagsvärdering'])
 with one:
     if not hist.empty:
