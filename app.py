@@ -2155,6 +2155,25 @@ with four:
         st.warning('Värderingen behöver granskas: '+'; '.join(v['audit']))
         st.metric('Preliminärt modellutfall före kontroll',show(v.get('unreviewed_target'),' '+str(v.get('currency') or ''),2))
     if v.get('missing'): st.caption('Underlag som saknas: '+'; '.join(v['missing']))
+    st.markdown('#### Utdelning och förväntad totalavkastning')
+    current=v.get('price')
+    fair=v.get('target')
+    if current and current>0:
+        dy=trailing_dividend_yield(ticker,current)
+        st.metric('Historisk direktavkastning (12 månader)',show(dy,' %',2))
+        if dy is not None and fair is not None and not v.get('audit'):
+            st.metric('Illustrativ totalavkastning vid uppnått modellvärde inom ett år',show((fair/current-1)*100+dy,' %',1))
+            st.caption('Antar oförändrad kontantutdelning och att modellvärdet uppnås inom ett år. Inte en prognos.')
+    st.markdown('#### Bevakningslista')
+    watch=st.session_state.setdefault('equity_watchlist',{})
+    if st.button('Ta bort från bevakningslistan' if ticker in watch else 'Lägg till i bevakningslistan',key='watch_toggle'):
+        if ticker in watch: watch.pop(ticker,None)
+        else: watch[ticker]={'Bolag':company,'Ticker':ticker,'Aktiekurs':v.get('price'),'Modellvärde':v.get('target')}
+        st.rerun()
+    if watch:
+        st.dataframe(pd.DataFrame(list(watch.values())),hide_index=True,use_container_width=True)
+        st.download_button('Exportera bevakningslista',pd.DataFrame(list(watch.values())).to_csv(index=False).encode('utf-8-sig'),'bevakningslista.csv')
+    st.caption('Bevakningslistan sparas i aktuell session; exportera för att behålla den.')
     st.markdown('#### Investeringsslutsats')
     if v.get('target') is None:
         st.info('Motiverat värde saknas. Ingen värderingsbaserad investeringsslutsats kan dras.')
