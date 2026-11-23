@@ -1350,6 +1350,10 @@ with target_slot.container():
                 header_target=scenario_eps*scenario_multiple
                 target_method='EPS-scenario'
                 scenario_description='Antagande: P/E 12 × positiv EPS ('+eps_period+'). Inte en historiskt observerad värdering.'
+    if ticker=='VOLO.ST' and quote_ccy=='SEK':
+        # Prioritera jämförbar Q3-rapport framför P/E-scenario från perioder före Salix.
+        header_target=(VOLATI_Q3_2026['ebita_ltm']*12.0-VOLATI_Q3_2026['net_debt'])/VOLATI_Q3_2026['ordinary_shares']
+        target_method='EV/EBITA Volati'
     if header_target is None:
         missing_target=[]
         if header_price is None: missing_target.append('aktuell aktiekurs')
@@ -1376,10 +1380,10 @@ with target_slot.container():
             header_bg,header_border,header_ink,header_signal='#fffbeb','#fcd34d','#92400e','AVVAKTA'
         st.markdown(
             '<div style="padding:18px;border-radius:15px;background:'+header_bg+';border:1px solid '+header_border+';">'
-            '<div style="font-size:.85rem;font-weight:650;color:'+header_ink+';">'+('INDIKATIV KURS · HISTORISKT P/E' if target_method=='Historiskt P/E' else 'SCENARIOKURS · ANTAGET P/E 12')+'</div>'
+            '<div style="font-size:.85rem;font-weight:650;color:'+header_ink+';">'+('INDIKATIV KURS · HISTORISKT P/E' if target_method=='Historiskt P/E' else 'VOLATI · EV/EBITA 12× (Q3 2026)' if target_method=='EV/EBITA Volati' else 'SCENARIOKURS · ANTAGET P/E 12')+'</div>'
             '<div style="font-size:2rem;font-weight:800;color:'+header_ink+';">'+show(header_target,' '+str(quote_ccy or ''),2)+'</div>'
             '<div style="font-size:.95rem;font-weight:700;color:'+header_ink+';">'+header_signal+'</div>'
-            '<div style="font-size:.8rem;color:#475569;margin-top:7px;">'+('Beräknad jämförelsekurs från historiskt P/E ('+str(len(global_pe_samples))+' observationer).' if target_method=='Historiskt P/E' else scenario_description)+'</div></div>',
+            '<div style="font-size:.8rem;color:#475569;margin-top:7px;">'+('Beräknad jämförelsekurs från historiskt P/E ('+str(len(global_pe_samples))+' observationer).' if target_method=='Historiskt P/E' else 'EBITA R12 245 Mkr, nettoskuld 1 331 Mkr, 79,4 miljoner stamaktier. Q3 2026.' if target_method=='EV/EBITA Volati' else scenario_description)+'</div></div>',
             unsafe_allow_html=True)
 one,two,three,four=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering'])
 with one:
