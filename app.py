@@ -43,28 +43,35 @@ def roic_key():
     except Exception: return ''
 
 @st.cache_data(ttl=86400,show_spinner=False)
-def roic_company_data(isin, api_key):
-    """ISIN identifierar rätt juridiskt bolag oberoende av tickernamn."""
-    if not isin or not api_key: return {}, 'ROIC kräver ISIN och API-nyckel.'
+def roic_company_data(ticker, api_key):
+    """Sök instrument automatiskt; godta inte osäkra träffar eller odokumenterade fält."""
+    if not api_key: return {}, 'ROIC API-nyckel saknas.'
     root='https://api.roic.ai/v3.0.0'
-    headers={'Authorization':f'Bearer {api_key}'}
+    symbol=ticker.replace('.ST','').replace('-','.')
     try:
-        profile_response=requests.get(f'{root}/company/profile/{urllib.parse.quote(isin,safe="")}',headers=headers,timeout=12)
-        profile_response.raise_for_status()
-        profile=profile_response.json()
-        if not isinstance(profile,dict) or profile.get('isin','').upper()!=isin.upper():
-            return {},'ROIC kunde inte bekräfta bolagets ISIN.'
-        income_response=requests.get(f'{root}/fundamental/income-statement/{urllib.parse.quote(isin,safe="")}',params={'period_type':'annual','limit':3},headers=headers,timeout=12)
-        income_response.raise_for_status()
-        records=income_response.json().get('data',[])
-        records=[x for x in records if isinstance(x,dict) and x.get('period_type')=='annual']
-        records.sort(key=lambda x:x.get('period_end_date',''),reverse=True)
-        return {'profile':profile,'income':records},None
+        response=requests.get(root+'/tickers/search',params={'query':symbol},headers={'Authorization':'Bearer '+api_key},timeout=12)
+        response.raise_for_status()
+        payload=response.json()
+        if isinstance(payload,list): matches=payload
+        elif isinstance(payload,dict):
+            matches=next((payload[k] for k in ('data','results','tickers') if isinstance(payload.get(k),list)),[])
+        else: matches=[]
+        matches=[m for m in matches if isinstance(m,dict)]
+        normalized=lambda v: str(v or '').upper().replace('-','.').replace('.ST','').strip()
+        exact=[m for m in matches if normalized(m.get('symbol') or m.get('ticker'))==normalized(symbol)]
+        swedish=[m for m in exact if str(m.get('exchange') or m.get('exchange_code') or m.get('mic') or '').upper() in ('XSTO','STO','NASDAQ STOCKHOLM','STOCKHOLM')]
+        selected=swedish if swedish else exact
+        if len(selected)!=1:
+            return {}, 'ROIC sökning: ingen entydig instrumentträff för '+ticker+'.'
+        match=selected[0]
+        isin=match.get('isin') or match.get('ISIN')
+        if not isin: return {'search_match':match},'ROIC hittade aktien men returnerade inget ISIN; rapportformat måste verifieras.'
+        return {'search_match':match,'isin':isin},'ROIC hittade ISIN. Rapport-endpoints behöver verifieras mot API-dokumentationen innan finansiella värden används.'
     except requests.HTTPError as exc:
         status=exc.response.status_code if exc.response is not None else 'okänd'
-        return {},f'ROIC svarade med HTTP {status}. Kontrollera API-nyckel, åtkomst och bolagstäckning.'
+        return {},'ROIC sökning: HTTP '+str(status)+' (kontrollera API-behörighet).'
     except Exception as exc:
-        return {},f'ROIC kunde inte hämtas: {type(exc).__name__}'
+        return {},'ROIC sökning misslyckades: '+type(exc).__name__
 
 @st.cache_data(ttl=1800,show_spinner=False)
 def fetch(ticker):
@@ -487,7 +494,7 @@ if dividend_yield is not None:
 # ROIC kompletterar endast verifierade, saknade värden.
 _roic_data, _roic_error = {}, None
 if roic_key():
-    _roic_data,_roic_error = roic_company_data(info.get('isin'),roic_key())
+    _roic_data,_roic_error = roic_company_data(ticker,roic_key())
 _roic_income=_roic_data.get('income',[])
 if _roic_income:
     latest=_roic_income[0]
