@@ -919,6 +919,39 @@ with five:
     if _assessment_score is not None:
         st.metric('Modellpoäng',f'{_assessment_score*100:.0f} av 100')
     st.caption(_signal_detail)
+    # Förklara det faktiska modellutfallet med samma faktorer som användes i poängen.
+    if _assessment_rows:
+        st.markdown('##### Varför får bolaget detta betyg?')
+        positive_factors = [x for x in _assessment_rows if x.get('Utfall') == 'Positivt']
+        negative_factors = [x for x in _assessment_rows if x.get('Utfall') == 'Negativt']
+        def explain_factor(item):
+            name = str(item.get('Faktor','Nyckeltal'))
+            value = item.get('Värde')
+            value_text = show(value,'',3) if value is not None else 'Saknas'
+            method = str(item.get('Metod',''))
+            return f"**{name}: {value_text}** – {method}"
+        if positive_factors:
+            st.markdown('**Vad talar för bolaget?**')
+            for item in positive_factors:
+                st.markdown('• '+explain_factor(item))
+        else:
+            st.write('Inga positiva faktorer kunde identifieras med nuvarande modellunderlag.')
+        if negative_factors:
+            st.markdown('**Vad håller tillbaka betyget?**')
+            for item in negative_factors:
+                st.markdown('• '+explain_factor(item))
+        else:
+            st.write('Inga negativa faktorer registrerades i det tillgängliga underlaget.')
+        if _assessment_score is not None:
+            st.markdown('**Vad krävs för att nå grönt?**')
+            if _assessment_score < 0.75:
+                st.write(f"Modellen ger {round(_assessment_score*100,1):.1f} av 100 poäng. Grönt kräver minst 75 poäng, alltså ytterligare {round((0.75-_assessment_score)*100,1):.1f} poäng, samt att ingen särskild skuldvarning utlöses.".replace('.',','))
+                st.write('För att poängen ska öka behöver en eller flera av de negativa faktorerna förbättras över modellens angivna gränser. Det är inte en prognos för aktiekursen.')
+            elif 'GRÖN' not in _signal_title:
+                st.write('Poängen når gränsen för grönt, men en särskild riskregel för skuldsättning kan hindra grönt betyg.')
+            else:
+                st.write('Bolaget uppfyller för närvarande modellens krav för grönt.')
+        st.caption('Bedömningen bygger på tillgängliga faktorer i poängmodellen, främst Yahoo Finance. ROIC-data i översikten ingår inte automatiskt i modellpoängen. Gränserna är modellantaganden, inte analytikerkonsensus.')
     if 'GRÅ' in _signal_title:
         st.info('Grått betyder att appens anslutna datakällor inte räcker för en investeringsvärdering – inte att bolaget saknar offentliga rapporter.')
 
