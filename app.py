@@ -789,32 +789,50 @@ def screener_snapshot(symbol):
             if price is None or price<=0: missing.append('aktuell kurs')
             if current_pe is None or not 0<current_pe<=80: missing.append('positiv vinst per aktie (TTM)')
             return {'status':'Otillräckliga börsdata','category':category,'missing':', '.join(missing),**quality_data}
-        history=obj.get_valuation_measures(freq='quarterly',periods=12)
+        try:
+            history=obj.get_valuation_measures(freq='quarterly',periods=12)
+        except Exception:
+            history=pd.DataFrame()
         pe_values=[]
         if isinstance(history,pd.DataFrame) and not history.empty:
-            for field in ('PeRatio','PE Ratio','Trailing P/E','Trailing PE','peRatio','trailingPE','TrailingPeRatio'):
+            pe_labels=('PeRatio','PE Ratio','Trailing P/E','Trailing PE','peRatio','trailingPE','TrailingPeRatio')
+            for field in pe_labels:
                 if field in history.index:
-                    pe_values+=pd.to_numeric(history.loc[field],errors='coerce').dropna().tolist()
-                if field in history.columns:
-                    pe_values+=pd.to_numeric(history[field],errors='coerce').dropna().tolist()
-        # Exkludera "Current" så dagens P/E inte räknas som historisk observation.
-        if isinstance(history,pd.DataFrame) and 'Current' in history.columns:
-            current_observation=[]
-            for field in ('PeRatio','PE Ratio','Trailing P/E','Trailing PE','peRatio','trailingPE','TrailingPeRatio'):
-                if field in history.index:
-                    v=numeric(history.at[field,'Current'])
-                    if v is not None: current_observation.append(v)
-            for v in current_observation:
-                if v in pe_values: pe_values.remove(v)
-        pe_values=[float(v) for v in pe_values if 0<float(v)<=80]
+                    observations=history.loc[field]
+                    if isinstance(observations,pd.Series):
+                        observations=observations.drop(labels=['Current'],errors='ignore')
+                        pe_values+=pd.to_numeric(observations,errors='coerce').dropna().tolist()
+                elif field in history.columns:
+                    observations=history[field]
+                    if isinstance(observations,pd.Series):
+                        observations=observations.drop(labels=['Current'],errors='ignore')
+                        pe_values+=pd.to_numeric(observations,errors='coerce').dropna().tolist()
+        pe_values=[float(v) for v in pe_values if numeric(v) is not None and 0<float(v)<=80]
+        pe_method='Yahoo historiska P/E-tal'
         if len(pe_values)<3:
-            return {'status':'P/E-historik saknas','pe':current_pe,'price':price,'observations':len(pe_values),'category':category,'missing':'minst tre jämförbara historiska P/E-observationer'}
+            # Samma rapportbaserade rekonstruktion som bolagsvyn.
+            try:
+                annual_income=obj.income_stmt
+                annual_prices=obj.history(period='5y',auto_adjust=False)
+                financial_ccy=info.get('financialCurrency')
+                trading_ccy=info.get('currency')
+                reconstructed=reconstructed_pe_history(annual_income,annual_prices,financial_ccy,trading_ccy)
+            except Exception:
+                reconstructed=[]
+            if len(reconstructed)>=2:
+                pe_values=reconstructed
+                pe_method='Års-EPS och observerade historiska aktiekurser'
+        if len(pe_values)<2:
+            return {'status':'Historisk värdering saknas','pe':current_pe,'price':price,
+                    'observations':len(pe_values),'category':category,
+                    'missing':'minst två jämförbara historiska P/E-observationer',**quality_data}
         median=float(pd.Series(pe_values).median())
         gap=(current_pe/median-1)*100
         return {'status':'Intressant att analysera vidare' if gap<=-20 else 'Högt värderad' if gap>=20 else 'Avvakta',
                 'pe':current_pe,'median':median,'gap':gap,'price':price,
                 'indicative_price':price*median/current_pe,'observations':len(pe_values),
-                'currency':info.get('currency'),'category':category,'secondary_report_periods':report_count,**quality_data}
+                'currency':info.get('currency'),'category':category,'method':pe_method,
+                'secondary_report_periods':report_count,**quality_data}
     except Exception:
         return {'status':'Kunde inte hämtas'}
 
@@ -848,13 +866,19 @@ if st.session_state.screener_results:
             'P/E-observationer':result.get('observations',0)
         })
     scan_df=pd.DataFrame(scan_rows)
+    screened_count=len(st.session_state.screener_results)
+    interested_count=sum(x.get('status')=='Intressant att analysera vidare' for x in st.session_state.screener_results.values())
+    comparable_count=sum(x.get('status') in ('Intressant att analysera vidare','Avvakta','Högt värderad') for x in st.session_state.screener_results.values())
+    st.caption(f'Granskade: {screened_count} · P/E-värderbara: {comparable_count} · Intressanta enligt P/E: {interested_count}. Övriga saknar jämförbart underlag eller kräver annan metod.')
     filter_choice=st.radio('Visa', ['Intressanta','Alla resultat','Andra värderingsmetoder','Saknade uppgifter'],horizontal=True,key='screener_filter')
     if filter_choice=='Intressanta':
         scan_df=scan_df[scan_df['Signal']=='Intressant att analysera vidare']
+        if scan_df.empty:
+            st.info('Inga verifierade träffar med minst 20 % historisk P/E-rabatt bland de bolag som hittills kunnat värderas. Kontrollera hur många som faktiskt är P/E-värderbara ovan.')
     elif filter_choice=='Andra värderingsmetoder':
         scan_df=scan_df[scan_df['Värderingskategori']!='Rörelsedrivande bolag']
     elif filter_choice=='Saknade uppgifter':
-        scan_df=scan_df[scan_df['Signal'].isin(['Otillräckliga börsdata','P/E-historik saknas','Kunde inte hämtas','Ej klassificerad','Otillräckliga sektordata','Substansvärde krävs','Fastighets-NAV krävs'])]
+        scan_df=scan_df[scan_df['Signal'].isin(['Otillräckliga börsdata','P/E-historik saknas','Historisk värdering saknas','Kunde inte hämtas','Ej klassificerad','Otillräckliga sektordata','Substansvärde krävs','Fastighets-NAV krävs'])]
     scan_df=scan_df.sort_values('Rabatt mot historisk P/E (%)',ascending=False,na_position='last')
     st.dataframe(scan_df,hide_index=True,use_container_width=True)
     st.caption('För investmentbolag krävs rapporterat substansvärde per aktie för substansrabatt. För fastigheter krävs rapporterat EPRA-substansvärde. P/B är inte samma sak som substansrabatt. Banker och försäkringsbolag visas med P/B och ROE, men får ingen automatisk köp-/säljsignal utan kapital- och riskkontroll.')
@@ -887,10 +911,10 @@ with st.sidebar:
     st.caption('Sök bland samtliga bolag. Resultatet visas i huvudfönstret.')
     universe=list(dict.fromkeys(ALL_COMPANIES.values()))
     screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
-    if st.session_state.get('screener_model_version')!='free-v1':
+    if st.session_state.get('screener_model_version')!='free-v2':
         st.session_state.screener_results={}
         st.session_state.screener_running=False
-        st.session_state.screener_model_version='free-v1'
+        st.session_state.screener_model_version='free-v2'
     if 'screener_results' not in st.session_state:
         st.session_state.screener_results={}
     if 'screener_running' not in st.session_state:
