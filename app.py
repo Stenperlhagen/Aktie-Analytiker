@@ -209,6 +209,32 @@ def official_report_excerpt(ticker):
     except Exception as exc:
         return [], f'{type(exc).__name__}: {str(exc)[:180]}'
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def company_description_fallback(company):
+    """Sök en verifierbar uppslagsverksbeskrivning, utan att hitta på verksamhet."""
+    clean = re.sub(r'\\s+(?:AB|A|B)$','',company,flags=re.I).strip()
+    def normalized(x):
+        return re.sub(r'[^a-z0-9]','',x.casefold().replace('å','a').replace('ä','a').replace('ö','o'))
+    wanted=normalized(clean)
+    for lang in ('sv','en'):
+        endpoint=f'https://{lang}.wikipedia.org/w/api.php'
+        try:
+            headers={'User-Agent':'EquityLab/1.0 (company research; public Wikipedia API)'}
+            response=requests.get(endpoint,params={'action':'query','format':'json','generator':'search','gsrsearch':f'intitle:"{clean}"','gsrlimit':8,'prop':'extracts|info','exintro':1,'explaintext':1,'inprop':'url','exchars':1400},headers=headers,timeout=7)
+            response.raise_for_status()
+            pages=response.json().get('query',{}).get('pages',{})
+            for page in pages.values():
+                title=page.get('title','')
+                title_base=re.sub(r'\\s*\\([^)]*\\)$','',title).strip()
+                if normalized(title_base) not in (wanted,normalized(clean+' AB')):
+                    continue
+                extract=re.sub(r'\\s+',' ',page.get('extract') or '').strip()
+                if len(extract)>=90 and not any(word in extract.lower() for word in ['may refer to','kan syfta på','disambiguation']):
+                    return extract[:1300],page.get('fullurl'),f'Wikipedia ({lang})'
+        except Exception:
+            continue
+    return None,None,None
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def news(company):
     """Breda nyhetssökningar med flera RSS-källor och verifierad datumfiltrering."""
@@ -470,7 +496,21 @@ with one:
         chart_five_years.update_layout(xaxis_title='Datum',yaxis_title='Aktiekurs')
         st.plotly_chart(mark_high_low(chart_five_years,h),use_container_width=True)
     else:st.warning('Kursserie saknas.')
-    st.markdown('**Bolagsprofil**');st.write(info.get('longBusinessSummary','Beskrivning saknas.'))
+    st.markdown('#### Bolagsbeskrivning')
+    description = (info.get('longBusinessSummary') or '').strip()
+    if description:
+        st.write(description)
+        st.caption('Källa: Yahoo Finance – bolagsprofil.')
+    else:
+        description, description_url, description_source = company_description_fallback(name or company)
+        if description:
+            st.write(description)
+            st.caption('Källa: '+description_source+' – uppslagsverkstext, kontrollera mot bolagets egen webbplats.')
+            if description_url: st.markdown(f'[Läs originalbeskrivningen]({description_url})')
+        else:
+            st.info('Ingen verifierad bolagsbeskrivning kunde hämtas automatiskt från Yahoo Finance eller Wikipedia för detta bolag. Vi visar inte en påhittad beskrivning.')
+    if info.get('website'):
+        st.markdown(f"[Bolagets webbplats]({info['website']})")
 with two:
     st.caption('Finansiella rapportdata från Yahoo Finance. Belopp visas i miljoner (M) av bolagets rapporteringsvaluta. År avser rapportperiodens slutdatum, inte nödvändigtvis kalenderår.')
 
