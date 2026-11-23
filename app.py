@@ -44,34 +44,52 @@ def roic_key():
 
 @st.cache_data(ttl=86400,show_spinner=False)
 def roic_company_data(ticker, api_key):
-    """Sök instrument automatiskt; godta inte osäkra träffar eller odokumenterade fält."""
+    """Identifiera instrument via ROIC:s sök-API utan manuella bolagsmappningar."""
     if not api_key: return {}, 'ROIC API-nyckel saknas.'
     root='https://api.roic.ai/v3.0.0'
-    symbol=ticker.replace('.ST','').replace('-','.')
+    symbol=ticker.removesuffix('.ST')
+    queries=list(dict.fromkeys([ticker,symbol,symbol.replace('-','.'),symbol.split('-')[0]]))
+    headers={'Authorization':'Bearer '+api_key}
+    matches=[]
+    errors=[]
     try:
-        response=requests.get(root+'/tickers/search',params={'query':symbol},headers={'Authorization':'Bearer '+api_key},timeout=12)
-        response.raise_for_status()
-        payload=response.json()
-        if isinstance(payload,list): matches=payload
-        elif isinstance(payload,dict):
-            matches=next((payload[k] for k in ('data','results','tickers') if isinstance(payload.get(k),list)),[])
-        else: matches=[]
-        matches=[m for m in matches if isinstance(m,dict)]
-        normalized=lambda v: str(v or '').upper().replace('-','.').replace('.ST','').strip()
-        exact=[m for m in matches if normalized(m.get('symbol') or m.get('ticker'))==normalized(symbol)]
-        swedish=[m for m in exact if str(m.get('exchange') or m.get('exchange_code') or m.get('mic') or '').upper() in ('XSTO','STO','NASDAQ STOCKHOLM','STOCKHOLM')]
-        selected=swedish if swedish else exact
+        for query in queries:
+            response=requests.get(root+'/tickers/search',params={'query':query},headers=headers,timeout=12)
+            if not response.ok:
+                errors.append(str(response.status_code))
+                if response.status_code in (401,403,429): break
+                continue
+            payload=response.json()
+            if isinstance(payload,list): items=payload
+            elif isinstance(payload,dict):
+                items=next((payload[k] for k in ('data','results','tickers','items') if isinstance(payload.get(k),list)),[])
+            else: items=[]
+            matches.extend(m for m in items if isinstance(m,dict))
+            if matches: break
+        if not matches:
+            detail=(' HTTP '+','.join(errors) if errors else '')
+            return {},'ROIC sökning gav inga instrument för '+ticker+'.'+detail
+        def norm(value):
+            return str(value or '').upper().replace('.ST','').replace('-','.').replace(' ','').strip()
+        desired=norm(symbol)
+        candidates=[m for m in matches if norm(m.get('symbol') or m.get('ticker') or m.get('code'))==desired]
+        if not candidates:
+            # Visar enbart ofarliga symboler för felsökning; ingen nyckel eller rådata.
+            examples=[str(m.get('symbol') or m.get('ticker') or m.get('code') or '?')[:35] for m in matches[:5]]
+            return {},'ROIC hittade instrument, men ingen säker matchning för '+ticker+'. Exempel: '+', '.join(examples)
+        swedish=[m for m in candidates if any(tag in str(m.get('exchange') or m.get('exchange_code') or m.get('mic') or '').upper() for tag in ('XSTO','STO','STOCKHOLM'))]
+        selected=swedish or candidates
         if len(selected)!=1:
-            return {}, 'ROIC sökning: ingen entydig instrumentträff för '+ticker+'.'
+            return {},'ROIC gav flera möjliga träffar för '+ticker+'; börsidentifiering behöver kontrolleras.'
         match=selected[0]
         isin=match.get('isin') or match.get('ISIN')
-        if not isin: return {'search_match':match},'ROIC hittade aktien men returnerade inget ISIN; rapportformat måste verifieras.'
-        return {'search_match':match,'isin':isin},'ROIC hittade ISIN. Rapport-endpoints behöver verifieras mot API-dokumentationen innan finansiella värden används.'
-    except requests.HTTPError as exc:
-        status=exc.response.status_code if exc.response is not None else 'okänd'
-        return {},'ROIC sökning: HTTP '+str(status)+' (kontrollera API-behörighet).'
-    except Exception as exc:
-        return {},'ROIC sökning misslyckades: '+type(exc).__name__
+        if not isin:
+            return {'search_match':match},'ROIC identifierade symbolen men inget ISIN finns i söksvaret. Rapport-API behöver verifieras.'
+        return {'search_match':match,'isin':isin},'ROIC hittade instrumentet. Rapport-endpoints och fältnamn behöver verifieras före användning.'
+    except requests.RequestException as exc:
+        return {},'ROIC nätverksfel: '+type(exc).__name__
+    except (ValueError,TypeError) as exc:
+        return {},'ROIC svarade i oväntat format: '+type(exc).__name__
 
 @st.cache_data(ttl=1800,show_spinner=False)
 def fetch(ticker):
