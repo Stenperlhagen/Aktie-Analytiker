@@ -469,16 +469,49 @@ ADDITIONAL_COMPANIES = {
 }
 ALL_COMPANIES = {**{name:ticker for name,(ticker,_) in CAT.items()}, **ADDITIONAL_COMPANIES}
 
+# Värderingskategori skiljs från branschgrupp. Okända typer får ingen P/E-köpsignal.
+INVESTMENT_TICKERS={
+    'INVE-A.ST','INVE-B.ST','INDU-C.ST','LATO-B.ST','LUND-B.ST',
+    'KINV-B.ST','BURE.ST','EQT.ST'
+}
+BANK_TICKERS={'SEB-A.ST','SHB-A.ST','SWED-A.ST','NDA-SE.ST','AZA.ST','SAVE.ST','TFBANK.ST'}
+INSURANCE_TICKERS={'SAMPO-SDB.ST','SFAB.ST'}
+PROPERTY_TICKERS={
+    'BALD-B.ST','CAST.ST','CATE.ST','FABG.ST','SAGA-B.ST','WALL-B.ST',
+    'WIHL.ST','HUFV-A.ST','ATRLJ-B.ST','PNDX-B.ST','NP3.ST','CORE-B.ST',
+    'DIOS.ST','PLAZ-B.ST','STEF-B.ST','SLP-B.ST','CIBUS.ST','EAST.ST','HEBA-B.ST'
+}
+def valuation_category(symbol, info=None):
+    """Konservativ kategorisering: särskilda affärsmodeller kräver andra metoder."""
+    if symbol in INVESTMENT_TICKERS: return 'Investmentbolag / kapitalförvaltning'
+    if symbol in BANK_TICKERS: return 'Bank / finansiella tjänster'
+    if symbol in INSURANCE_TICKERS: return 'Försäkring'
+    if symbol in PROPERTY_TICKERS: return 'Fastigheter'
+    details=info or {}
+    sector=str(details.get('sector') or '').lower()
+    industry=str(details.get('industry') or '').lower()
+    combined=sector+' '+industry
+    if 'reit' in combined or 'real estate' in combined: return 'Fastigheter'
+    if 'bank' in combined or 'credit services' in combined or 'capital markets' in combined: return 'Bank / finansiella tjänster'
+    if 'insurance' in combined: return 'Försäkring'
+    if 'asset management' in combined or 'investment holding' in combined: return 'Investmentbolag / kapitalförvaltning'
+    if not sector and not industry: return 'Ej klassificerad'
+    return 'Rörelsedrivande bolag'
+
 @st.cache_data(ttl=21600,show_spinner=False)
 def screener_snapshot(symbol):
     """En bolagsobservation med samma P/E-metod som Värderingskontroll."""
     try:
         obj=yf.Ticker(symbol)
         info=obj.info or {}
+        category=valuation_category(symbol,info)
+        if category!='Rörelsedrivande bolag':
+            return {'status':'Kräver annan värderingsmetod' if category!='Ej klassificerad' else 'Ej klassificerad',
+                    'category':category,'currency':info.get('currency')}
         current_pe=numeric(info.get('trailingPE'))
         price=numeric(info.get('currentPrice') or info.get('regularMarketPrice'))
         if current_pe is None or not 0<current_pe<=80 or price is None or price<=0:
-            return {'status':'Otillräckliga börsdata'}
+            return {'status':'Otillräckliga börsdata','category':category}
         history=obj.get_valuation_measures(freq='quarterly',periods=12)
         pe_values=[]
         if isinstance(history,pd.DataFrame) and not history.empty:
@@ -489,20 +522,25 @@ def screener_snapshot(symbol):
                     pe_values+=pd.to_numeric(history[field],errors='coerce').dropna().tolist()
         pe_values=[float(v) for v in pe_values if 0<float(v)<=80]
         if len(pe_values)<3:
-            return {'status':'P/E-historik saknas','pe':current_pe,'price':price,'observations':len(pe_values)}
+            return {'status':'P/E-historik saknas','pe':current_pe,'price':price,'observations':len(pe_values),'category':category}
         median=float(pd.Series(pe_values).median())
         gap=(current_pe/median-1)*100
         return {'status':'Intressant att analysera vidare' if gap<=-20 else 'Högt värderad' if gap>=20 else 'Avvakta',
                 'pe':current_pe,'median':median,'gap':gap,'price':price,
                 'indicative_price':price*median/current_pe,'observations':len(pe_values),
-                'currency':info.get('currency')}
+                'currency':info.get('currency'),'category':category}
     except Exception:
         return {'status':'Kunde inte hämtas'}
 
 st.markdown('### Hitta undervärderade aktier')
-st.caption('Screener för alla bolag i EquityLabs lista. Jämför nuvarande P/E med historisk median-P/E, på samma sätt som Värderingskontroll. En rabatt är en signal att undersöka bolaget, inte ett köpbeslut.')
+st.caption('Bolagen klassificeras efter värderingsmetod. P/E-signaler visas bara för rörelsedrivande bolag. Investmentbolag, banker, försäkringsbolag och fastighetsbolag markeras separat tills rätt värderingsmodell finns. En rabatt är inte ett köpbeslut.')
 universe=list(dict.fromkeys(ALL_COMPANIES.values()))
 screener_names={ticker:name for name,ticker in ALL_COMPANIES.items()}
+# Tidigare screeningresultat beräknades utan kategorifilter och måste förnyas.
+if st.session_state.get('screener_model_version')!='category-v1':
+    st.session_state.screener_results={}
+    st.session_state.screener_running=False
+    st.session_state.screener_model_version='category-v1'
 if 'screener_results' not in st.session_state:
     st.session_state.screener_results={}
 if 'screener_running' not in st.session_state:
@@ -530,6 +568,7 @@ if st.session_state.screener_results:
     for symbol,result in st.session_state.screener_results.items():
         scan_rows.append({
             'Bolag':screener_names.get(symbol,symbol),'Ticker':symbol,
+            'Värderingskategori':result.get('category',valuation_category(symbol)),
             'Signal':result.get('status','Saknas'),
             'Rabatt mot historisk P/E (%)':round(-result['gap'],1) if result.get('gap') is not None else None,
             'Nuvarande P/E':round(result['pe'],1) if result.get('pe') is not None else None,
@@ -540,11 +579,13 @@ if st.session_state.screener_results:
             'P/E-observationer':result.get('observations',0)
         })
     scan_df=pd.DataFrame(scan_rows)
-    filter_choice=st.radio('Visa', ['Intressanta','Alla resultat','Saknade uppgifter'],horizontal=True,key='screener_filter')
+    filter_choice=st.radio('Visa', ['Intressanta','Alla resultat','Andra värderingsmetoder','Saknade uppgifter'],horizontal=True,key='screener_filter')
     if filter_choice=='Intressanta':
         scan_df=scan_df[scan_df['Signal']=='Intressant att analysera vidare']
+    elif filter_choice=='Andra värderingsmetoder':
+        scan_df=scan_df[scan_df['Signal']=='Kräver annan värderingsmetod']
     elif filter_choice=='Saknade uppgifter':
-        scan_df=scan_df[scan_df['Signal'].isin(['Otillräckliga börsdata','P/E-historik saknas','Kunde inte hämtas'])]
+        scan_df=scan_df[scan_df['Signal'].isin(['Otillräckliga börsdata','P/E-historik saknas','Kunde inte hämtas','Ej klassificerad'])]
     scan_df=scan_df.sort_values('Rabatt mot historisk P/E (%)',ascending=False,na_position='last')
     st.dataframe(scan_df,hide_index=True,use_container_width=True)
     st.caption('Beräkningen bygger på senaste hämtade Yahoo-data. Positiv rabatt = lägre nuvarande P/E än historisk median. P/E-historik och aktuell P/E kan ha olika definitioner eller perioder; resultaten måste granskas. Saknade uppgifter ger ingen investeringssignal.')
