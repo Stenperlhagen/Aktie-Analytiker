@@ -457,7 +457,7 @@ def parse_file(upload):
 
 st.title('EquityLab')
 st.caption('Automatisk bolagsöversikt · Svenska börsbolag · Egna rapporter · Scenariovärdering')
-st.info('Bolagslistan är ett brett urval och inte en verifierad fullständig Nasdaq-segmentlista. Data hämtas vid val av bolag via Yahoo Finance (inofficiell källa, kan vara fördröjd eller ofullständig). Saknade fält visas som ”Saknas” – inga värden hittas på. Källorna bör kontrolleras mot bolagets rapporter.')
+
 # Kompletterande svenska bolag. Börssegment kan ändras vid Nasdaqs omklassificeringar.
 # Listan är ett sökbart urval, inte en garanti för en fullständig aktuell segmentförteckning.
 ADDITIONAL_COMPANIES = {
