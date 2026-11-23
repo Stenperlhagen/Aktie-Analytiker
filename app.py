@@ -818,12 +818,16 @@ if valid_price and valid_current_pe and valid_history:
     v2.metric('Nuvarande P/E',show(pe,'×',1))
     v3.metric('Historisk median P/E',show(global_pe_median,'×',1))
     v4.metric(status+' mot historisk P/E',show(abs(relative_gap),' %',1))
-    if abs(relative_gap)<15:
-        st.info('Aktien handlas nära sin observerade historiska P/E-median (inom 15 %).')
-    elif relative_gap<0:
-        st.success('Aktien handlas till lägre P/E än sin historiska median. Det är en relativ värderingsrabatt, inte en verifierad undervärdering.')
+    # Beslutsstöd med uttryckliga, försiktiga trösklar.
+    # Lägre P/E än historiken är inte tillräckligt för ett köpbeslut.
+    st.markdown('#### Preliminär investeringssignal')
+    if relative_gap<=-20:
+        st.success('**INTRESSANT ATT ANALYSERA VIDARE** – Aktien handlas minst 20 % under sin historiska P/E-median. Kontrollera vinstkvalitet, risker och framtidsutsikter innan köp.')
+    elif relative_gap>=20:
+        st.error('**HÖGT VÄRDERAD – AVVAKTA NYA KÖP** – Aktien handlas minst 20 % över sin historiska P/E-median. En hög premie kan vara motiverad av bättre tillväxt eller lönsamhet.')
     else:
-        st.warning('Aktien handlas till högre P/E än sin historiska median. Det är en relativ värderingspremie, inte ett säljråd.')
+        st.info('**AVVAKTA – INGET TYDLIGT KÖPLÄGE** – Aktien handlas nära sin historiska P/E-median (inom ±20 %). Värderingen ger ingen tydlig säkerhetsmarginal.')
+    st.caption('Signalen bygger endast på P/E i förhållande till historiken. Den är inte ett personligt köp-/säljråd och tar ännu inte hänsyn till prognoser, bolagsrisk eller portföljinnehav.')
     with st.expander('Visa metod, indikativt pris och säkerhetsmarginal'):
         st.write('**Indikativt pris vid historisk P/E:** '+show(indicative_value,' '+str(quote_ccy),2))
         st.write('**Pris med 20 % säkerhetsmarginal:** '+show(indicative_value*0.8,' '+str(quote_ccy),2))
@@ -839,7 +843,7 @@ else:
     if not valid_price: missing.append('aktuell aktiekurs')
     if not valid_current_pe: missing.append('positivt aktuellt P/E')
     if not valid_history: missing.append('minst tre historiska P/E-observationer')
-    st.info('Ingen relativ värdering kan beräknas. Saknas: '+', '.join(missing)+'.')
+    st.info('**INGEN INVESTERINGSSIGNAL** – Otillräckligt underlag. Saknas: '+', '.join(missing)+'.')
 st.caption('Detta är en historisk multipeljämförelse, inte en fullständig bolagsvärdering. DCF och sammanvägd köp-/säljsignal är pausade tills de har validerats.')
 st.divider()
 
