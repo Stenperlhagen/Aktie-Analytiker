@@ -1059,22 +1059,21 @@ if valid_price and valid_current_pe and valid_history:
         +show(abs(relative_gap),' %',1)+'</div></div>',
         unsafe_allow_html=True
     )
-    if relative_gap>0:
-        st.caption('**Tolkning:** Aktien är '+show(abs(relative_gap),' %',1)+' dyrare sett till P/E än sin historiska nivå. Det kan tyda på relativ övervärdering, men bevisar inte att aktien är övervärderad.')
-    elif relative_gap<0:
-        st.caption('**Tolkning:** Aktien är '+show(abs(relative_gap),' %',1)+' billigare sett till P/E än sin historiska nivå. Det kan tyda på relativ undervärdering, men bevisar inte att aktien är undervärderad.')
-    else:
-        st.caption('**Tolkning:** Aktien värderas till samma P/E som sin historiska median.')
-    # Beslutsstöd med uttryckliga, försiktiga trösklar.
-    # Lägre P/E än historiken är inte tillräckligt för ett köpbeslut.
-    st.markdown('#### Preliminär investeringssignal')
+    st.markdown('#### Slutsats utifrån värderingen')
     if relative_gap<=-20:
-        st.success('**INTRESSANT ATT ANALYSERA VIDARE** – Aktien handlas minst 20 % under sin historiska P/E-median. Kontrollera vinstkvalitet, risker och framtidsutsikter innan köp.')
+        st.success('**INTRESSANT ATT ANALYSERA VIDARE** – Aktien handlas med minst 20 % lägre P/E än sin historiska median. Undersök om vinsten är hållbar och om bolagets risker motiverar rabatten.')
     elif relative_gap>=20:
-        st.error('**HÖGT VÄRDERAD – AVVAKTA NYA KÖP** – Aktien handlas minst 20 % över sin historiska P/E-median. En hög premie kan vara motiverad av bättre tillväxt eller lönsamhet.')
+        st.error('**AVVAKTA NYA KÖP** – Aktien handlas med minst 20 % högre P/E än historiskt. Det krävs starkare framtida vinsttillväxt för att motivera priset.')
+    elif relative_gap>0:
+        st.info('**AVVAKTA** – Aktien är något dyrare än normalt. Ingen tydlig värderingsrabatt finns. En lägre kurs eller förbättrade vinstutsikter skulle göra aktien mer intressant.')
+    elif relative_gap<0:
+        st.info('**BEVAKA** – Aktien är något billigare än normalt, men rabatten är ännu mindre än vår gräns på 20 %. Kontrollera bolagets kvalitet och vinstutsikter.')
     else:
-        st.info('**AVVAKTA – INGET TYDLIGT KÖPLÄGE** – Aktien handlas nära sin historiska P/E-median (inom ±20 %). Värderingen ger ingen tydlig säkerhetsmarginal.')
-    st.caption('Signalen bygger endast på P/E i förhållande till historiken. Den är inte ett personligt köp-/säljråd och tar ännu inte hänsyn till prognoser, bolagsrisk eller portföljinnehav.')
+        st.info('**AVVAKTA** – Aktien värderas i nivå med sin historiska P/E-median.')
+    price_difference=(price/indicative_value-1)*100 if indicative_value>0 else None
+    st.write('**Kurs vid historiskt P/E:** '+show(indicative_value,' '+str(quote_ccy),2)+
+             ' · **Dagens kurs:** '+show(price,' '+str(quote_ccy),2))
+    st.caption('Kursen vid historiskt P/E är en jämförelsenivå med dagens vinst, inte en kursprognos. P/E-jämförelsen är ett första filter, inte en fullständig investeringsbedömning.')
     with st.expander('Visa metod, indikativt pris och säkerhetsmarginal'):
         st.write('**Indikativt pris vid historisk P/E:** '+show(indicative_value,' '+str(quote_ccy),2))
         st.write('**Pris med 20 % säkerhetsmarginal:** '+show(indicative_value*0.8,' '+str(quote_ccy),2))
