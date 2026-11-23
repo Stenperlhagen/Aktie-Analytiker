@@ -3,6 +3,8 @@ on:
   push:
     paths:
       - 'app.py'
+      - 'test_app_smoke.py'
+      - 'requirements.txt'
       - '.github/workflows/equitylab-checks.yml'
   workflow_dispatch:
 jobs:
@@ -33,3 +35,7 @@ jobs:
               print(('PASS' if ok else 'FAIL') + ': ' + name)
           assert all(checks.values())
           PY
+      - name: Install app dependencies
+        run: pip install -r requirements.txt
+      - name: Streamlit startup smoke test
+        run: python -m unittest test_app_smoke.py
