@@ -841,7 +841,17 @@ with five:
     st.caption(_signal_detail)
     if 'GRÅ' in _signal_title:
         st.info('Grått betyder att appens anslutna datakällor inte räcker för en investeringsvärdering – inte att bolaget saknar offentliga rapporter.')
-        st.write('Datakontroll:', {'Aktiekurs':price,'Börsvärde':info.get('marketCap') or quick.get('market_cap'),'EPS':info.get('trailingEps'),'Handelsvaluta':info.get('currency') or quick.get('currency'),'Rapportvaluta':info.get('financialCurrency'),'P/E från källa':info.get('trailingPE')})
+        st.write('Datakontroll – använda värden och ursprung:', {
+            'Aktiekurs': {'värde':price,'källa':'Yahoo Finance kurshistorik'},
+            'Börsvärde': {'värde':market_cap,'källa':('Yahoo Finance marketCap' if val(info,'marketCap') is not None else ('Yahoo Finance fast_info' if val(quick,'market_cap') is not None else ('Beräknat: antal aktier × aktiekurs' if market_cap is not None else 'Saknas')))},
+            'EPS från Yahoo':info.get('trailingEps'),
+            'Handelsvaluta':quote_ccy,
+            'Rapportvaluta från Yahoo':report_ccy,
+            'ROIC rapportvaluta':_roic_data.get('income',[{}])[0].get('currency') if _roic_data.get('income') else None,
+            'P/E från Yahoo':info.get('trailingPE'),
+            'P/E som visas':pe,
+            'ROIC status':_roic_status
+        })
     if _assessment_rows:
         st.dataframe(pd.DataFrame(_assessment_rows),hide_index=True,use_container_width=True)
     with st.expander('Datatäckning och källstatus'):
