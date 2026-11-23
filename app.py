@@ -583,11 +583,8 @@ def screener_snapshot(symbol):
         obj=yf.Ticker(symbol)
         info=obj.info or {}
         category=valuation_category(symbol,info)
-        # Hämta kompletterande rapporter endast när Börsdata-nyckel är ansluten.
-        # Ingen extra API-förfrågan för användare utan abonnemang.
-        api_key=borsapi_key()
-        extra,extra_error=borsapi_reports(symbol,api_key) if api_key else ({},'Ej ansluten')
-        report_count=len(extra.get('periods',[]))
+        # Gratisläge: inga betalda API:er anropas vid screening.
+        report_count=0
 
         if category!='Rörelsedrivande bolag':
             # Använd sektorsrelevanta nyckeltal men ge inte falska substansrabatter.
@@ -635,6 +632,46 @@ def screener_snapshot(symbol):
             'operating_cashflow':cashflow,
             'leverage':leverage,
         }
+        # Komplettera nyckeltal från faktiska årsrapporter när profilfälten saknas.
+        # Dessa jämförs bara inom samma rapportvaluta och rapportperiod.
+        if any(v is None for v in (growth,margin,cashflow,leverage)):
+            try:
+                annual_income=obj.income_stmt
+                annual_cash=obj.cashflow
+                annual_balance=obj.balance_sheet
+                def annual_series(frame,labels):
+                    if not isinstance(frame,pd.DataFrame) or frame.empty:
+                        return pd.Series(dtype='float64')
+                    for label in labels:
+                        if label in frame.index:
+                            series=pd.to_numeric(frame.loc[label],errors='coerce').dropna()
+                            if len(series): return series.sort_index()
+                    return pd.Series(dtype='float64')
+                revenues=annual_series(annual_income,['Total Revenue','Operating Revenue'])
+                operating=annual_series(annual_income,['Operating Income','EBIT'])
+                ocf_series=annual_series(annual_cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'])
+                if growth is None and len(revenues)>=2 and revenues.iloc[-2]>0:
+                    growth=float(revenues.iloc[-1]/revenues.iloc[-2]-1)
+                if margin is None:
+                    common=revenues.index.intersection(operating.index)
+                    if len(common)>0 and revenues.loc[common[-1]]>0:
+                        margin=float(operating.loc[common[-1]]/revenues.loc[common[-1]])
+                if cashflow is None and len(ocf_series)>0:
+                    cashflow=float(ocf_series.iloc[-1])
+                if leverage is None:
+                    debt_series=annual_series(annual_balance,['Total Debt'])
+                    cash_series=annual_series(annual_balance,['Cash And Cash Equivalents','Cash Cash Equivalents And Short Term Investments'])
+                    ebitda_series=annual_series(annual_income,['Normalized EBITDA','EBITDA'])
+                    dates=debt_series.index.intersection(cash_series.index).intersection(ebitda_series.index)
+                    if len(dates)>0 and ebitda_series.loc[dates[-1]]>0:
+                        leverage=float((debt_series.loc[dates[-1]]-cash_series.loc[dates[-1]])/ebitda_series.loc[dates[-1]])
+                quality_data.update({
+                    'revenue_growth':growth*100 if growth is not None else None,
+                    'operating_margin':margin*100 if margin is not None else None,
+                    'operating_cashflow':cashflow,'leverage':leverage
+                })
+            except Exception:
+                pass
         tests=[
             (growth is not None,growth is not None and growth>0.03),
             (margin is not None,margin is not None and margin>0.08),
@@ -687,16 +724,15 @@ def screener_snapshot(symbol):
         return {'status':'Kunde inte hämtas'}
 
 st.markdown('### Hitta undervärderade aktier')
-if not borsapi_key():
-    st.caption('Extra rapportkälla: Börsdata PRO+ kan aktiveras med BORSAPI_API_KEY i Streamlit Secrets. Utan nyckeln används Yahoo. Börsdatas rapporter ersätter inte rapporterat substansvärde.')
+st.caption('Gratisläge: Yahoo Finance används för börsdata och rapporter. ROIC AI används bara om du redan har en fungerande anslutning. Ingen Börsdata-prenumeration krävs. Saknade uppgifter markeras – inga siffror uppskattas.')
 st.caption('Bolagen klassificeras efter värderingsmetod. P/E-signaler visas bara för rörelsedrivande bolag. Investmentbolag, banker, försäkringsbolag och fastighetsbolag markeras separat tills rätt värderingsmodell finns. En rabatt är inte ett köpbeslut.')
 universe=list(dict.fromkeys(ALL_COMPANIES.values()))
 screener_names={ticker:name for name,ticker in ALL_COMPANIES.items()}
 # Tidigare screeningresultat beräknades utan kategorifilter och måste förnyas.
-if st.session_state.get('screener_model_version')!='category-v7':
+if st.session_state.get('screener_model_version')!='free-v1':
     st.session_state.screener_results={}
     st.session_state.screener_running=False
-    st.session_state.screener_model_version='category-v7'
+    st.session_state.screener_model_version='free-v1'
 if 'screener_results' not in st.session_state:
     st.session_state.screener_results={}
 if 'screener_running' not in st.session_state:
@@ -729,7 +765,7 @@ if st.session_state.screener_results:
             'Omsättningstillväxt (%)':round(result['revenue_growth'],1) if result.get('revenue_growth') is not None else None,
             'Rörelsemarginal (%)':round(result['operating_margin'],1) if result.get('operating_margin') is not None else None,
             'Nettoskuld/EBITDA':round(result['leverage'],2) if result.get('leverage') is not None else None,
-            'Rapportperioder (BörsAPI)':result.get('secondary_report_periods'),
+            'Datakälla':'Yahoo Finance / bolagsrapporter där tillgängliga',
             'Metod':result.get('method','P/E-historik' if result.get('category')=='Rörelsedrivande bolag' else 'Ej fastställd'),
             'P/B':round(result['pb'],2) if result.get('pb') is not None else None,
             'Rapporterat substansvärde/aktie':result.get('nav'),
