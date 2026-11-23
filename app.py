@@ -1351,7 +1351,6 @@ with five:
             dcf_fair=None
             st.warning('DCF kan inte beräknas ännu. Saknas: '+', '.join(dcf_missing)+'.')
         else:
-        else:
             fcf_quote=fcf_annual*fcf_fx
             projected=[fcf_quote*(1+dcf_growth/100)**year for year in range(1,6)]
             r=discount_rate/100
