@@ -104,7 +104,12 @@ def roic_company_data(ticker, api_key):
             return sorted([v for v in rows if isinstance(v,dict) and v.get('period_type')=='annual' and v.get('symbol')==identifier],key=lambda v:v.get('period_end_date',''),reverse=True)
         income=get_periods('/fundamental/income-statement')
         if not income: return {'search_match':match,'symbol':identifier},'ROIC identifierade aktien men årsrapporter saknas i API-svaret.'
-        return {'search_match':match,'symbol':identifier,'income':income},None
+        balance_rows=[]
+        try:
+            balance_rows=get_periods('/fundamental/balance-sheet')
+        except (requests.RequestException,ValueError,TypeError):
+            pass
+        return {'search_match':match,'symbol':identifier,'income':income,'balance':balance_rows},None
     except requests.RequestException as exc:
         return {},'ROIC nätverksfel: '+type(exc).__name__
     except (ValueError,TypeError) as exc:
@@ -586,8 +591,30 @@ if pe is None and price is not None and price>0 and quote_ccy:
     elif report_ccy and report_ccy==quote_ccy and eps is not None and eps>0:
         pe=price/eps
         pe_source='Beräknat från Yahoo EPS (samma valuta)'
-# Enterprise value and EBITA must use the same currency.
-ev_ebita = ((market_cap+netdebt)/ebita if market_cap is not None and netdebt is not None and ebita is not None and ebita>0 and quote_ccy and report_ccy and quote_ccy==report_ccy else None)
+# EV/EBITA: börsvärde i handelsvalutan + nettoskuld i rapportvalutan,
+# endast om nettoskuld och EBITA avser jämförbar period och valuta.
+ev_ebita = None
+ev_ebita_source = 'Saknar jämförbar nettoskuld och EBITA'
+roic_balance = _roic_data.get('balance',[])
+if _roic_income and roic_balance and market_cap is not None and quote_ccy:
+    inc=_roic_income[0]
+    report_date=str(inc.get('period_end_date') or '')[:10]
+    report_currency=inc.get('currency')
+    balance_match=next((x for x in roic_balance if str(x.get('period_end_date') or '')[:10]==report_date and x.get('currency')==report_currency),None)
+    def roic_field(record,keys):
+        if not record: return None
+        for key in keys:
+            value=numeric(record.get(key))
+            if value is not None: return value
+        return None
+    if balance_match and report_currency:
+        debt_roic=roic_field(balance_match,('bs_total_debt','total_debt','totalDebt'))
+        cash_roic=roic_field(balance_match,('bs_cash_and_cash_equivalents','cash_and_cash_equivalents','cash_and_short_term_investments'))
+        ebita_roic=roic_field(inc,('ebita',))
+        rate=fx_rate(quote_ccy,report_currency)
+        if all(v is not None for v in (debt_roic,cash_roic,ebita_roic,rate)) and ebita_roic>0 and rate>0:
+            ev_ebita=(market_cap*rate+debt_roic-cash_roic)/ebita_roic
+            ev_ebita_source='ROIC årsbalans och EBITA '+report_date+'; börsvärde omräknat '+quote_ccy+' till '+report_currency
 # Tre kompletterande nyckeltal: kassagenerering, kapitalavkastning och utdelning.
 free_cash_flow = statement_value(cash,['Free Cash Flow'])
 if free_cash_flow is None:
@@ -915,7 +942,7 @@ with five:
             {'Nyckeltal':'EBITA','Värde':diagnostic_number(ebita/1e6,' M') if ebita is not None else 'Saknas','Källa':'Yahoo / ROIC årsrapport','Period':roic_period if _roic_income else 'Se årsdata'},
             {'Nyckeltal':'EPS (resultaträkning)','Värde':diagnostic_number(eps_display),'Källa':'Yahoo Finance – årsresultat' if eps_display is not None else 'Saknas','Period':'Senaste tillgängliga årsperiod'},
             {'Nyckeltal':'P/E','Värde':diagnostic_number(pe,'×',1),'Källa':pe_source,'Period':eps_report_period or 'Ej verifierad årsperiod'},
-            {'Nyckeltal':'EV/EBITA','Värde':diagnostic_number(ev_ebita,'×',1),'Källa':'Beräknat när valuta och underlag är jämförbara' if ev_ebita is not None else 'Otillräckligt jämförbart underlag','Period':'Se årsdata'},
+            {'Nyckeltal':'EV/EBITA','Värde':diagnostic_number(ev_ebita,'×',1),'Källa':ev_ebita_source,'Period':'Se årsdata'},
             {'Nyckeltal':'Direktavkastning','Värde':diagnostic_number(dividend_yield,' %',1),'Källa':'Yahoo Finance / senaste 365 dagars utdelningar','Period':'Senaste 12 månaderna om beräknat'},
             {'Nyckeltal':'Rapportvaluta (ROIC)','Värde':roic_currency,'Källa':'ROIC AI','Period':roic_period},
             {'Nyckeltal':'ROIC-anslutning','Värde':'Fungerar' if _roic_income else 'Ingen rapportdata','Källa':_roic_error or 'ROIC AI','Period':roic_period},
