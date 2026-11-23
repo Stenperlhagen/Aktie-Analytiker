@@ -69,7 +69,7 @@ def news(company):
         f'"{search_name}" when:6m',
         f'{search_name} aktie OR rapport OR förvärv when:6m',
     ]
-    out, seen, errors = [], set(), []
+    out, seen, errors, counts = [], set(), [], []
     for query in searches:
         url = 'https://news.google.com/rss/search?' + urllib.parse.urlencode({
             'q': query, 'hl': 'sv', 'gl': 'SE', 'ceid': 'SE:sv'
@@ -82,6 +82,7 @@ def news(company):
             feed = feedparser.parse(response.content)
             if feed.bozo and not feed.entries:
                 raise ValueError(str(feed.bozo_exception))
+            counts.append(f'{query}: {len(feed.entries)} träffar i RSS-flödet')
             for entry in feed.entries:
                 published = entry.get('published_parsed')
                 if not published:
@@ -100,7 +101,7 @@ def news(company):
         if len(out) >= 20:
             break
     out.sort(key=lambda item: item['Datum'], reverse=True)
-    return out[:35], errors
+    return out[:35], errors, counts
 
 def parse_file(upload):
     raw=upload.getvalue(); name=upload.name.lower()
@@ -315,17 +316,20 @@ with three:
         news.clear()
         st.rerun()
     with st.spinner('Söker nyheter…'):
-        items, news_errors = news(company)
+        items, news_errors, news_counts = news(company)
     if items:
         st.success(f'{len(items)} artiklar hittades.')
         for item in items:
             st.markdown(f'**{item["Datum"]}** · [{item["Rubrik"]}]({item["Länk"]})')
     else:
         st.warning('Inga artiklar kunde hämtas. Det betyder inte att bolaget saknar nyheter.')
-    if news_errors:
-        with st.expander('Visa fel från nyhetskällan'):
-            for err in news_errors:
-                st.code(err)
+    with st.expander('Visa nyhetskällans diagnostik'):
+        for line in news_counts:
+            st.text(line)
+        for err in news_errors:
+            st.code(err)
+        if not news_counts and not news_errors:
+            st.text('Ingen diagnostik tillgänglig.')
     search_link = 'https://www.google.com/search?' + urllib.parse.urlencode({
         'q': f'{company} pressmeddelanden senaste sex månaderna'
     })
