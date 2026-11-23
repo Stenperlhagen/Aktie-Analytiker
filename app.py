@@ -599,12 +599,14 @@ def operating_valuation_profile(symbol,info=None):
     if sector in ('industrials','basic materials'): return 'Tillverkningsindustri'
     return None
 
+RESEARCH_TICKERS={'BIOA-B.ST','ACE.ST','HNSA.ST','SYNACT.ST','COALA.ST','SEZI.ST','SUS.ST','BACTI-B.ST'}
 def valuation_category(symbol, info=None):
     """Konservativ kategorisering: särskilda affärsmodeller kräver andra metoder."""
     if symbol in INVESTMENT_TICKERS: return 'Investmentbolag / kapitalförvaltning'
     if symbol in BANK_TICKERS: return 'Bank / finansiella tjänster'
     if symbol in INSURANCE_TICKERS: return 'Försäkring'
     if symbol in PROPERTY_TICKERS: return 'Fastigheter'
+    if symbol in RESEARCH_TICKERS: return 'Forskningsbolag'
     details=info or {}
     sector=str(details.get('sector') or '').lower()
     industry=str(details.get('industry') or '').lower()
@@ -612,6 +614,7 @@ def valuation_category(symbol, info=None):
     if 'reit' in combined or 'real estate' in combined: return 'Fastigheter'
     if 'bank' in combined or 'credit services' in combined or 'capital markets' in combined: return 'Bank / finansiella tjänster'
     if 'insurance' in combined: return 'Försäkring'
+    if any(term in industry for term in ('biotechnology','drug manufacturers—specialty','drug manufacturers - specialty')) and str(details.get('longBusinessSummary') or '').lower().find('clinical')>=0: return 'Forskningsbolag'
     if 'asset management' in combined or 'investment holding' in combined: return 'Investmentbolag / kapitalförvaltning'
     if 'financial services' in sector or 'financial data' in industry: return 'Bank / finansiella tjänster'
     if not sector and not industry: return 'Ej klassificerad'
@@ -2095,7 +2098,56 @@ with four:
     st.markdown('### Tre värderingsmodeller – egna antaganden')
     st.caption('DCF och Reverse DCF använder FCFF/WACC och nettoskuld. EV/EBITA använder rapporterad EBITA och en vald multipel. Alla värden ska anges i samma valuta och beloppen i miljoner. Inga analytikerriktkurser används.')
     model_category=valuation_category(ticker,info)
-    if model_category=='Fastigheter':
+    if model_category=='Forskningsbolag':
+        st.markdown('#### Forskningsbolag – riskjusterat nuvärde (rNPV)')
+        st.caption('rNPV = summan av sannolikhetsvägda och diskonterade framtida nettokassaflöden. Eget kapital = rNPV + nettokassa − övriga åtaganden. Ange projektdata från kliniska program och rapporter. Ingen sannolikhet eller försäljningsprognos antas automatiskt.')
+        research_ccy=report_ccy or quote_ccy
+        research_fx=fx_rate(research_ccy,quote_ccy) if research_ccy and quote_ccy else None
+        research_shares=shares_count/1e6 if shares_count is not None and shares_count>0 else 0.0
+        with st.expander('Projektantaganden och finansiering',expanded=True):
+            rp1,rp2,rp3=st.columns(3)
+            project_count=rp1.number_input('Antal projekt',min_value=1,max_value=10,value=1,step=1,key='rnpv_projects_'+ticker)
+            research_discount=rp2.number_input('Diskonteringsränta (%)',min_value=1.0,max_value=50.0,value=15.0,step=0.5,key='rnpv_discount_'+ticker)
+            research_shares_input=rp3.number_input('Utspätt antal aktier (miljoner)',min_value=0.0,value=float(research_shares),step=1.0,key='rnpv_shares_'+ticker)
+            r4,r5=st.columns(2)
+            research_net_cash=r4.number_input('Nettokassa (miljoner '+str(research_ccy or 'rapportvaluta')+')',
+                value=float((cash_val-debt)/1e6) if cash_val is not None and debt is not None else 0.0,
+                step=10.0,key='rnpv_cash_'+ticker,
+                help='Likvida medel minus räntebärande skulder. Kontrollera mot senaste rapport.')
+            research_commitments=r5.number_input('Övriga åtaganden (miljoner)',min_value=0.0,value=0.0,step=10.0,key='rnpv_commit_'+ticker)
+            st.caption('För varje projekt: ange sannolikhet för kommersiell framgång och nettokassaflöde per år. Negativa belopp motsvarar framtida utvecklingskostnader. Belopp i miljoner rapportvaluta.')
+            rnpv_total=0.0
+            rnpv_complete=True
+            for project_i in range(int(project_count)):
+                st.markdown('**Projekt '+str(project_i+1)+'**')
+                prob=st.number_input('Sannolikhet för framgång (%) – projekt '+str(project_i+1),
+                    min_value=0.0,max_value=100.0,value=0.0,step=5.0,key='rnpv_prob_'+ticker+'_'+str(project_i))
+                flows=[]
+                project_cols=st.columns(5)
+                for year_i in range(1,6):
+                    flows.append(project_cols[year_i-1].number_input('År '+str(year_i)+' (M)',value=0.0,step=10.0,
+                        key='rnpv_cf_'+ticker+'_'+str(project_i)+'_'+str(year_i)))
+                if prob<=0 or not any(amount!=0 for amount in flows):
+                    rnpv_complete=False
+                else:
+                    # Nettokostnader före kommersialisering ska normalt inte sannolikhetsvägas
+                    # med sannolikheten för ett framtida godkännande.
+                    # Här viktas endast positiva kommersiella kassaflöden med p.
+                    rnpv_total+=sum(((prob/100 if amount>0 else 1.0)*amount)/(1+research_discount/100)**year
+                        for year,amount in enumerate(flows,1))
+        if research_shares_input<=0 or research_fx is None or not rnpv_complete:
+            st.info('rNPV kräver utspätt antal aktier, jämförbar valuta och för varje projekt en angiven sannolikhet samt framtida kassaflöden. Fyll i projektantagandena för att få ett värde.')
+        else:
+            equity_rnpv=rnpv_total+research_net_cash-research_commitments
+            share_rnpv=equity_rnpv*research_fx/research_shares_input
+            rr1,rr2,rr3=st.columns(3)
+            rr1.metric('Riskjusterat projektvärde',show(rnpv_total,' M '+str(research_ccy),1))
+            rr2.metric('Eget kapital efter nettokassa/åtaganden',show(equity_rnpv,' M '+str(research_ccy),1))
+            rr3.metric('Motiverad kurs enligt rNPV',show(share_rnpv,' '+str(quote_ccy),2))
+            if price is not None and price>0:
+                st.metric('Upp-/nedsida',show((share_rnpv/price-1)*100,' %',1))
+            st.caption('Positiva kassaflöden viktas med angiven sannolikhet; negativa utvecklingskostnader tas med fullt ut. Förenklad femårsmodell utan terminalvärde. Projektkostnader, lanseringstidpunkt, sannolikheter och framtida kapitalanskaffning måste kontrolleras individuellt.')
+    elif model_category=='Fastigheter':
         st.markdown('#### Fastighetsbolag – substansvärde (NAV)')
         st.caption('Fastighetsvärde = normaliserat årligt driftnetto / direktavkastningskrav. NAV = fastighetsvärde + övriga tillgångar − samtliga skulder. Ange värden från samma rapportperiod och valuta. Modellen är ett förenklat scenario och ersätter inte rapporterat EPRA NTA.')
         prop_ccy=report_ccy or quote_ccy or 'SEK'
