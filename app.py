@@ -996,6 +996,24 @@ with two:
     else:
         st.info('Kvartalsrapporter saknas hos den anslutna datakällan för detta bolag.')
 
+    st.markdown('#### Fullständiga kvartalsrapporter')
+    st.caption('Samtliga tillgängliga originalposter från dataleverantören visas nedan, inte bara de utvalda nyckeltalen i sammanfattningen. Rapportperioder och saknade värden bevaras.')
+    for report_title,report_frame in [
+        ('Resultaträkning – kvartal',quarterly_income),
+        ('Kassaflödesanalys – kvartal',quarterly_cash),
+        ('Balansräkning – kvartal',quarterly_balance)
+    ]:
+        with st.expander(report_title):
+            if not isinstance(report_frame,pd.DataFrame) or report_frame.empty:
+                st.info('Inga kvartalsuppgifter levererades för denna rapport. Det betyder inte att bolaget saknar offentlig kvartalsrapport.')
+            else:
+                raw_quarters=report_frame.copy()
+                raw_quarters.columns=[str(pd.Timestamp(c).date()) if not pd.isna(pd.to_datetime(c,errors='coerce')) else str(c) for c in raw_quarters.columns]
+                raw_quarters=raw_quarters.reset_index().rename(columns={'index':'Rapportpost'})
+                st.dataframe(raw_quarters,use_container_width=True,hide_index=True)
+                st.caption(str(len(report_frame.index))+' rapportposter · '+str(len(report_frame.columns))+' rapportperioder · Yahoo Finance. Belopp visas i originalenheter (inte miljoner).')
+                st.download_button('Ladda ner '+report_title+' (CSV)',data=raw_quarters.to_csv(index=False).encode('utf-8-sig'),file_name=ticker.replace('.','_')+'_'+('resultat' if 'Resultat' in report_title else 'kassaflode' if 'Kassaflöde' in report_title else 'balans')+'_kvartal.csv',mime='text/csv',key='quarter_export_'+report_title)
+    st.caption('Kvartalsrapporter kan innehålla kumulativa kassaflöden beroende på datakällans definition. Summera inte kvartalsvärden utan att kontrollera att de är fristående kvartal.')
     st.markdown('#### Datatäckning och rapporternas kvalitet')
     coverage_frames=[('Årsresultat',fin),('Årskassaflöde',cash),('Årsbalans',balance),
                      ('Kvartalsresultat',quarterly_income),('Kvartalskassaflöde',quarterly_cash),('Kvartalsbalans',quarterly_balance)]
