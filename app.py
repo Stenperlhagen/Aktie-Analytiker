@@ -60,6 +60,113 @@ def fetch(ticker):
     quick = attempt('Snabbkursdata', lambda: dict(obj.fast_info), {})
     return info or {}, history, fin, cash, balance, quick or {}, errors
 
+@st.cache_data(ttl=7200, show_spinner=False)
+def extended_financials(ticker):
+    """Ytterligare offentligt tillgängliga serier, hämtade separat och cachade."""
+    obj = yf.Ticker(ticker)
+    result, errors = {}, {}
+    sources = {
+        'quarterly_income': lambda: obj.quarterly_income_stmt,
+        'quarterly_cash': lambda: obj.quarterly_cashflow,
+        'quarterly_balance': lambda: obj.quarterly_balance_sheet,
+        'valuation_history': lambda: obj.get_valuation_measures(freq='quarterly', periods=12),
+    }
+    for key, getter in sources.items():
+        try:
+            frame = getter()
+            result[key] = frame if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+        except Exception as exc:
+            result[key] = pd.DataFrame()
+            errors[key] = f'{type(exc).__name__}: {str(exc)[:120]}'
+    return result, errors
+
+def assessment(fin, cash, balance, info, price, netdebt, ebitda, history, extended):
+    """Bedömning utan prognosantaganden eller uppfunna datapunkter."""
+    def series(frame, keys):
+        if frame is None or frame.empty: return pd.Series(dtype='float64')
+        for key in keys:
+            if key in frame.index:
+                x = pd.to_numeric(frame.loc[key], errors='coerce').dropna()
+                if len(x): return x.sort_index()
+        return pd.Series(dtype='float64')
+    def cagr(x):
+        if len(x)<3 or x.iloc[0]<=0 or x.iloc[-1]<=0: return None
+        return (float(x.iloc[-1])/float(x.iloc[0]))**(1/(len(x)-1))-1
+    rev = series(fin,['Total Revenue','Operating Revenue'])
+    ebit = series(fin,['Operating Income','EBIT'])
+    fcf = series(cash,['Free Cash Flow'])
+    ocf = series(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'])
+    capex = series(cash,['Capital Expenditure'])
+    debt = series(balance,['Total Debt'])
+    cash_bal = series(balance,['Cash And Cash Equivalents','Cash Cash Equivalents And Short Term Investments'])
+    net_income = series(fin,['Net Income','Net Income Common Stockholders'])
+    equity = series(balance,['Stockholders Equity','Common Stock Equity'])
+    sector = str(info.get('sector') or '').lower()
+    industry = str(info.get('industry') or '').lower()
+    specialized = any(x in sector+' '+industry for x in ['financial','bank','insurance','real estate','reit','investment management'])
+    evidence = []
+    def record(group, factor, metric, pass_test, note):
+        if metric is not None and pd.notna(metric):
+            evidence.append({'Område':group,'Faktor':factor,'Värde':round(float(metric),3),'Utfall':'Positivt' if pass_test else 'Negativt','Metod':note})
+    sales_cagr = cagr(rev)
+    record('Tillväxt','Omsättning CAGR',sales_cagr,sales_cagr is not None and sales_cagr>0.03,'Minst tre års observationer; 3 % är en metodgräns')
+    net_cagr = cagr(net_income)
+    record('Tillväxt','Nettovinst CAGR',net_cagr,net_cagr is not None and net_cagr>0,'Kräver positiva start- och slutvärden')
+    margins = [float(ebit[d]/rev[d]) for d in rev.index.intersection(ebit.index) if rev[d]>0]
+    if margins:
+        record('Lönsamhet','Senaste EBIT-marginal',margins[-1],margins[-1]>0.08,'8 % är metodgräns, ej branschnorm')
+    if len(margins)>=3:
+        record('Lönsamhet','Marginalförändring',margins[-1]-margins[0],margins[-1]-margins[0]>0,'Senaste minus äldsta årsperiod')
+    if len(ocf)>=3:
+        record('Kassaflöde','Andel positiva kassaflödesår',float((ocf>0).mean()),float((ocf>0).mean())>=0.75,'Minst 75 % positiva år')
+    if len(fcf)>=3:
+        record('Kassaflöde','Andel positiva FCF-år',float((fcf>0).mean()),float((fcf>0).mean())>=0.75,'Minst 75 % positiva år')
+    if not specialized and netdebt is not None and ebitda is not None and ebitda>0:
+        record('Risk','Nettoskuld/EBITDA',netdebt/ebitda,netdebt/ebitda<2.5,'Metodgräns 2,5×, inte generell kreditrating')
+    if not specialized and len(equity)>0 and len(net_income)>0:
+        common=equity.index.intersection(net_income.index)
+        if len(common)>0 and equity[common[-1]]>0:
+            roe=float(net_income[common[-1]]/equity[common[-1]])
+            record('Lönsamhet','ROE senaste år',roe,roe>0.10,'Metodgräns 10 %')
+    shares = info.get('sharesOutstanding')
+    marketcap = info.get('marketCap')
+    if not isinstance(marketcap,(int,float)) and price and isinstance(shares,(int,float)):
+        marketcap=price*shares
+    if isinstance(marketcap,(int,float)) and marketcap>0 and len(fcf)>0:
+        fy=float(fcf.iloc[-1]/marketcap)
+        record('Värdering','FCF-yield senaste år',fy,fy>0.05,'5 % metodgräns; senaste års FCF kan vara cykliskt')
+    pe = info.get('trailingPE')
+    if isinstance(pe,(int,float)) and 0<pe<500:
+        record('Värdering','P/E',pe,pe<20,'20× är en generell metodgräns, inte historisk jämförelse')
+    vh=extended.get('valuation_history',pd.DataFrame())
+    if not vh.empty:
+        for row_name in ['TrailingPeRatio','TrailingPE','PeRatio','EnterpriseValueEbitda','EnterpriseValueEbitdaRatio']:
+            if row_name in vh.index:
+                v=pd.to_numeric(vh.loc[row_name],errors='coerce').dropna()
+                dated=v.drop(labels=['Current'],errors='ignore')
+                current=v.get('Current')
+                if pd.notna(current) and len(dated)>=4:
+                    median=float(dated.median())
+                    if median>0:
+                        record('Värdering',f'{row_name} relativt historisk median',float(current)/median,float(current)/median<0.95,'Minst fyra historiska observationer; lägre multipel är inte alltid undervärdering')
+                break
+    groups = {'Värdering':0.35,'Tillväxt':0.15,'Lönsamhet':0.15,'Kassaflöde':0.20,'Risk':0.15}
+    present = {g:[x for x in evidence if x['Område']==g] for g in groups}
+    # En fullständig värderingsbedömning kräver minst två värderingsmått.
+    valuation_count=len(present['Värdering'])
+    missing=[g for g,items in present.items() if not items]
+    if specialized:
+        return 'GRÅ – Särskild branschmodell krävs', '#64748B', evidence, None, 'Banker, finans- och fastighetsbolag kräver branschspecifika värderingsmått.'
+    if len(evidence)<7 or valuation_count<2 or missing:
+        return 'GRÅ – Otillräckligt underlag', '#64748B', evidence, None, 'För få oberoende datapunkter eller saknade analysområden: '+(', '.join(missing) if missing else 'värderingshistorik och/eller täckning')
+    score=sum(groups[g]*sum(x['Utfall']=='Positivt' for x in items)/len(items) for g,items in present.items())
+    # Negativt FCF och allvarlig belåning kan inte kompenseras av billig P/E.
+    risk_flag=(netdebt is not None and ebitda is not None and ebitda>0 and netdebt/ebitda>=4)
+    if score>=0.75 and not risk_flag: status,color='GRÖN – Attraktiv enligt modellen','#16803C'
+    elif score<0.40 or risk_flag: status,color='RÖD – Förhöjd risk enligt modellen','#C53030'
+    else: status,color='GUL – Blandad investeringsbild','#B7791F'
+    return status,color,evidence,score,'Modellpoäng bygger på dokumenterade metodgränser, inte kalibrerad kursprognos.'
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def news(company):
     """Breda nyhetssökningar med flera RSS-källor och verifierad datumfiltrering."""
@@ -224,58 +331,19 @@ if eps is None:
 if pe is None and eps is not None and eps>0 and price is not None: pe=price/eps
 
 
-# Gemensam fundamental signal visas ovanför nyckeltalen på samtliga flikar.
-def _annual_series(frame, names):
-    if frame is None or frame.empty:
-        return pd.Series(dtype='float64')
-    for label in names:
-        if label in frame.index:
-            values = pd.to_numeric(frame.loc[label], errors='coerce').dropna().sort_index()
-            if not values.empty:
-                return values
-    return pd.Series(dtype='float64')
-
-def _annual_growth(values):
-    if len(values) < 2 or values.iloc[0] <= 0 or values.iloc[-1] <= 0:
-        return None
-    return (float(values.iloc[-1]) / float(values.iloc[0])) ** (1 / (len(values)-1)) - 1
-
-_sales = _annual_series(fin, ['Total Revenue', 'Operating Revenue'])
-_earn = _annual_series(fin, ['Operating Income', 'EBIT'])
-_profit = _annual_series(fin, ['Net Income', 'Net Income Common Stockholders'])
-_cashflow = _annual_series(cash, ['Operating Cash Flow', 'Cash Flow From Continuing Operating Activities'])
-_signals = []
-for v in (_annual_growth(_sales), _annual_growth(_profit)):
-    if v is not None:
-        _signals.append(v > 0)
-_overlap = _sales.index.intersection(_earn.index)
-_margins = [float(_earn.loc[d]) / float(_sales.loc[d]) for d in _overlap if float(_sales.loc[d]) > 0]
-if _margins:
-    _signals.append(_margins[-1] > 0)
-if len(_margins) >= 2:
-    _signals.append(_margins[-1] > _margins[0])
-if netdebt is not None and ebitda is not None and ebitda > 0:
-    _signals.append(netdebt / ebitda < 3)
-if not _cashflow.empty:
-    _signals.append(float((_cashflow > 0).mean()) >= 0.75)
-_positive = sum(_signals)
-_total = len(_signals)
-_ratio = _positive / _total if _total else 0
-if _total < 4:
-    _signal_title, _signal_color, _signal_detail = 'GUL – Otillräckligt underlag', '#B7791F', 'Färre än fyra finansiella indikatorer kunde beräknas.'
-elif _ratio >= 0.70:
-    _signal_title, _signal_color, _signal_detail = 'GRÖN – Positiva fundamentala signaler', '#16803C', 'Övervägande positiva historiska indikatorer.'
-elif _ratio <= 0.30:
-    _signal_title, _signal_color, _signal_detail = 'RÖD – Negativa fundamentala signaler', '#C53030', 'Övervägande negativa historiska indikatorer.'
-else:
-    _signal_title, _signal_color, _signal_detail = 'GUL – Blandade fundamentala signaler', '#B7791F', 'Blandade historiska indikatorer.'
+# Bedömningen använder tillgängliga års-, kvartals- och värderingsserier.
+# Saknad data ger grå markering, inte ett godtyckligt neutralt eller positivt betyg.
+with st.spinner('Kontrollerar fördjupade rapport- och värderingsdata…'):
+    extended, extended_errors = extended_financials(ticker)
+_signal_title,_signal_color,_assessment_rows,_assessment_score,_signal_detail = assessment(
+    fin,cash,balance,info,price,netdebt,ebitda,hist,extended
+)
 st.markdown(
     f'<div style="border:1px solid {_signal_color};border-left:8px solid {_signal_color};border-radius:12px;padding:15px 20px;margin:16px 0;">'
     f'<div style="font-size:21px;font-weight:700;color:{_signal_color}">{_signal_title}</div>'
-    f'<div style="margin-top:5px;">{_signal_detail} ({_positive} av {_total} positiva.)</div></div>',
-    unsafe_allow_html=True
+    f'<div style="margin-top:5px;">{_signal_detail}</div></div>',unsafe_allow_html=True
 )
-st.caption('Indikatorn visar historisk finansiell styrka, inte en säker prognos för aktiekursen. Se detaljer i Analys om bolaget.')
+st.caption('Modellbedömning, inte statistiskt fastställd sannolikhet för framtida kursuppgång. Se Analys om bolaget för datatäckning och metod.')
 
 st.markdown('### Finansiell översikt')
 cols=st.columns(4)
@@ -464,6 +532,19 @@ with five:
     cols[1].metric('Historisk vinsttillväxt', show(profit_growth * 100, ' %/år') if profit_growth is not None else 'Saknas')
     cols[2].metric('Nettoskuld/EBITDA', show(leverage, '×', 2) if leverage is not None else 'Saknas')
     cols[3].metric('EV/EBITDA', show(ev_ebitda, '×', 1) if ev_ebitda is not None else 'Saknas')
+    st.markdown('#### Fördjupad investeringsbedömning')
+    st.write(_signal_title)
+    if _assessment_score is not None:
+        st.metric('Modellpoäng',f'{_assessment_score*100:.0f} av 100')
+    st.caption(_signal_detail)
+    if _assessment_rows:
+        st.dataframe(pd.DataFrame(_assessment_rows),hide_index=True,use_container_width=True)
+    with st.expander('Datatäckning och källstatus'):
+        st.write('Årsperioder i resultaträkning:',len(fin.columns) if not fin.empty else 0)
+        st.write('Kvartalsperioder i resultaträkning:',len(extended['quarterly_income'].columns) if not extended['quarterly_income'].empty else 0)
+        st.write('Historiska värderingsperioder:',len(extended['valuation_history'].columns) if not extended['valuation_history'].empty else 0)
+        if extended_errors: st.json(extended_errors)
+    st.warning('Historisk backtestning med publiceringsdatum för varje rapport och jämförelse mot ett totalavkastningsindex är ännu inte genomförd. Modellen ska inte tolkas som validerad prognos.')
     st.markdown('#### Historisk finansiell utveckling')
     history_rows = []
     for label, data in [('Omsättning', revenues), ('Rörelseresultat (EBIT)', earnings), ('Nettoresultat', profits), ('Operativt kassaflöde', operating_cf), ('Fritt kassaflöde', free_cf)]:
