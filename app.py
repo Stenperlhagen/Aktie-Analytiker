@@ -1046,12 +1046,18 @@ if valid_price and valid_current_pe and valid_history:
     indicative_value=price*global_pe_median/pe
     global_fair=indicative_value
     global_display_value=indicative_value
-    status='Rabatt' if relative_gap<0 else 'Premie' if relative_gap>0 else 'I nivå'
+    status='Dyrare än historiskt' if relative_gap>0 else 'Billigare än historiskt' if relative_gap<0 else 'I nivå med historiken'
     v1,v2,v3,v4=st.columns(4)
     v1.metric('Aktuell aktiekurs',show(price,' '+str(quote_ccy),2))
     v2.metric('Nuvarande P/E',show(pe,'×',1))
     v3.metric('Historisk median P/E',show(global_pe_median,'×',1))
-    v4.metric(status+' mot historisk P/E',show(abs(relative_gap),' %',1))
+    v4.metric(status,show(abs(relative_gap),' %',1))
+    if relative_gap>0:
+        st.caption('**Tolkning:** Aktien är '+show(abs(relative_gap),' %',1)+' dyrare sett till P/E än sin historiska nivå. Det kan tyda på relativ övervärdering, men bevisar inte att aktien är övervärderad.')
+    elif relative_gap<0:
+        st.caption('**Tolkning:** Aktien är '+show(abs(relative_gap),' %',1)+' billigare sett till P/E än sin historiska nivå. Det kan tyda på relativ undervärdering, men bevisar inte att aktien är undervärderad.')
+    else:
+        st.caption('**Tolkning:** Aktien värderas till samma P/E som sin historiska median.')
     # Beslutsstöd med uttryckliga, försiktiga trösklar.
     # Lägre P/E än historiken är inte tillräckligt för ett köpbeslut.
     st.markdown('#### Preliminär investeringssignal')
