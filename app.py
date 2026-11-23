@@ -495,6 +495,7 @@ def valuation_category(symbol, info=None):
     if 'bank' in combined or 'credit services' in combined or 'capital markets' in combined: return 'Bank / finansiella tjänster'
     if 'insurance' in combined: return 'Försäkring'
     if 'asset management' in combined or 'investment holding' in combined: return 'Investmentbolag / kapitalförvaltning'
+    if 'financial services' in sector or 'financial data' in industry: return 'Bank / finansiella tjänster'
     if not sector and not industry: return 'Ej klassificerad'
     return 'Rörelsedrivande bolag'
 
@@ -506,8 +507,28 @@ def screener_snapshot(symbol):
         info=obj.info or {}
         category=valuation_category(symbol,info)
         if category!='Rörelsedrivande bolag':
-            return {'status':'Kräver annan värderingsmetod' if category!='Ej klassificerad' else 'Ej klassificerad',
-                    'category':category,'currency':info.get('currency')}
+            # Använd sektorsrelevanta nyckeltal men ge inte falska substansrabatter.
+            pb=numeric(info.get('priceToBook'))
+            roe=numeric(info.get('returnOnEquity'))
+            book=numeric(info.get('bookValue'))
+            price=numeric(info.get('currentPrice') or info.get('regularMarketPrice'))
+            data={'category':category,'currency':info.get('currency'),
+                  'pb':pb if pb is not None and pb>0 else None,
+                  'roe':roe*100 if roe is not None else None,
+                  'book_value':book,'price':price}
+            if category=='Investmentbolag / kapitalförvaltning':
+                data['status']='Substansvärde krävs'
+                data['method']='NAV / substansrabatt'
+            elif category=='Fastigheter':
+                data['status']='Fastighets-NAV krävs'
+                data['method']='EPRA NRV/NTA + driftnetto'
+            elif category in ('Bank / finansiella tjänster','Försäkring'):
+                data['status']='Nyckeltal tillgängliga' if data['pb'] is not None and data['roe'] is not None else 'Otillräckliga sektordata'
+                data['method']='P/B + ROE' if category=='Bank / finansiella tjänster' else 'P/B + ROE + solvens'
+            else:
+                data['status']='Ej klassificerad'
+                data['method']='Granskning krävs'
+            return data
         current_pe=numeric(info.get('trailingPE'))
         price=numeric(info.get('currentPrice') or info.get('regularMarketPrice'))
         if current_pe is None or not 0<current_pe<=80 or price is None or price<=0:
@@ -537,10 +558,10 @@ st.caption('Bolagen klassificeras efter värderingsmetod. P/E-signaler visas bar
 universe=list(dict.fromkeys(ALL_COMPANIES.values()))
 screener_names={ticker:name for name,ticker in ALL_COMPANIES.items()}
 # Tidigare screeningresultat beräknades utan kategorifilter och måste förnyas.
-if st.session_state.get('screener_model_version')!='category-v1':
+if st.session_state.get('screener_model_version')!='category-v2':
     st.session_state.screener_results={}
     st.session_state.screener_running=False
-    st.session_state.screener_model_version='category-v1'
+    st.session_state.screener_model_version='category-v2'
 if 'screener_results' not in st.session_state:
     st.session_state.screener_results={}
 if 'screener_running' not in st.session_state:
@@ -569,6 +590,9 @@ if st.session_state.screener_results:
         scan_rows.append({
             'Bolag':screener_names.get(symbol,symbol),'Ticker':symbol,
             'Värderingskategori':result.get('category',valuation_category(symbol)),
+            'Metod':result.get('method','P/E-historik' if result.get('category')=='Rörelsedrivande bolag' else 'Ej fastställd'),
+            'P/B':round(result['pb'],2) if result.get('pb') is not None else None,
+            'ROE (%)':round(result['roe'],1) if result.get('roe') is not None else None,
             'Signal':result.get('status','Saknas'),
             'Rabatt mot historisk P/E (%)':round(-result['gap'],1) if result.get('gap') is not None else None,
             'Nuvarande P/E':round(result['pe'],1) if result.get('pe') is not None else None,
@@ -583,11 +607,12 @@ if st.session_state.screener_results:
     if filter_choice=='Intressanta':
         scan_df=scan_df[scan_df['Signal']=='Intressant att analysera vidare']
     elif filter_choice=='Andra värderingsmetoder':
-        scan_df=scan_df[scan_df['Signal']=='Kräver annan värderingsmetod']
+        scan_df=scan_df[scan_df['Värderingskategori']!='Rörelsedrivande bolag']
     elif filter_choice=='Saknade uppgifter':
-        scan_df=scan_df[scan_df['Signal'].isin(['Otillräckliga börsdata','P/E-historik saknas','Kunde inte hämtas','Ej klassificerad'])]
+        scan_df=scan_df[scan_df['Signal'].isin(['Otillräckliga börsdata','P/E-historik saknas','Kunde inte hämtas','Ej klassificerad','Otillräckliga sektordata','Substansvärde krävs','Fastighets-NAV krävs'])]
     scan_df=scan_df.sort_values('Rabatt mot historisk P/E (%)',ascending=False,na_position='last')
     st.dataframe(scan_df,hide_index=True,use_container_width=True)
+    st.caption('För investmentbolag krävs rapporterat substansvärde per aktie för substansrabatt. För fastigheter krävs rapporterat EPRA-substansvärde. P/B är inte samma sak som substansrabatt. Banker och försäkringsbolag visas med P/B och ROE, men får ingen automatisk köp-/säljsignal utan kapital- och riskkontroll.')
     st.caption('Beräkningen bygger på senaste hämtade Yahoo-data. Positiv rabatt = lägre nuvarande P/E än historisk median. P/E-historik och aktuell P/E kan ha olika definitioner eller perioder; resultaten måste granskas. Saknade uppgifter ger ingen investeringssignal.')
     st.download_button('Exportera sökresultat (CSV)',data=scan_df.to_csv(index=False).encode('utf-8-sig'),file_name='equitylab_aktiescreener.csv',mime='text/csv')
 else:
