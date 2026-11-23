@@ -1375,12 +1375,31 @@ with target_slot.container():
         header_target=(comparable_ev_ebita(header_ebita,header_debt,header_shares,header_params[2],header_fx)
                        if header_params else None)
         target_method='EV/EBITA branschmodell'
+    # Sekundär metod för rörelsedrivande bolag när EBITA saknas:
+    # historisk P/E används bara med observerad historik, aldrig en godtycklig multipel.
+    if header_category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') and header_target is None:
+        if header_price is not None and header_pe is not None and header_pe>0 and header_history is not None:
+            header_target=header_price*header_history/header_pe
+            target_method='Historiskt P/E'
+    # Banker: sektorvärdering enligt P/B och normaliserad ROE.
+    if header_category=='Bank / finansiella tjänster':
+        bank_equity_value=statement_value(balance,['Stockholders Equity','Common Stock Equity'])
+        bank_roe_value=val(info,'returnOnEquity')
+        bank_conversion=fx_rate(report_ccy,quote_ccy) if report_ccy and quote_ccy else None
+        if (bank_equity_value is not None and bank_equity_value>0 and
+            shares_count is not None and shares_count>0 and
+            bank_roe_value is not None and bank_conversion is not None):
+            justified_bank_pb=(bank_roe_value-0.02)/(0.10-0.02)
+            header_target=(bank_equity_value*bank_conversion/shares_count)*justified_bank_pb if justified_bank_pb>0 else None
+        else:
+            header_target=None
+        target_method='Bank P/B och ROE'
     # Specialbolag får aldrig en missvisande generell P/E-riktkurs.
     if header_category=='Investmentbolag / kapitalförvaltning':
         nav_data=REPORTED_NAV.get(ticker)
         header_target=nav_data['nav'] if nav_data and quote_ccy=='SEK' else None
         target_method='Rapporterat NAV'
-    elif header_category not in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
+    elif header_category not in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag','Bank / finansiella tjänster'):
         header_target=None
         target_method='Sektormodell saknas'
     if header_target is None:
@@ -1422,10 +1441,10 @@ with target_slot.container():
             header_bg,header_border,header_ink,header_signal='#fffbeb','#fcd34d','#92400e','AVVAKTA'
         st.markdown(
             '<div style="padding:18px;border-radius:15px;background:'+header_bg+';border:1px solid '+header_border+';">'
-            '<div style="font-size:.85rem;font-weight:650;color:'+header_ink+';">'+('EV/EBITA · '+str(header_profile) if target_method=='EV/EBITA branschmodell' else 'RAPPORTERAT SUBSTANSVÄRDE (NAV)' if target_method=='Rapporterat NAV' else 'INDIKATIV KURS · HISTORISKT P/E' if target_method=='Historiskt P/E' else 'SCENARIOKURS · ANTAGET P/E 12')+'</div>'
+            '<div style="font-size:.85rem;font-weight:650;color:'+header_ink+';">'+('EV/EBITA · '+str(header_profile) if target_method=='EV/EBITA branschmodell' else 'BANK · P/B OCH ROE' if target_method=='Bank P/B och ROE' else 'RAPPORTERAT SUBSTANSVÄRDE (NAV)' if target_method=='Rapporterat NAV' else 'INDIKATIV KURS · HISTORISKT P/E' if target_method=='Historiskt P/E' else 'SCENARIOKURS · ANTAGET P/E 12')+'</div>'
             '<div style="font-size:2rem;font-weight:800;color:'+header_ink+';">'+show(header_target,' '+str(quote_ccy or ''),2)+'</div>'
             '<div style="font-size:.95rem;font-weight:700;color:'+header_ink+';">'+header_signal+'</div>'
-            '<div style="font-size:.8rem;color:#475569;margin-top:7px;">'+('Beräknad jämförelsekurs från historiskt P/E ('+str(len(global_pe_samples))+' observationer).' if target_method=='Historiskt P/E' else 'Senast rapporterat substansvärde per aktie; inte en prognos.' if target_method=='Rapporterat NAV' else 'Branschmultipel × EBITA minus nettoskuld, delat på aktier. Kontrollera rapportperiod.' if target_method=='EV/EBITA branschmodell' else scenario_description)+'</div></div>',
+            '<div style="font-size:.8rem;color:#475569;margin-top:7px;">'+('Beräknad jämförelsekurs från historiskt P/E ('+str(len(global_pe_samples))+' observationer).' if target_method=='Historiskt P/E' else 'P/B beräknat med ROE, 10 % avkastningskrav och 2 % långsiktig tillväxt.' if target_method=='Bank P/B och ROE' else 'Senast rapporterat substansvärde per aktie; inte en prognos.' if target_method=='Rapporterat NAV' else 'Branschmultipel × EBITA minus nettoskuld, delat på aktier. Kontrollera rapportperiod.' if target_method=='EV/EBITA branschmodell' else scenario_description)+'</div></div>',
             unsafe_allow_html=True)
 one,two,three,four=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering'])
 with one:
