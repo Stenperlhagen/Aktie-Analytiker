@@ -2098,6 +2098,8 @@ with four:
                 flows=[input_fcff*(1+growth)**year for year in range(1,6)]
                 terminal=flows[-1]*(1+tg)/(w-tg)
                 return sum(cf/(1+w)**year for year,cf in enumerate(flows,1))+terminal/(1+w)**5
+            dcf_share=None
+            ev_ebita_value=None
             if input_fcff>0 and w>tg:
                 enterprise=fcff_enterprise_value(g)
                 dcf_share=(enterprise-input_debt)*model_fx/input_shares
@@ -2126,6 +2128,45 @@ with four:
                     st.info('Inprisad tillväxt ligger utanför modellintervallet −50 till +50 % per år.')
             else:
                 st.info('Reverse DCF kräver positiv FCFF, WACC över terminaltillväxten och aktuell kurs.')
+            st.markdown('#### 4. Upp- eller nedsida')
+            valid_targets=[]
+            if dcf_share is not None and dcf_share>0: valid_targets.append(('DCF',dcf_share))
+            if ev_ebita_value is not None and ev_ebita_value>0: valid_targets.append(('EV/EBITA',ev_ebita_value))
+            if price is not None and price>0 and valid_targets:
+                for method,estimated_price in valid_targets:
+                    upside=(estimated_price/price-1)*100
+                    u1,u2=st.columns(2)
+                    u1.metric(method+' – motiverad kurs',show(estimated_price,' '+str(quote_ccy),2))
+                    u2.metric(method+' – upp-/nedsida',show(upside,' %',1),
+                              delta=show(upside,' %',1),delta_color='normal')
+                st.caption('Upp-/nedsida = (modellvärde / aktuell kurs − 1) × 100. Metoderna kan ge olika värden.')
+            else:
+                st.info('Upp-/nedsida kräver aktuell aktiekurs och minst ett positivt beräknat modellvärde.')
+
+            st.markdown('#### 5. Säkerhetsmarginal')
+            margin_of_safety=st.slider('Önskad säkerhetsmarginal (%)',min_value=0,max_value=50,value=20,step=5,key='mos_'+ticker)
+            if valid_targets:
+                for method,estimated_price in valid_targets:
+                    maximum_buy_price=estimated_price*(1-margin_of_safety/100)
+                    st.metric(method+' – högsta köpkurs',show(maximum_buy_price,' '+str(quote_ccy),2))
+                st.caption('Högsta köpkurs = motiverad kurs × (1 − säkerhetsmarginal). Säkerhetsmarginalen är ditt antagande.')
+            else:
+                st.info('Säkerhetsmarginal kan beräknas när ett positivt modellvärde finns.')
+
+            st.markdown('#### 6. Förväntad årlig totalavkastning')
+            years=st.number_input('Investeringshorisont (år)',min_value=1,max_value=20,value=5,step=1,key='return_years_'+ticker)
+            annual_dividend=st.number_input('Förväntad utdelning per aktie och år ('+str(quote_ccy)+')',
+                                            min_value=0.0,value=0.0,step=0.5,key='annual_dividend_'+ticker)
+            st.caption('Utdelningen är ett eget antagande. För enkelhetens skull antas samma kontantutdelning varje år, utan återinvestering.')
+            if price is not None and price>0 and valid_targets:
+                for method,estimated_price in valid_targets:
+                    terminal_proceeds=estimated_price+annual_dividend*years
+                    if terminal_proceeds>0:
+                        annual_return=((terminal_proceeds/price)**(1/years)-1)*100
+                        st.metric(method+' – annualiserad totalavkastning',show(annual_return,' % per år',1))
+                st.caption('Årsavkastning = ((framtida aktiekurs + summa utdelningar) / dagens aktiekurs)^(1 / antal år) − 1. Modellvärdet antas uppnås vid horisontens slut. Detta är ett scenario, inte en avkastningsprognos.')
+            else:
+                st.info('Förväntad totalavkastning kräver aktuell aktiekurs och minst ett positivt modellvärde.')
         st.caption('Kontrollera att FCFF, EBITA och nettoskuld avser jämförbara perioder och samma rapportvaluta. Denna modell är en separat scenarioanalys och ersätter inte övriga värderingskontroller.')
     st.divider()
 
