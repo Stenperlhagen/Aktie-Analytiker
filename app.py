@@ -224,6 +224,59 @@ if eps is None:
 if pe is None and eps is not None and eps>0 and price is not None: pe=price/eps
 
 
+# Gemensam fundamental signal visas ovanför nyckeltalen på samtliga flikar.
+def _annual_series(frame, names):
+    if frame is None or frame.empty:
+        return pd.Series(dtype='float64')
+    for label in names:
+        if label in frame.index:
+            values = pd.to_numeric(frame.loc[label], errors='coerce').dropna().sort_index()
+            if not values.empty:
+                return values
+    return pd.Series(dtype='float64')
+
+def _annual_growth(values):
+    if len(values) < 2 or values.iloc[0] <= 0 or values.iloc[-1] <= 0:
+        return None
+    return (float(values.iloc[-1]) / float(values.iloc[0])) ** (1 / (len(values)-1)) - 1
+
+_sales = _annual_series(fin, ['Total Revenue', 'Operating Revenue'])
+_earn = _annual_series(fin, ['Operating Income', 'EBIT'])
+_profit = _annual_series(fin, ['Net Income', 'Net Income Common Stockholders'])
+_cashflow = _annual_series(cash, ['Operating Cash Flow', 'Cash Flow From Continuing Operating Activities'])
+_signals = []
+for v in (_annual_growth(_sales), _annual_growth(_profit)):
+    if v is not None:
+        _signals.append(v > 0)
+_overlap = _sales.index.intersection(_earn.index)
+_margins = [float(_earn.loc[d]) / float(_sales.loc[d]) for d in _overlap if float(_sales.loc[d]) > 0]
+if _margins:
+    _signals.append(_margins[-1] > 0)
+if len(_margins) >= 2:
+    _signals.append(_margins[-1] > _margins[0])
+if netdebt is not None and ebitda is not None and ebitda > 0:
+    _signals.append(netdebt / ebitda < 3)
+if not _cashflow.empty:
+    _signals.append(float((_cashflow > 0).mean()) >= 0.75)
+_positive = sum(_signals)
+_total = len(_signals)
+_ratio = _positive / _total if _total else 0
+if _total < 4:
+    _signal_title, _signal_color, _signal_detail = 'GUL – Otillräckligt underlag', '#B7791F', 'Färre än fyra finansiella indikatorer kunde beräknas.'
+elif _ratio >= 0.70:
+    _signal_title, _signal_color, _signal_detail = 'GRÖN – Positiva fundamentala signaler', '#16803C', 'Övervägande positiva historiska indikatorer.'
+elif _ratio <= 0.30:
+    _signal_title, _signal_color, _signal_detail = 'RÖD – Negativa fundamentala signaler', '#C53030', 'Övervägande negativa historiska indikatorer.'
+else:
+    _signal_title, _signal_color, _signal_detail = 'GUL – Blandade fundamentala signaler', '#B7791F', 'Blandade historiska indikatorer.'
+st.markdown(
+    f'<div style="border:1px solid {_signal_color};border-left:8px solid {_signal_color};border-radius:12px;padding:15px 20px;margin:16px 0;">'
+    f'<div style="font-size:21px;font-weight:700;color:{_signal_color}">{_signal_title}</div>'
+    f'<div style="margin-top:5px;">{_signal_detail} ({_positive} av {_total} positiva.)</div></div>',
+    unsafe_allow_html=True
+)
+st.caption('Indikatorn visar historisk finansiell styrka, inte en säker prognos för aktiekursen. Se detaljer i Analys om bolaget.')
+
 st.markdown('### Finansiell översikt')
 cols=st.columns(4)
 for col,(label,value) in zip(cols,[('Aktiekurs',show(price, ' ' + (info.get('currency') or quick.get('currency') or ''), 2)),('Omsättning (LTM/helår)',show(revenue/1e6,' M',0) if revenue is not None else 'Saknas'),('Rörelsemarginal',show(margin*100,' %') if margin is not None else 'Saknas'),('P/E',show(pe,'×') if pe is not None else 'Saknas')]):col.metric(label,value)
@@ -435,25 +488,6 @@ with five:
         check('Operativt kassaflöde', cf_positive / cf_total, lambda x: x >= 0.75, 'Positivt kassaflöde i minst 75 % av tillgängliga årsperioder')
     if tests:
         positives = sum(row['Bedömning'] == 'Positiv' for row in tests)
-        # Färg är en transparent signal om historisk finansiell styrka,
-        # inte en prognostiserad sannolikhet för kursuppgång.
-        score = positives / len(tests)
-        enough_data = len(tests) >= 4
-        if not enough_data:
-            signal, signal_color, explanation = 'GUL – Otillräckligt underlag', '#B7791F', 'Färre än fyra bedömbara finansiella indikatorer. Ingen tydlig slutsats kan dras.'
-        elif score >= 0.70:
-            signal, signal_color, explanation = 'GRÖN – Positiva fundamentala signaler', '#16803C', 'Minst 70 % av tillgängliga indikatorer är positiva.'
-        elif score <= 0.30:
-            signal, signal_color, explanation = 'RÖD – Negativa fundamentala signaler', '#C53030', 'Högst 30 % av tillgängliga indikatorer är positiva.'
-        else:
-            signal, signal_color, explanation = 'GUL – Blandade fundamentala signaler', '#B7791F', 'Blandade positiva och negativa indikatorer.'
-        st.markdown(
-            f'<div style="border:1px solid {signal_color};border-left:8px solid {signal_color};border-radius:12px;padding:18px 22px;margin:12px 0 18px;">'
-            f'<div style="font-size:22px;font-weight:700;color:{signal_color}">{signal}</div>'
-            f'<div style="margin-top:7px;">{explanation} ({positives} av {len(tests)} positiva.)</div>'
-            f'</div>', unsafe_allow_html=True
-        )
-        st.caption('Färgindikatorn beskriver historiska fundamenta – inte en beräknad sannolikhet för att aktiekursen ska stiga eller falla. Värderingsnivå och marknadsförväntningar ingår inte i färgpoängen.')
         st.metric('Positiva finansiella signaler', f'{positives} av {len(tests)}')
         st.dataframe(pd.DataFrame(tests), hide_index=True, use_container_width=True)
         st.write('**Tolkning:** ' + ('Övervägande positiva historiska signaler.' if positives > len(tests)/2 else 'Övervägande negativa historiska signaler.' if positives < len(tests)/2 else 'Blandade historiska signaler.'))
