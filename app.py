@@ -890,12 +890,30 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
             else: out['missing'].append('DCF/Reverse DCF: jämförbart positivt FCFF och kapitalstruktur')
     elif category=='Bank / finansiella tjänster':
         equity=latest(balance,['Common Stock Equity','Stockholders Equity'])
-        roe=val(info,'returnOnEquity')
-        if equity is not None and equity>0 and shares and shares>0 and fx and roe is not None:
-            pb=(roe-0.02)/(0.10-0.02)
+        roe=None
+        periods=sorted(set(fin.columns)&set(balance.columns),reverse=True)
+        if len(periods)>=2:
+            p,q=periods[:2]
+            profit=row(fin,['Net Income Common Stockholders','Net Income Applicable To Common Shares'],p)
+            e1=row(balance,['Common Stock Equity','Stockholders Equity'],p)
+            e0=row(balance,['Common Stock Equity','Stockholders Equity'],q)
+            if profit is not None and e1 is not None and e0 is not None and min(e1,e0)>0:
+                roe=profit/((e1+e0)/2)
+                equity=e1
+                out['period']=str(p)[:10]
+                out['roe_source']='Årsresultat till stamaktieägare / genomsnittligt eget kapital'
+        if roe is None:
+            roe=val(info,'returnOnEquity')
+            out['roe_source']='Yahoo Finance rapporterad ROE'
+        ke=0.10
+        growth=0.02
+        out['roe']=roe
+        out['cost_of_equity_pct']=ke*100
+        out['assumptions']={'Avkastningskrav (%)':ke*100,'Tillväxt (%)':growth*100}
+        if equity is not None and equity>0 and shares and shares>0 and fx and fx>0 and roe is not None:
+            pb=(roe-growth)/(ke-growth)
             if pb>0: out['models']['P/B']=equity*fx/shares*pb
             out['inputs']={'Eget kapital':equity,'Antal aktier':shares,'ROE':roe,'Motiverat P/B':pb}
-        out['assumptions']={'Avkastningskrav (%)':10,'Tillväxt (%)':2}
         if not out['models']: out['missing'].append('Positivt eget kapital, ROE, aktieantal och valuta')
     elif category in ('Fastigheter','Investmentbolag / kapitalförvaltning'):
         nav=REPORTED_NAV.get(symbol)
@@ -945,10 +963,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v10':
+if st.session_state.get('screener_model_version')!='unified-v11':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v10'
+    st.session_state['screener_model_version']='unified-v11'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 def picker_category(symbol):
@@ -2326,7 +2344,7 @@ with four:
         cap_a.metric('ROE – avkastning på eget kapital',show(bank_roe_pct,' %',1))
         cap_b.metric('Avkastningskrav eget kapital',show(bank_ke,' %',1))
         cap_c.metric('Överavkastning (ROE − avkastningskrav)',show(bank_roe_pct-bank_ke,' procentenheter',1) if bank_roe_pct is not None and bank_ke is not None else 'Saknas')
-        st.caption('För banker används ROE och avkastningskrav på eget kapital istället för ROIC och WACC. Avkastningskravet är ett modellantagande, inte en observerad kapitalkostnad.')
+        st.caption('För banker används ROE och avkastningskrav på eget kapital istället för ROIC och WACC. Avkastningskravet är ett modellantagande, inte en observerad kapitalkostnad. ROE-källa: '+str(valuation_result.get('roe_source') or 'Finansiell översikt'))
     else:
         cap_a.metric('ROIC (rapporterat underlag)',show(valuation_result.get('roic'),' %',1))
         cap_b.metric('WACC (modellantagande)',show(valuation_result.get('assumptions',{}).get('WACC (%)'),' %',1))
