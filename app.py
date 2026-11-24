@@ -491,7 +491,7 @@ ADDITIONAL_COMPANIES = {
     'SinterCast':'SINT.ST','Sleep Cycle':'SLEEP.ST','Softronic B':'SOF-B.ST',
     'Solid Försäkring':'SFAB.ST','Stillfront Group':'SF.ST','Storytel B':'STORY-B.ST',
     'Studsvik':'SVIK.ST','Surgical Science':'SUS.ST','SynAct Pharma':'SYNACT.ST',
-    'TF Bank':'TFBANK.ST','Tobii Dynavox':'TDVOX.ST','Troax Group':'TROAX.ST',
+    'Avarda Bank':'AVARDA.ST','Tobii Dynavox':'TDVOX.ST','Troax Group':'TROAX.ST',
     'Vestum':'VESTUM.ST','VBG Group B':'VBG-B.ST','Volati AB':'VOLO.ST',
     'Wästbygg Gruppen B':'WBGR-B.ST','XANO Industri B':'XANO-B.ST'
 }
@@ -502,7 +502,7 @@ INVESTMENT_TICKERS={
     'INVE-A.ST','INVE-B.ST','INDU-C.ST','LATO-B.ST','LUND-B.ST',
     'KINV-B.ST','BURE.ST','EQT.ST'
 }
-BANK_TICKERS={'SEB-A.ST','SHB-A.ST','SWED-A.ST','NDA-SE.ST','AZA.ST','SAVE.ST','TFBANK.ST'}
+BANK_TICKERS={'SEB-A.ST','SHB-A.ST','SWED-A.ST','NDA-SE.ST','AZA.ST','SAVE.ST','AVARDA.ST'}
 INSURANCE_TICKERS={'SAMPO-SDB.ST','SFAB.ST'}
 PROPERTY_TICKERS={
     'BALD-B.ST','CAST.ST','CATE.ST','FABG.ST','SAGA-B.ST','WALL-B.ST',
@@ -633,7 +633,7 @@ ADDITIONAL_GROUP_FALLBACK={
     'ACE.ST':'Hälsovård','BACTI-B.ST':'Hälsovård','COALA.ST':'Hälsovård',
     'HNSA.ST':'Hälsovård','SYNACT.ST':'Hälsovård','MCAP.ST':'Hälsovård',
     'ADDV-B.ST':'Hälsovård','SFAB.ST':'Bank och finans',
-    'TFBANK.ST':'Bank och finans','DIOS.ST':'Fastigheter',
+    'AVARDA.ST':'Bank och finans','DIOS.ST':'Fastigheter',
     'PLAZ-B.ST':'Fastigheter','STEF-B.ST':'Fastigheter',
     'SLP-B.ST':'Fastigheter','CIBUS.ST':'Fastigheter','EAST.ST':'Fastigheter',
     'HEBA-B.ST':'Fastigheter','FNOX.ST':'Teknik och telekom',
@@ -1389,7 +1389,7 @@ if valuation_result.get('category')=='Bank / finansiella tjänster':
         bank_record=_roic_income[0]
         if interest is None: interest=_record_number(bank_record,('is_net_interest_income','net_interest_income'))
     bank_report_data={
-        'TFBANK.ST':(33.2,12.5,5.1,'https://mb.cision.com/Main/13973/4408388/4316442.pdf'),
+        'AVARDA.ST':(33.2,12.5,5.1,'https://mb.cision.com/Main/13973/4408388/4316442.pdf'),
         'SWED-A.ST':(41,17.2,-0.14,'https://attachment.news.eu.nasdaq.com/a7ccb71a59ee3022b10abee8da70da6a3'),
         'SHB-A.ST':(42.3,17.0,0.00,'https://attachment.news.eu.nasdaq.com/add2c43eefb1e5ce16ac2dbb9f69d0e42'),
         'SHB-B.ST':(42.3,17.0,0.00,'https://attachment.news.eu.nasdaq.com/add2c43eefb1e5ce16ac2dbb9f69d0e42'),
