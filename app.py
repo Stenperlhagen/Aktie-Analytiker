@@ -2372,7 +2372,7 @@ with four:
     if v.get('inputs'): st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in v['inputs'].items()]),hide_index=True,use_container_width=True)
     for method,value in v.get('models',{}).items(): st.metric(method,show(value,' '+str(v.get('currency') or ''),2))
     st.metric('Motiverad aktiekurs',show(v.get('target'),' '+str(v.get('currency') or ''),2))
-    st.metric('Reverse DCF – inprisad tillväxt',show(v.get('reverse_growth'),' %',1))
+    st.metric('Reverse DCF – inprisad tillväxt','Ej tillämpligt' if v.get('category')=='Bank / finansiella tjänster' else show(v.get('reverse_growth'),' %',1))
     st.metric('Upp-/nedsida',show(v.get('upside'),' %',1))
     st.metric('Högsta köpkurs – 20 % säkerhetsmarginal',show(v.get('buy_limit'),' '+str(v.get('currency') or ''),2))
     if v.get('audit'):
