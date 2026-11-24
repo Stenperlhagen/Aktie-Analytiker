@@ -914,7 +914,7 @@ def borsapi_reports(symbol,api_key):
     matches=[]
     for inst in instruments:
         if not isinstance(inst,dict): continue
-        candidates=[inst.get(k) for k in ('ticker','tickerSymbol','symbol','shortName','stockSymbol')]
+        candidates=[inst.get(k) for k in ('ticker','tickerSymbol','symbol','shortName','stockSymbol','yahoo')]
         if requested in [str(c).upper().replace('.ST','').replace('.CO','') for c in candidates if c]:
             matches.append(inst)
     ids={str(x.get('insId') or x.get('insID') or x.get('instrumentId') or '') for x in matches}
@@ -1183,6 +1183,40 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                             info=dict(info,financialCurrency=ccy)
         except Exception:
             primary_source='Yahoo Finance (ROIC ej tillgänglig)'
+
+    # Börsdata annual reports take precedence when matched by date and original currency.
+    if use_roic:
+        try:
+            bd,error=borsapi_reports(symbol,borsapi_key())
+            records=[r for r in bd.get('periods',[]) if isinstance(r,dict) and str(r.get('period'))=='5']
+            records=[r for r in records if r.get('currency') and (r.get('report_End_Date') or r.get('reportEndDate'))]
+            records.sort(key=lambda r:pd.Timestamp(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
+            if records:
+                ccy=str(records[0]['currency']).upper()
+                fi,ba,cf={},{},{}
+                for record in records:
+                    if str(record['currency']).upper()!=ccy: continue
+                    date=pd.Timestamp(record.get('report_End_Date') or record.get('reportEndDate')).normalize()
+                    def amount(key):
+                        value=numeric(record.get(key))
+                        return value*1e6 if value is not None else None
+                    fi[date]={'Total Revenue':amount('revenues'),'Operating Income':amount('operating_Income'),'Pretax Income':amount('profit_Before_Tax'),'Net Income Common Stockholders':amount('profit_To_Equity_Holders')}
+                    ba[date]={'Net Debt':amount('net_Debt'),'Cash And Cash Equivalents':amount('cash_And_Equivalents'),'Stockholders Equity':amount('total_Equity')}
+                    cf[date]={'Operating Cash Flow':amount('cash_Flow_From_Operating_Activities')}
+                rf,rb,rc=pd.DataFrame(fi).dropna(how='all'),pd.DataFrame(ba).dropna(how='all'),pd.DataFrame(cf).dropna(how='all')
+                latest=max(fi)
+                if not rf.empty and not rb.empty and numeric(fi[latest]['Operating Income']) is not None and numeric(ba[latest]['Net Debt']) is not None and (fin.empty or latest>=max(pd.Timestamp(p) for p in fin.columns)):
+                    if info.get('financialCurrency')==ccy:
+                        rf=rf.combine_first(fin.reindex(columns=rf.columns))
+                        rb=rb.combine_first(balance.reindex(columns=rb.columns))
+                        rc=rc.combine_first(cash.reindex(columns=rf.columns))
+                        primary_source='Börsdata Pro+ (primär) + kompletterande matchad rapportdata'
+                    else:
+                        primary_source='Börsdata Pro+ (primär)'
+                    fin,balance,cash=rf,rb,rc
+                    info=dict(info,financialCurrency=ccy)
+        except Exception:
+            pass
 
     category=valuation_category(symbol,info)
     profile=operating_valuation_profile(symbol,info)
