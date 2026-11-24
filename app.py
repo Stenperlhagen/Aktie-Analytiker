@@ -2008,7 +2008,9 @@ def investment_score(v, info):
     score=sum(x['Poäng']*x['Vikt'] for x in items)/coverage if eligible and coverage>=expected*.75 and len(items)>=4 and not v.get('audit') else None
     return score,items,coverage/expected*100
 
-one,two,three,four=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering'])
+one,two,three,four,five=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering','Kurspåverkande händelser'])
+with five:
+    render_price_events(hist,company,ticker)
 with one:
     if not hist.empty:
         h=hist.reset_index();h['Datum']=pd.to_datetime(h['Date']).dt.tz_localize(None)
@@ -2042,7 +2044,6 @@ with one:
         chart_five_years = px.line(h,x='Datum',y='Close',title='Aktiekurs – senaste fem åren')
         chart_five_years.update_layout(xaxis_title='Datum',yaxis_title='Aktiekurs')
         st.plotly_chart(mark_high_low(chart_five_years,h),use_container_width=True)
-        render_price_events(hist,company,ticker)
     else:st.warning('Kursserie saknas.')
     st.markdown('#### Bolagsbeskrivning')
     verified = VERIFIED_COMPANY_DESCRIPTIONS.get(ticker)
