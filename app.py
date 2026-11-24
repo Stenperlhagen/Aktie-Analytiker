@@ -1014,6 +1014,12 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
     if capital_flags:
         out.setdefault('audit',[]).extend(capital_flags)
     if symbol=='WBGR-B.ST':
+        if currency=='SEK' and (pd.Timestamp.now()-pd.Timestamp('2026-09-30')).days<=180:
+            out['pe_ttm']=price/(-1.00) if price is not None else None
+            out['pe_zero']=False
+            out['roe']=-0.20
+            out['emission']={'Tidigare antal aktier':51744264,'Nya aktier inklusive garantiemission':124244124,'Totalt antal aktier':175988388,'Utspädning (%)':124244124/175988388*100,'Emissionsbelopp (rapporterat)':191e6,'Emissionskostnader':27e6,'Nettoskuld efter emission':72e6}
+            out['emission_source']='https://storage.mfn.se/483f4127-3e38-4f38-8898-fd6d6f348c61/delarsrapport-q3-2026-sv.pdf'
         out['unreviewed_target']=out.get('target')
         out['models']={}
         out['target']=None
@@ -1065,10 +1071,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v21':
+if st.session_state.get('screener_model_version')!='unified-v22':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v21'
+    st.session_state['screener_model_version']='unified-v22'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -1445,6 +1451,17 @@ if ticker in _report_ebita and (ebita is None or ev_ebita is None):
                     ev_ebita=(market_cap*rate+report_debt)/ebita
             except Exception:
                 pass
+if ticker=='WBGR-B.ST' and quote_ccy=='SEK' and (pd.Timestamp.now()-pd.Timestamp('2026-09-30')).days<=180:
+    revenue=2858e6
+    margin=-101/2858
+    roe_overview=-20
+    opcf=-82e6
+    netdebt=72e6
+    market_cap=valuation_price*175988388 if valuation_price is not None else market_cap
+    pe=valuation_price/(-1.00) if valuation_price is not None else None
+    valuation_result['pe_zero']=False
+    st.caption('Wästbygg: rapporterade R12-värden per 2026-09-30. [Delårsrapport](https://storage.mfn.se/483f4127-3e38-4f38-8898-fd6d6f348c61/delarsrapport-q3-2026-sv.pdf). Aktieantal 175 988 388 och nettoskuld 72 M inkluderar genomförd emission.')
+    netdebt_ebitda=None
 st.markdown('### Finansiell översikt')
 if report_fallback:
     st.caption('Rapporterad EBITA R12, SEK, '+report_fallback[0]+' – [Delårsrapport]('+report_fallback[1]+')')
