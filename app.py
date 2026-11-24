@@ -1336,8 +1336,8 @@ st.markdown('### Finansiell översikt')
 if report_fallback:
     st.caption('Rapporterad EBITA R12, SEK, '+report_fallback[0]+' – [Delårsrapport]('+report_fallback[1]+')')
 
-if ebita is None: st.caption('EBITA saknas: separat rapporterad EBITA eller immateriell avskrivning har inte hittats.')
-elif ev_ebita is None: st.caption('EV/EBITA saknas: positiv EBITA, jämförbar nettoskuld, börsvärde eller valuta saknas.')
+if valuation_result.get('category')!='Bank / finansiella tjänster' and ebita is None: st.caption('EBITA saknas: separat rapporterad EBITA eller immateriell avskrivning har inte hittats.')
+elif valuation_result.get('category')!='Bank / finansiella tjänster' and ev_ebita is None: st.caption('EV/EBITA saknas: positiv EBITA, jämförbar nettoskuld, börsvärde eller valuta saknas.')
 
 overview_items = [
     ('Börsvärde',show(market_cap/1e9,' mdkr',2) if market_cap is not None and quote_ccy=='SEK' else (show(market_cap/1e9,' md '+(quote_ccy or ''),2) if market_cap is not None else 'Saknas')),
@@ -1353,6 +1353,9 @@ overview_items = [
     ('Nettoskuld/EBITDA',show(netdebt_ebitda,'×',2) if netdebt_ebitda is not None else 'Saknas'),
     ('Direktavkastning',show(dividend_yield,' %',1) if dividend_yield is not None else 'Saknas')
 ]
+if valuation_result.get('category')=='Bank / finansiella tjänster':
+    bank_na={'EBITA (rapportperiod)','EBITA (värderingsperiod)','EV/EBITA','Nettoskuld/EBITDA','Operativt kassaflöde','Rörelsemarginal'}
+    overview_items=[(label,'Ej tillämpligt' if label in bank_na else value) for label,value in overview_items]
 for start in range(0,len(overview_items),4):
     cols=st.columns(4)
     for col,(label,value) in zip(cols,overview_items[start:start+4]): col.metric(label,value)
