@@ -49,6 +49,16 @@ def tests():
     score,items,coverage=investment_score(v,info)
     assert score is None or 0<=score<=100
     assert 0<=coverage<=100
+    for eps,expected in [(5,20),(-5,-20),(0,None)]:
+        result=valuation_engine('VOLO-TEST.ST',{**info,'sector':'Industrials','trailingEps':eps},fin,cash,balance,{},pd.DataFrame())
+        assert result.get('pe_ttm')==expected, (eps,result.get('pe_ttm'))
+        assert result.get('pe_zero')==(eps==0)
+    q=pd.Timestamp('2024-12-31')
+    bank_fin=pd.DataFrame({p:[150e6]},index=['Net Income Common Stockholders'])
+    bank_balance=pd.DataFrame({p:[1100e6],q:[900e6]},index=['Common Stock Equity'])
+    bank=valuation_engine('SEB-A.ST',info,bank_fin,pd.DataFrame(),bank_balance,{},pd.DataFrame())
+    assert abs(bank['roe']-.15)<1e-9
+    assert abs(bank['inputs']['Motiverat P/B']-1.625)<1e-9
     print('Mathematical regression tests passed')
 
 if __name__=='__main__':
