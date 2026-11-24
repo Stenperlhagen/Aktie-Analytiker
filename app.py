@@ -1401,6 +1401,57 @@ with target_slot.container():
     color='#166534' if potential is not None and potential>=20 else '#991b1b' if potential is not None and potential<=-20 else '#92400e' if potential is not None else '#475569'
     bg='#ecfdf3' if color=='#166534' else '#fef2f2' if color=='#991b1b' else '#fffbeb' if color=='#92400e' else '#f1f5f9'
     st.markdown('<div style="padding:18px;border-radius:15px;background:'+bg+';color:'+color+';"><div>Motiverad aktiekurs · '+valuation_result.get('method','')+'</div><div style="font-size:2rem;font-weight:800;">'+show(target,' '+str(valuation_result.get('currency') or ''),2)+'</div><div>'+valuation_result['status']+'</div><div>Potential: '+show(potential,' %',1)+'</div></div>',unsafe_allow_html=True)
+def investment_score(v, info):
+    # Explicit heuristic, not a probability or investment recommendation.
+    category=v.get('category')
+    operating=category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag')
+    items=[]
+    def add(name,value,low,high,weight,unit):
+        x=numeric(value)
+        if x is None or abs(x)==float('inf'): return
+        points=max(0,min(100,100*(x-low)/(high-low)))
+        items.append({'Område':name,'Nyckeltal':show(x,unit,1),'Poäng':round(points,1),'Vikt':weight})
+    if not v.get('audit') and v.get('target') is not None:
+        add('Värdering',v.get('upside'),-30,40,25,' %')
+    roe=v.get('roe')
+    if operating or category=='Bank / finansiella tjänster':
+        if roe is not None: add('Lönsamhet (ROE)',roe*100,0,20,20,' %')
+    if operating:
+        growth=val(info,'revenueGrowth')
+        if growth is not None: add('Omsättningstillväxt',growth*100,-10,15,20,' %')
+        debt=v.get('inputs',{}).get('Nettoskuld')
+        earnings=v.get('inputs',{}).get('EBITA')
+        if earnings is not None and earnings>0 and debt is not None:
+            add('Nettoskuld / EBITA',debt/earnings,5,0,15,'×')
+        ocf=val(info,'operatingCashflow')
+        sales=val(info,'totalRevenue')
+        if ocf is not None and sales and sales>0:
+            add('Operativ kassaflödesmarginal',100*ocf/sales,0,15,15,' %')
+    if category=='Bank / finansiella tjänster':
+        roa=val(info,'returnOnAssets')
+        if roa is not None: add('Avkastning på tillgångar',roa*100,0,1.5,20,' %')
+        growth=val(info,'earningsGrowth')
+        if growth is not None: add('Vinsttillväxt',growth*100,-15,15,15,' %')
+        margin=val(info,'profitMargins')
+        if margin is not None: add('Nettomarginal',margin*100,0,30,20,' %')
+    elif category=='Fastigheter':
+        margin=val(info,'operatingMargins')
+        if margin is not None: add('Rörelsemarginal',margin*100,0,60,25,' %')
+        growth=val(info,'revenueGrowth')
+        if growth is not None: add('Intäktstillväxt',growth*100,-10,10,20,' %')
+        leverage=val(info,'debtToEquity')
+        if leverage is not None: add('Skuld / eget kapital',leverage,250,50,30,' %')
+    elif category=='Investmentbolag / kapitalförvaltning':
+        if roe is not None: add('Rapporterad ROE',roe*100,0,20,25,' %')
+        leverage=val(info,'debtToEquity')
+        if leverage is not None: add('Skuld / eget kapital',leverage,100,0,25,' %')
+    expected=95 if operating else 100 if category in ('Bank / finansiella tjänster','Fastigheter') else 75 if category=='Investmentbolag / kapitalförvaltning' else 25
+    coverage=sum(x['Vikt'] for x in items)
+    # Investment companies and research firms require more specific data before a composite score.
+    eligible=operating or category in ('Bank / finansiella tjänster','Fastigheter')
+    score=sum(x['Poäng']*x['Vikt'] for x in items)/coverage if eligible and coverage>=expected*.75 and len(items)>=4 and not v.get('audit') else None
+    return score,items,coverage/expected*100
+
 one,two,three,four=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering'])
 with one:
     if not hist.empty:
@@ -1793,7 +1844,37 @@ with three:
         st.write('Motiverad aktiekurs enligt huvudmodellen: **'+show(valuation_result.get('target'),' '+str(valuation_result.get('currency') or ''),2)+'**. '+valuation_result.get('status',''))
         st.caption('Följ kvartalsrapporter, prognosförändringar, kassaflöde och värderingsantaganden. Använd fliken Bolagsvärdering och bolagens publicerade rapporter för underlaget.')
     st.markdown('#### Samlad bedömning')
-    st.info('Analysen är ännu inte tillräckligt verifierad för en köp-/säljbedömning. Finansiell historik finns delvis, men branschbedömning och kvalitetssäkrad värdering återstår.')
+    assessment=valuation_result
+    rating,components,coverage=investment_score(assessment,info)
+    target_value=assessment.get('target')
+    current_value=assessment.get('price')
+    ccy=str(assessment.get('currency') or '')
+    paragraphs=[]
+    if rating is not None:
+        paragraphs.append(company+' har ett fundamentalt indikatorbetyg på '+show(rating,' av 100',0)+' med '+show(coverage,' %',0)+' datatäckning.')
+    else:
+        paragraphs.append('Ett sammanvägt fundamentalt betyg kan inte fastställas med tillgängligt underlag.')
+    strengths=[x['Område']+' ('+x['Nyckeltal']+')' for x in components if x['Poäng']>=75 and x['Område']!='Värdering']
+    risks=[x['Område']+' ('+x['Nyckeltal']+')' for x in components if x['Poäng']<40 and x['Område']!='Värdering']
+    if strengths: paragraphs.append('Styrkor enligt indikatorerna: '+', '.join(strengths)+'.')
+    if risks: paragraphs.append('Riskområden enligt indikatorerna: '+', '.join(risks)+'.')
+    if target_value is not None and current_value and current_value>0:
+        paragraphs.append('Aktien handlas till '+show(current_value,' '+ccy,2)+' jämfört med modellvärdet '+show(target_value,' '+ccy,2)+', motsvarande en modellpotential på '+show(assessment.get('upside'),' %',1)+'. Högsta köpkurs enligt 20 % säkerhetsmarginal är '+show(assessment.get('buy_limit'),' '+ccy,2)+'.')
+        if assessment.get('audit'):
+            paragraphs.append('Slutsats: värderingen är preliminär på grund av datakontroller som inte passerat. Ingen köpindikator ges.')
+        elif rating is None:
+            paragraphs.append('Slutsats: värderingsindikationen kan användas för vidare analys, men bolagskvaliteten är inte tillräckligt bedömd.')
+        elif current_value<=target_value*.8 and rating>=75:
+            paragraphs.append('Slutsats: attraktiv kandidat för fördjupad investeringsanalys enligt modellen, med både säkerhetsmarginal och starkt indikatorbetyg.')
+        elif current_value>target_value:
+            paragraphs.append('Slutsats: aktien handlas över modellvärdet och framstår inte som attraktiv till aktuell kurs enligt modellen.')
+        else:
+            paragraphs.append('Slutsats: avvakta eller fördjupa analysen; kombinationen av bolagskvalitet och säkerhetsmarginal uppfyller inte modellens kriterier för en attraktiv kandidat.')
+    else:
+        paragraphs.append('Slutsats: värderingsunderlaget räcker inte för att bedöma attraktiv köpkurs.')
+    st.write(' '.join(paragraphs))
+    if assessment.get('audit'): st.caption('Datakontroll: '+'; '.join(assessment['audit']))
+    st.caption('Automatisk regelbaserad bedömning, inte en verifierad prognos eller personlig investeringsrekommendation.')
     st.divider()
 
     st.markdown('### Vad kan aktien vara värd om fem år?')
@@ -2144,56 +2225,6 @@ with three:
     st.caption('Detta är en transparent indikatoranalys, inte en statistiskt kalibrerad sannolikhet för uppgång eller nedgång. Tröskelvärdena är metodval, inte empiriskt fastställda prognoser. Värdering kräver dessutom jämförelse mot bransch och historiska multiplar. Banken, investmentbolag och fastighetsbolag behöver andra nyckeltal.')
 
 
-def investment_score(v, info):
-    # Explicit heuristic, not a probability or investment recommendation.
-    category=v.get('category')
-    operating=category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag')
-    items=[]
-    def add(name,value,low,high,weight,unit):
-        x=numeric(value)
-        if x is None or abs(x)==float('inf'): return
-        points=max(0,min(100,100*(x-low)/(high-low)))
-        items.append({'Område':name,'Nyckeltal':show(x,unit,1),'Poäng':round(points,1),'Vikt':weight})
-    if not v.get('audit') and v.get('target') is not None:
-        add('Värdering',v.get('upside'),-30,40,25,' %')
-    roe=v.get('roe')
-    if operating or category=='Bank / finansiella tjänster':
-        if roe is not None: add('Lönsamhet (ROE)',roe*100,0,20,20,' %')
-    if operating:
-        growth=val(info,'revenueGrowth')
-        if growth is not None: add('Omsättningstillväxt',growth*100,-10,15,20,' %')
-        debt=v.get('inputs',{}).get('Nettoskuld')
-        earnings=v.get('inputs',{}).get('EBITA')
-        if earnings is not None and earnings>0 and debt is not None:
-            add('Nettoskuld / EBITA',debt/earnings,5,0,15,'×')
-        ocf=val(info,'operatingCashflow')
-        sales=val(info,'totalRevenue')
-        if ocf is not None and sales and sales>0:
-            add('Operativ kassaflödesmarginal',100*ocf/sales,0,15,15,' %')
-    if category=='Bank / finansiella tjänster':
-        roa=val(info,'returnOnAssets')
-        if roa is not None: add('Avkastning på tillgångar',roa*100,0,1.5,20,' %')
-        growth=val(info,'earningsGrowth')
-        if growth is not None: add('Vinsttillväxt',growth*100,-15,15,15,' %')
-        margin=val(info,'profitMargins')
-        if margin is not None: add('Nettomarginal',margin*100,0,30,20,' %')
-    elif category=='Fastigheter':
-        margin=val(info,'operatingMargins')
-        if margin is not None: add('Rörelsemarginal',margin*100,0,60,25,' %')
-        growth=val(info,'revenueGrowth')
-        if growth is not None: add('Intäktstillväxt',growth*100,-10,10,20,' %')
-        leverage=val(info,'debtToEquity')
-        if leverage is not None: add('Skuld / eget kapital',leverage,250,50,30,' %')
-    elif category=='Investmentbolag / kapitalförvaltning':
-        if roe is not None: add('Rapporterad ROE',roe*100,0,20,25,' %')
-        leverage=val(info,'debtToEquity')
-        if leverage is not None: add('Skuld / eget kapital',leverage,100,0,25,' %')
-    expected=95 if operating else 100 if category in ('Bank / finansiella tjänster','Fastigheter') else 75 if category=='Investmentbolag / kapitalförvaltning' else 25
-    coverage=sum(x['Vikt'] for x in items)
-    # Investment companies and research firms require more specific data before a composite score.
-    eligible=operating or category in ('Bank / finansiella tjänster','Fastigheter')
-    score=sum(x['Poäng']*x['Vikt'] for x in items)/coverage if eligible and coverage>=expected*.75 and len(items)>=4 and not v.get('audit') else None
-    return score,items,coverage/expected*100
 
 with four:
     st.subheader('Bolagsvärdering – '+company)
