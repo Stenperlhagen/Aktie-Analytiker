@@ -780,7 +780,22 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
         return None
     # Shared market metrics: trailing EPS is per quoted share, not total group earnings.
     eps=val(info,'trailingEps')
-    out['pe_ttm']=price/eps if price and price>0 and eps and eps>0 else None
+    eps_ccy=info.get('financialCurrency')
+    eps_fx=fx_rate(eps_ccy,currency) if eps_ccy and currency else None
+    out['pe_ttm']=None
+    out['pe_nonpositive']=False
+    if eps is not None and eps<=0:
+        out['pe_nonpositive']=True
+    elif price and price>0 and eps and eps_fx and eps_fx>0:
+        out['pe_ttm']=price/(eps*eps_fx)
+    if out['pe_ttm'] is None and not out['pe_nonpositive']:
+        reported_pe=val(info,'trailingPE')
+        if reported_pe is not None and reported_pe>0: out['pe_ttm']=reported_pe
+    if out['pe_ttm'] is None and not out['pe_nonpositive'] and price and price>0 and shares and shares>0 and eps_fx and eps_fx>0:
+        profit=val(info,'netIncomeToCommon')
+        if profit is not None:
+            if profit>0: out['pe_ttm']=price*shares/(profit*eps_fx)
+            else: out['pe_nonpositive']=True
     out['roe']=val(info,'returnOnEquity')
     out['cost_of_equity_pct']=10.0
     out['roic']=None
@@ -993,10 +1008,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v14':
+if st.session_state.get('screener_model_version')!='unified-v15':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v14'
+    st.session_state['screener_model_version']='unified-v15'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 def picker_category(symbol):
@@ -1387,7 +1402,7 @@ overview_items = [
     ('EBITA (rapportperiod)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas'),
     ('Avkastning på eget kapital (ROE)',show(roe_overview,' %',1) if roe_overview is not None else 'Saknas'),
     ('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),
-    ('P/E (R12)',show(pe,'×') if pe is not None else 'Saknas'),
+    ('P/E (R12)','Ej meningsfullt' if valuation_result.get('pe_nonpositive') else show(pe,'×') if pe is not None else 'Saknas'),
     ('EV/EBITA',show(ev_ebita,'×',1) if ev_ebita is not None else 'Saknas'),
     ('Nettoskuld/EBITDA',show(netdebt_ebitda,'×',2) if netdebt_ebitda is not None else 'Saknas'),
     ('Direktavkastning',show(dividend_yield,' %',1) if dividend_yield is not None else 'Saknas')
