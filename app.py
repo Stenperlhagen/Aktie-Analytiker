@@ -715,13 +715,23 @@ def render_bull_bear(ticker):
     st.caption('Bevakningsnivåer enligt Dow Theory. Bekräftelse kräver avslutad månad och relevant topp-/bottenstruktur.')
     buy=highs[-1][1] if highs else None
     sell=lows[-1][1] if lows else None
+    if buy is not None and sell is not None:
+        if last<sell:
+            st.error('NEGATIV KURSSIGNAL – kursen ligger under senaste bekräftade botten. Säljbevakningsnivån har passerats. En bekräftad negativ trendvändning kräver även en lägre topp och avslutad månad.')
+        elif last>buy:
+            st.success('POSITIV KURSSIGNAL – kursen ligger över senaste bekräftade topp. En bekräftad positiv trendvändning kräver även en högre botten och avslutad månad.')
+        else:
+            st.info('AVVAKTA – kursen ligger mellan senaste bekräftade topp och botten.')
+    else:
+        st.info('Otillräckligt underlag för tekniska bevakningsnivåer.')
+    st.caption('Kurssignalen ovan beskriver nivåbrott, inte den fullständiga tekniska rekommendationen.')
     # Translate adjusted levels to latest observed unadjusted price scale.
     scale=numeric(raw['Close'].iloc[-1]/last)
     if scale is None or scale<=0: scale=1
     cols=st.columns(3)
     cols[0].metric('Senaste avslutade dagskurs',f'{last*scale:.2f}')
-    cols[1].metric('Bevaka köp över',f'{buy*scale:.2f}' if buy is not None else 'Saknas',f'{(buy/last-1)*100:+.1f} %' if buy is not None else None,delta_color='off')
-    cols[2].metric('Bevaka sälj under',f'{sell*scale:.2f}' if sell is not None else 'Saknas',f'{(sell/last-1)*100:+.1f} %' if sell is not None else None,delta_color='off')
+    cols[1].metric('Positiv trendvändning över',f'{buy*scale:.2f}' if buy is not None else 'Saknas',f'{(buy/last-1)*100:+.1f} %' if buy is not None else None,delta_color='off')
+    cols[2].metric('Negativ trendvändning under',f'{sell*scale:.2f}' if sell is not None else 'Saknas',f'{(sell/last-1)*100:+.1f} %' if sell is not None else None,delta_color='off')
     if signals:
         month,close,signal=signals[-1]
         st.write(f'Senaste historiska trendvändningssignal: **{signal}** – {month}.')
@@ -758,8 +768,8 @@ def render_bull_bear(ticker):
         if xs:
             fig.add_scatter(x=xs,y=ys,mode='markers+text' if show_labels else 'markers',text=labels,textposition='top center' if up else 'bottom center',textfont=dict(color=colors,size=11),name=label,marker=dict(color=colors,size=10,symbol='triangle-down' if up else 'triangle-up',line=dict(color='white',width=1)),customdata=hover,hovertemplate='%{x|%Y-%m-%d}<br>%{customdata}<extra></extra>')
     if st.checkbox('Visa köp- och säljnivåer',value=True,key='bull_levels_'+ticker):
-        for level,color,label in [(buy,'#008A42','Köpbevakning'),(sell,'#D32F2F','Säljbevakning')]:
-            if level is not None: fig.add_hline(y=level,line_color=color,line_dash='dash',annotation_text=label,annotation_position='top left')
+        for level,color,label in [(buy,'#008A42','Positiv vändningsnivå'),(sell,'#D32F2F','Negativ vändningsnivå')]:
+            if level is not None: fig.add_hline(y=level,line_color=color,line_dash='dash',annotation_text=f'{label}: {level:.2f}',annotation_position='top left',annotation_font_color=color)
     if st.checkbox('Visa historiska köp- och säljsignaler',value=True,key='bull_signals_'+ticker):
         for signal,color in [('KÖP','#008A42'),('SÄLJ','#D32F2F')]:
             rows=[(m,v) for m,v,s in signals if s==signal]
