@@ -2841,12 +2841,12 @@ with three:
         st.info('Ingen jämförbar omsättningshistorik hittades. Kontrollera Börsdata-anslutningen och rapportperioderna.')
     else:
         base=annual[0]
-        hist=[x for x in annual if (pd.Timestamp(base['date'])-pd.Timestamp(x['date'])).days<=1830]
+        forecast_history=[x for x in annual if (pd.Timestamp(base['date'])-pd.Timestamp(x['date'])).days<=1830]
         weights={1:.4,3:.35,5:.25}
         total_weight=sum(weights[n] for n in growths)
         growth=sum(weights[n]*v for n,v in growths.items())/total_weight
         if len(growths)<3: st.warning('Begränsat historiskt underlag: '+', '.join(str(n)+' år' for n in sorted(growths))+'. Vikterna har omfördelats. Prognosen är mer osäker.')
-        margins=pd.Series([x['ebit']/x['revenue'] for x in hist])
+        margins=pd.Series([x['ebit']/x['revenue'] for x in forecast_history])
         gm=pd.Series(list(growths.values()))
         st.caption(f"Källa: {forecast_source} · {base['date']} · {base['currency']}. Prognosen använder EBIT (inte EBITA).")
         cols=st.columns(4)
@@ -2860,7 +2860,7 @@ with three:
             close=prices['Close'].copy()
             close.index=pd.DatetimeIndex(close.index).tz_localize(None)
             if quote_ccy==base['currency']:
-                for x in hist:
+                for x in forecast_history:
                     cutoff=pd.Timestamp(x['date'])
                     prior=close.loc[close.index<=cutoff]
                     if prior.empty or (cutoff-prior.index[-1]).days>7: continue
@@ -2892,7 +2892,7 @@ with three:
                 col.write(f'Kurspotential: {(future/price-1)*100:+.1f} %')
                 col.write(f'Årlig kursavkastning: {((future/price)**.2-1)*100:+.1f} %')
         frame=pd.DataFrame(rows)
-        actual=pd.DataFrame([{'År':pd.Timestamp(x['date']).year,'Scenario':'Historik','Omsättning (M)':x['revenue']/1e6,'EBIT (M)':x['ebit']/1e6} for x in reversed(hist)])
+        actual=pd.DataFrame([{'År':pd.Timestamp(x['date']).year,'Scenario':'Historik','Omsättning (M)':x['revenue']/1e6,'EBIT (M)':x['ebit']/1e6} for x in reversed(forecast_history)])
         colors={'Historik':'#64748B','Bear':'#DC2626','Base':'#2563EB','Bull':'#16A34A','Prognos':'#2563EB'}
         for metric in ('Omsättning (M)','EBIT (M)'):
             st.plotly_chart(px.line(pd.concat([actual,frame],ignore_index=True),x='År',y=metric,color='Scenario',color_discrete_map=colors,markers=True,title=metric+' – historik och prognos'),use_container_width=True)
