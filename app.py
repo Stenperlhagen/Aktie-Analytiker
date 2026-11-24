@@ -951,6 +951,8 @@ if st.session_state.get('screener_model_version')!='unified-v10':
     st.session_state['screener_model_version']='unified-v10'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
+if 'ranked_company_pending' in st.session_state:
+    st.session_state['company_picker']=st.session_state.pop('ranked_company_pending')
 with st.sidebar:
     st.header('Välj bolag')
     st.caption('Sök genom att skriva i listan eller öppna den och skrolla bland alla bolag.')
@@ -975,7 +977,8 @@ with st.sidebar:
     universe=list(dict.fromkeys(ALL_COMPANIES.values()))
     screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
     def open_ranked_company(company_name):
-        st.session_state['company_picker']=company_name
+        st.session_state['ranked_company_pending']=company_name
+        st.rerun(scope='app')
     @st.fragment(run_every=2)
     def ranked_companies():
         import time
@@ -999,7 +1002,8 @@ with st.sidebar:
             st.markdown('**'+heading+'**')
             if not entries: st.caption('Inga kvalificerade resultat ännu.')
             for rank,(sym,potential) in enumerate(entries,1):
-                st.button(f'{rank}. {screener_names[sym]} · {potential:+.1f} %',key='rank_'+sym,on_click=open_ranked_company,args=(screener_names[sym],),use_container_width=True)
+                if st.button(f'{rank}. {screener_names[sym]} · {potential:+.1f} %',key='rank_'+sym,use_container_width=True):
+                    open_ranked_company(screener_names[sym])
         st.caption('Modellpotential, inte prognos. Resultat med granskningsvarningar utesluts.')
     ranked_companies()
 if not ticker:st.stop()
