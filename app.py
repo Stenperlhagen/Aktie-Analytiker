@@ -924,7 +924,7 @@ def borsapi_reports(symbol,api_key):
     try:
         response=requests.get(
             'https://apiservice.borsdata.se/v1/instruments/'+instrument_id+'/reports/year',
-            params={'authKey':api_key,'maxcount':10,'original':1},timeout=20)
+            params={'authKey':api_key,'maxcount':20,'original':1},timeout=20)
         if not response.ok: return {},'Börsdata rapport HTTP '+str(response.status_code)
         payload=response.json()
         periods=payload.get('reports',[]) if isinstance(payload,dict) else []
@@ -2837,17 +2837,20 @@ with three:
                 growths[n]=(base['revenue']/older['revenue'])**(1/years)-1
     if valuation_result.get('category') not in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
         st.info('Denna rörelseresultatbaserade prognos passar inte bolagets affärsmodell. En sektorspecifik femårsmodell krävs.')
-    elif len(growths)!=3:
-        st.info('Femårsprognosen kräver jämförbar omsättning för 1, 3 och 5 års tillväxt (minst sex årsslut). Inga reservantaganden används.')
+    elif not growths:
+        st.info('Ingen jämförbar omsättningshistorik hittades. Kontrollera Börsdata-anslutningen och rapportperioderna.')
     else:
         base=annual[0]
         hist=[x for x in annual if (pd.Timestamp(base['date'])-pd.Timestamp(x['date'])).days<=1830]
-        growth=.4*growths[1]+.35*growths[3]+.25*growths[5]
+        weights={1:.4,3:.35,5:.25}
+        total_weight=sum(weights[n] for n in growths)
+        growth=sum(weights[n]*v for n,v in growths.items())/total_weight
+        if len(growths)<3: st.warning('Begränsat historiskt underlag: '+', '.join(str(n)+' år' for n in sorted(growths))+'. Vikterna har omfördelats. Prognosen är mer osäker.')
         margins=pd.Series([x['ebit']/x['revenue'] for x in hist])
         gm=pd.Series(list(growths.values()))
         st.caption(f"Källa: {forecast_source} · {base['date']} · {base['currency']}. Prognosen använder EBIT (inte EBITA).")
         cols=st.columns(4)
-        for col,n in zip(cols,(1,3,5)): col.metric(f'Tillväxt {n} år',f'{growths[n]*100:+.1f} %/år')
+        for col,n in zip(cols,(1,3,5)): col.metric(f'Tillväxt {n} år',f'{growths[n]*100:+.1f} %/år' if n in growths else 'Saknas')
         cols[3].metric('Viktad tillväxt',f'{growth*100:+.1f} %/år')
         settings=[('Bear',min(growth,float(gm.min())),min(float(margins.quantile(.25)),float(margins.median()))),('Base',growth,float(margins.median())),('Bull',max(growth,float(gm.max())),max(float(margins.quantile(.75)),float(margins.median())))]
         # Historical EV/EBIT from actual year-end prices, matching debt, shares and currency.
@@ -2895,7 +2898,7 @@ with three:
             st.plotly_chart(px.line(pd.concat([actual,frame],ignore_index=True),x='År',y=metric,color='Scenario',color_discrete_map=colors,markers=True,title=metric+' – historik och prognos'),use_container_width=True)
         with st.expander('Årsprognoser och antaganden'):
             st.dataframe(frame,hide_index=True,use_container_width=True)
-            st.write('Tillväxt: 40 % senaste året, 35 % treårig CAGR, 25 % femårig CAGR. Bear/Bull använder lägsta/högsta observerade tillväxt; marginal och multipel baseras på historiska kvartiler.')
+            st.write('Tillväxt: grundvikter 40/35/25, omfördelade proportionellt vid saknad historik. Bear/Bull använder lägsta/högsta observerade tillväxt; marginal och multipel baseras på historiska kvartiler.')
             st.write('Historiska EV/EBIT-multiplar: '+', '.join(f'{v:.1f}×' for v in multiples) if multiples else 'Historiska multiplar saknas.')
         st.caption('Historikbaserade scenarier, inte bolagsprognoser. Oförändrad nettoskuld, aktieantal och valuta antas. Utdelning ingår inte; historiska multiplar kräver även kontroll av splittar och aktieslag. Fundamentala riktkursen påverkas inte.')
     st.divider()
