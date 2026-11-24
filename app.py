@@ -605,6 +605,81 @@ def render_price_events(history,company,ticker):
         q=f'"{company}" site:{domain} after:{selected["Från"]} before:{(pd.Timestamp(selected["Datum"])+pd.Timedelta(days=1)).date().isoformat()}'
         st.markdown(f'[{domain} – sök originalmeddelanden](https://www.google.com/search?{urllib.parse.urlencode({"q":q})})')
 
+@st.cache_data(ttl=21600,show_spinner=False)
+def long_history(symbol):
+    try:
+        return yf.Ticker(symbol).history(period='10y',auto_adjust=False)
+    except Exception:
+        return pd.DataFrame()
+
+def render_bull_bear(ticker):
+    st.subheader('Bull & Bear – långsiktig trendanalys')
+    st.caption('Dow Theory · 3–10 års placeringshorisont. Teknisk analys, separat från fundamental riktkurs.')
+    h=long_history(ticker)
+    if h.empty or 'Adj Close' not in h:
+        st.info('Justerad kurshistorik saknas.')
+        return
+    p=pd.to_numeric(h['Adj Close'],errors='coerce').dropna().sort_index()
+    p=p[p>0]
+    if p.empty: return
+    p.index=pd.DatetimeIndex(p.index).tz_localize(None)
+    p=p[~p.index.duplicated(keep='last')]
+    now=pd.Timestamp.now()
+    p=p[p.index.normalize()<now.normalize()]
+    if p.empty: return
+    # Monthly adjusted highs/lows, using the same adjustment factor as adjusted close.
+    raw=h.copy()
+    raw.index=pd.DatetimeIndex(raw.index).tz_localize(None)
+    raw=raw[~raw.index.duplicated(keep='last')].reindex(p.index)
+    factor=p/pd.to_numeric(raw['Close'],errors='coerce').where(lambda x:x>0)
+    monthly=pd.DataFrame({'High':raw['High']*factor,'Low':raw['Low']*factor,'Close':p}).groupby(p.index.to_period('M')).agg({'High':'max','Low':'min','Close':'last'})
+    monthly=monthly[monthly.index<now.to_period('M')].dropna()
+    highs,lows=[],[]
+    for i in range(2,len(monthly)-2):
+        window=monthly.iloc[i-2:i+3]
+        row=monthly.iloc[i]
+        if row.High==window.High.max() and (window.High==row.High).sum()==1: highs.append((monthly.index[i],row.High))
+        if row.Low==window.Low.min() and (window.Low==row.Low).sum()==1: lows.append((monthly.index[i],row.Low))
+    def compare(a,b):
+        return 1 if a>b else -1 if a<b else 0
+    hh=compare(highs[-1][1],highs[-2][1]) if len(highs)>=2 else None
+    hl=compare(lows[-1][1],lows[-2][1]) if len(lows)>=2 else None
+    trend='Positiv' if hh==hl==1 else 'Negativ' if hh==hl==-1 else 'Neutral' if hh is not None and hl is not None else 'Otillräcklig historik'
+    ma={n:p.rolling(n,min_periods=n).mean() for n in (50,200,400,1000)}
+    last=p.iloc[-1]
+    def ma_signal(n):
+        x=numeric(ma[n].iloc[-1])
+        return compare(last,x) if x is not None else None
+    m200,m400=numeric(ma[200].iloc[-1]),numeric(ma[400].iloc[-1])
+    # No price-only index substituted for total-return benchmark.
+    scores=[('Månadstoppar',hh,20),('Månadsbottnar',hl,20),('Kurs / MA200',ma_signal(200),10),('Kurs / MA400',ma_signal(400),10),('MA200 / MA400',compare(m200,m400) if m200 is not None and m400 is not None else None,10),('Relativ totalavkastning 3 år',None,15),('Relativ totalavkastning 5 år',None,15)]
+    a,b=st.columns(2)
+    a.metric('Långsiktig trend',trend)
+    b.metric('Trendpoäng','Saknas – indexunderlag ej verifierat')
+    st.write('Marknadsstruktur: '+('HH' if hh==1 else 'LH' if hh==-1 else 'Neutral / saknas')+' + '+('HL' if hl==1 else 'LL' if hl==-1 else 'Neutral / saknas'))
+    metrics=st.columns(4)
+    for col,n in zip(metrics,(1,3,5,10)):
+        cutoff=p.index[-1]-pd.DateOffset(years=n)
+        prior=p.loc[p.index<=cutoff]
+        value=None
+        if not prior.empty and (cutoff-prior.index[-1]).days<=7:
+            years=(p.index[-1]-prior.index[-1]).days/365.2425
+            value=(last/prior.iloc[-1])**(1/years)-1
+        col.metric(f'CAGR {n} år',f'{value*100:.1f} %' if value is not None else 'Saknas')
+    dd=(p/p.cummax()-1).min()*100
+    st.metric('Maximal historisk nedgång',f'{dd:.1f} %')
+    st.caption(f'Justerad kursserie {p.index[0].date()} – {p.index[-1].date()}.')
+    frame=pd.DataFrame({'Datum':p.index,'Justerad kurs':p.values})
+    fig=px.line(frame,x='Datum',y='Justerad kurs')
+    selected=st.multiselect('Glidande medelvärden',[50,200,400,1000],default=[200,400],key='bull_ma_'+ticker)
+    for n in selected:
+        if ma[n].notna().any(): fig.add_scatter(x=p.index,y=ma[n],name=f'MA{n}',mode='lines')
+    for points,label,color in [(highs,'Bekräftad topp','#E53935'),(lows,'Bekräftad botten','#00B85A')]:
+        if points: fig.add_scatter(x=[d.to_timestamp(how='end') for d,v in points],y=[v for d,v in points],mode='markers',name=label,marker=dict(color=color,size=8))
+    st.plotly_chart(fig,use_container_width=True)
+    st.dataframe(pd.DataFrame([{'Indikator':name,'Poäng':sign*weight if sign is not None else None,'Maxvikt':weight} for name,sign,weight in scores]),hide_index=True)
+    st.caption('Toppar och bottnar bekräftas först två avslutade månader senare. Full trendpoäng visas inte utan jämförbart totalavkastningsindex. Ingen köp- eller säljsignal.')
+
 def parse_file(upload):
     raw=upload.getvalue(); name=upload.name.lower()
     if name.endswith('.pdf'):
@@ -2046,7 +2121,9 @@ def investment_score(v, info):
     score=sum(x['Poäng']*x['Vikt'] for x in items)/coverage if eligible and coverage>=expected*.75 and len(items)>=4 and not v.get('audit') else None
     return score,items,coverage/expected*100
 
-one,two,three,four,five=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering','Kurspåverkande händelser'])
+one,two,three,four,five,six=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering','Kurspåverkande händelser','Bull & Bear'])
+with six:
+    render_bull_bear(ticker)
 with five:
     render_price_events(hist,company,ticker)
 with one:
