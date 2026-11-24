@@ -1407,12 +1407,8 @@ if free_cash_flow is None:
 net_income_reported = statement_value(fin,['Net Income','Net Income Common Stockholders'])
 equity_reported = statement_value(balance,['Stockholders Equity','Common Stock Equity'])
 roe_overview = net_income_reported/equity_reported*100 if net_income_reported is not None and equity_reported is not None and equity_reported>0 else None
-dividend_yield = val(info,'dividendYield')
-# Yahoo kan ange yield som procenttal eller decimal; avstå om formatet inte kan säkerställas.
-if dividend_yield is not None:
-    dividend_yield = dividend_yield*100 if 0<=dividend_yield<=1 else (dividend_yield if 1<dividend_yield<=30 else None)
-if dividend_yield is None:
-    dividend_yield = trailing_dividend_yield(ticker, price)
+# Beräkna historisk direktavkastning från faktiska utdelningar, aldrig från tvetydigt procentfält.
+dividend_yield = trailing_dividend_yield(ticker, price)
 # ROIC kompletterar endast verifierade, saknade värden.
 if _roic_income:
     latest=_roic_income[0]
@@ -1561,7 +1557,7 @@ overview_items = [
     ('P/E (R12)','Ej definierat (nollvinst)' if valuation_result.get('pe_zero') else show(pe,'×') if pe is not None else 'Saknas'),
     ('EV/EBITA',show(ev_ebita,'×',1) if ev_ebita is not None else 'Saknas'),
     ('Nettoskuld/EBITDA',show(netdebt_ebitda,'×',2) if netdebt_ebitda is not None else 'Saknas'),
-    ('Direktavkastning',show(dividend_yield,' %',1) if dividend_yield is not None else 'Saknas')
+    ('Direktavkastning (12 mån)',show(dividend_yield,' %',1) if dividend_yield is not None else 'Saknas')
 ]
 if valuation_result.get('category')=='Bank / finansiella tjänster':
     bank_periods=sorted(fin.columns,reverse=True)
