@@ -946,6 +946,7 @@ VALUATION_PROFILES={
     'Logistik och transport':(9.0,4.0,11.0)
 }
 PROFILE_TICKERS={
+    'Tillverkningsindustri':{'ATCO-A.ST','ATCO-B.ST'},
     'Industrikonglomerat':{'VOLO.ST','STOR-B.ST','ROKO.ST'},
     'Förvärvsbolag':{'SALIX.ST','INDT.ST','ADDT-B.ST','LIFCO-B.ST','LAGR-B.ST','BERG-B.ST','BEIA-B.ST','OEM-B.ST','MMGR-B.ST','ADDV-B.ST','ALIF-B.ST','MCAP.ST'},
     'IT-konsulter':{'AFRY.ST','SWEC-B.ST','KNOW.ST','SOF-B.ST'},
