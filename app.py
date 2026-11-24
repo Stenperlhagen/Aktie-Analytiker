@@ -2141,7 +2141,15 @@ if valuation_result.get('category')=='Bank / finansiella tjänster':
 
 for start in range(0,len(overview_items),4):
     cols=st.columns(4)
-    for col,(label,value) in zip(cols,overview_items[start:start+4]): col.metric(label,value)
+    for col,(label,value) in zip(cols,overview_items[start:start+4]):
+        if label=='Börsvärde' and market_cap is not None:
+            col.metric(label,show(market_cap/1e9,'',1))
+            col.caption('Miljarder '+(quote_ccy or '– valuta saknas'))
+        elif label.startswith(('Omsättning (','EBITA (','Operativt kassaflöde','Nettovinst')) and isinstance(value,str) and value.endswith(' M'):
+            col.metric(label,value[:-2])
+            col.caption('Miljoner')
+        else:
+            col.metric(label,value)
 if not roic_key():
     st.caption('ROIC AI är inte anslutet ännu. Lägg ROIC_API_KEY i Streamlit Secrets för automatisk komplettering av rapportdata.')
 elif _roic_error:
