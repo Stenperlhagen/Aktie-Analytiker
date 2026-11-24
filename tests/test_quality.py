@@ -1,0 +1,39 @@
+import ast
+import math
+import unittest
+from pathlib import Path
+from unittest.mock import Mock
+import pandas as pd
+
+SOURCE = Path("app.py").read_text(encoding="utf-8")
+TREE = ast.parse(SOURCE)
+
+def load_function(name, namespace):
+    node = next(n for n in TREE.body if isinstance(n, ast.FunctionDef) and n.name == name)
+    node.decorator_list = []
+    exec(compile(ast.Module(body=[node], type_ignores=[]), "app.py", "exec"), namespace)
+    return namespace[name]
+
+class QualityTests(unittest.TestCase):
+    def test_numeric(self):
+        numeric = load_function("numeric", {"math": math, "pd": pd})
+        for x in (None, float("nan"), float("inf"), -float("inf"), "bad"):
+            self.assertIsNone(numeric(x))
+        self.assertEqual(numeric("0.97"), 0.97)
+
+    def test_dividend_yield(self):
+        now = pd.Timestamp.now(tz="UTC")
+        yf = Mock()
+        yf.Ticker.return_value.dividends = pd.Series(
+            [0.11, 0.50, 0.50],
+            index=[now-pd.Timedelta(days=30), now-pd.Timedelta(days=400), now+pd.Timedelta(days=10)])
+        calc = load_function("trailing_dividend_yield", {"pd": pd, "yf": yf})
+        self.assertAlmostEqual(calc("STOR-B.ST", 11.10), 0.11/11.10*100)
+        self.assertIsNone(calc("STOR-B.ST", 0))
+        self.assertIsNone(calc("STOR-B.ST", -1))
+
+    def test_no_ambiguous_yield_field(self):
+        self.assertNotIn("dividend_yield = val(info,'dividendYield')", SOURCE)
+
+if __name__ == "__main__":
+    unittest.main()
