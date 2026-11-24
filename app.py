@@ -509,7 +509,7 @@ ADDITIONAL_COMPANIES = {
     'Solid Försäkring':'SFAB.ST','Stillfront Group':'SF.ST','Storytel B':'STORY-B.ST',
     'Studsvik':'SVIK.ST','Surgical Science':'SUS.ST','SynAct Pharma':'SYNACT.ST',
     'Avarda Bank':'AVARDA.ST','Tobii Dynavox':'TDVOX.ST','Troax Group':'TROAX.ST',
-    'Vestum':'VESTUM.ST','VBG Group B':'VBG-B.ST','Volati AB':'VOLO.ST',
+    'Cynca Nordic':'CYNCA.ST','VBG Group B':'VBG-B.ST','Volati AB':'VOLO.ST',
     'Wästbygg Gruppen B':'WBGR-B.ST','XANO Industri B':'XANO-B.ST'
 }
 ALL_COMPANIES = {**{name:ticker for name,(ticker,_) in CAT.items()}, **ADDITIONAL_COMPANIES}
@@ -595,7 +595,7 @@ PROFILE_TICKERS={
     'Industrikonglomerat':{'VOLO.ST','STOR-B.ST','ROKO.ST'},
     'Förvärvsbolag':{'SALIX.ST','INDT.ST','ADDT-B.ST','LIFCO-B.ST','LAGR-B.ST','BERG-B.ST','BEIA-B.ST','OEM-B.ST','MMGR-B.ST','ADDV-B.ST','ALIF-B.ST','MCAP.ST'},
     'IT-konsulter':{'AFRY.ST','SWEC-B.ST','KNOW.ST','SOF-B.ST'},
-    'Bygg och installation':{'BRAV.ST','SKA-B.ST','NCC-B.ST','PEAB-B.ST','INSTAL.ST','WBGR-B.ST','LIND-B.ST','LIAB.ST','VESTUM.ST'},
+    'Bygg och installation':{'BRAV.ST','SKA-B.ST','NCC-B.ST','PEAB-B.ST','INSTAL.ST','WBGR-B.ST','LIND-B.ST','LIAB.ST','CYNCA.ST'},
     'Logistik och transport':{'VOLV-B.ST','VOLV-A.ST','LOOMIS.ST','ELAN-B.ST','CTT.ST'},
     'Teknik och mjukvara':{'VIT-B.ST','ANOD-B.ST','HMS.ST','SINCH.ST','TRUE-B.ST','YUBICO.ST','PDX.ST','SF.ST','STORY-B.ST','LIME.ST','FNOX.ST','SLEEP.ST','TDVOX.ST','ERIC-B.ST','TEL2-B.ST','TELIA.ST','HEXA-B.ST','SECT-B.ST','EMBRAC-B.ST'},
     'Hälsovård och medicinteknik':{'AZN.ST','GETI-B.ST','SOBI.ST','EKTA-B.ST','BIOA-B.ST','CAMX.ST','BONEX.ST','VITR.ST','MCOV-B.ST','ASKER.ST','ARJO-B.ST','ACE.ST','BACTI-B.ST','HNSA.ST','SEZI.ST','SUS.ST','SYNACT.ST','COALA.ST'},
@@ -645,7 +645,7 @@ ADDITIONAL_GROUP_FALLBACK={
     'ENGCON-B.ST':'Industri','GARO.ST':'Industri','INSTAL.ST':'Industri',
     'INWI.ST':'Industri','MILDEF.ST':'Industri','NOLA-B.ST':'Industri',
     'SINT.ST':'Industri','TROAX.ST':'Industri','VBG-B.ST':'Industri',
-    'XANO-B.ST':'Industri','WBGR-B.ST':'Industri','VESTUM.ST':'Industri',
+    'XANO-B.ST':'Industri','WBGR-B.ST':'Industri','CYNCA.ST':'Industri',
     'SUS.ST':'Hälsovård','SEZI.ST':'Hälsovård','ARJO-B.ST':'Hälsovård',
     'ACE.ST':'Hälsovård','BACTI-B.ST':'Hälsovård','COALA.ST':'Hälsovård',
     'HNSA.ST':'Hälsovård','SYNACT.ST':'Hälsovård','MCAP.ST':'Hälsovård',
@@ -1007,12 +1007,14 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v16':
+if st.session_state.get('screener_model_version')!='unified-v17':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v16'
+    st.session_state['screener_model_version']='unified-v17'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
+# Exclude confirmed delistings from the active universe.
+ALL_COMPANIES={name:symbol for name,symbol in ALL_COMPANIES.items() if symbol not in {'FNOX.ST','COALA.ST'}}
 def picker_category(symbol):
     category=valuation_category(symbol)
     if category=='Rörelsedrivande bolag':
