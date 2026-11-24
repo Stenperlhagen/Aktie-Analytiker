@@ -1122,10 +1122,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v33':
+if st.session_state.get('screener_model_version')!='unified-v34':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v33'
+    st.session_state['screener_model_version']='unified-v34'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -1405,6 +1405,14 @@ if _roic_income:
     # EV/EBITA kräver samma period och valuta; blandning med Yahoo-värden undviks.
 # EV/EBITA visar endast verifierad beräkning; källstatus vid saknad data.
 valuation_result=screener_snapshot(ticker)
+# Selected company already has fetched statements; retry directly rather than relying on a cached failed snapshot.
+if valuation_result.get('target') is None:
+    try:
+        direct_result=valuation_engine(ticker,info,fin,cash,balance,quick,hist,use_roic=False)
+        if direct_result.get('target') is not None: valuation_result=direct_result
+        else: valuation_result['missing']=list(dict.fromkeys(valuation_result.get('missing',[])+direct_result.get('missing',[])))
+    except Exception as exc:
+        valuation_result.setdefault('missing',[]).append('Direkt värdering: '+type(exc).__name__+': '+str(exc)[:250])
 # Use exactly the same valuation snapshot in overview and valuation tabs.
 valuation_inputs=valuation_result.get('inputs',{})
 valuation_earnings=valuation_inputs.get('EBITA')
@@ -1794,6 +1802,8 @@ with target_slot.container():
     color='#166534' if potential is not None and potential>=20 else '#991b1b' if potential is not None and potential<=-20 else '#92400e' if potential is not None else '#475569'
     bg='#ecfdf3' if color=='#166534' else '#fef2f2' if color=='#991b1b' else '#fffbeb' if color=='#92400e' else '#f1f5f9'
     st.markdown('<div style="padding:18px;border-radius:15px;background:'+bg+';color:'+color+';"><div>'+('Preliminär aktiekurs' if valuation_result.get('audit') else 'Motiverad aktiekurs')+' · '+valuation_result.get('method','')+'</div><div style="font-size:2rem;font-weight:800;">'+show(target,' '+str(valuation_result.get('currency') or ''),2)+'</div><div>'+valuation_result['status']+'</div><div>Potential: '+show(potential,' %',1)+'</div></div>',unsafe_allow_html=True)
+    if target is None:
+        st.caption('Orsak: '+ ' · '.join(valuation_result.get('missing',[]) or ['Ingen modell gav ett värde']))
 def investment_score(v, info):
     # Explicit heuristic, not a probability or investment recommendation.
     category=v.get('category')
