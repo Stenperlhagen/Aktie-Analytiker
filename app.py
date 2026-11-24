@@ -1,4 +1,4 @@
-import io, re, datetime as dt, urllib.parse
+import io, re, datetime as dt, urllib.parse, math
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -25,10 +25,12 @@ CAT={n:(t,g) for g,items in GROUPS.items() for n,t in items.items()}
 def numeric(v):
     try:
         f=float(v)
-        return f if pd.notna(f) else None
+        return f if math.isfinite(f) else None
     except (ValueError,TypeError): return None
 
-def show(v, suffix='', digits=1): return 'Saknas' if v is None else f'{v:,.{digits}f}'.replace(',',' ').replace('.',',')+suffix
+def show(v, suffix='', digits=1):
+    v=numeric(v)
+    return 'Saknas' if v is None else f'{v:,.{digits}f}'.replace(',',' ').replace('.',',')+suffix
 
 def val(info,*keys):
     for k in keys:
@@ -221,7 +223,7 @@ def trailing_dividend_yield(ticker, price):
         if series is None or series.empty: return None
         dates=pd.to_datetime(series.index,utc=True)
         cutoff=pd.Timestamp.now(tz='UTC')-pd.Timedelta(days=365)
-        paid=pd.to_numeric(series.loc[dates>=cutoff],errors='coerce')
+        paid=pd.to_numeric(series.loc[(dates>=cutoff)&(dates<=pd.Timestamp.now(tz='UTC'))],errors='coerce')
         paid=paid[(paid>0)&paid.notna()]
         if paid.empty: return None
         value=float(paid.sum())/price*100
@@ -1271,9 +1273,9 @@ if debt is None:
 if cash_val is None:
     cash_val=statement_value(balance,['Cash And Cash Equivalents','Cash Cash Equivalents And Short Term Investments'])
 if netdebt is None and debt is not None and cash_val is not None: netdebt=debt-cash_val
-if margin is None and revenue:
-    operating_income=statement_value(fin,['Operating Income','EBIT'])
-    if operating_income is not None: margin=operating_income/revenue
+if margin is None:
+    # Derive below only from a matched annual period.
+    margin=None
 if eps is None:
     eps=statement_value(fin,['Diluted EPS','Basic EPS'])
 # Beräkna inte P/E från EPS utan säkerställd valuta.
@@ -1406,7 +1408,36 @@ if free_cash_flow is None:
         free_cash_flow = operating_cash_reported - abs(capital_expenditure)
 net_income_reported = statement_value(fin,['Net Income','Net Income Common Stockholders'])
 equity_reported = statement_value(balance,['Stockholders Equity','Common Stock Equity'])
-roe_overview = net_income_reported/equity_reported*100 if net_income_reported is not None and equity_reported is not None and equity_reported>0 else None
+# Annual ratios use a single matched fiscal period, not independently selected rows.
+roe_overview=None
+margin=None
+netdebt_ebitda=None
+sales_growth_pct=None
+if report_ccy and fin is not None and not fin.empty:
+    periods=sorted(fin.columns,key=lambda x:pd.Timestamp(x),reverse=True)
+    p=periods[0]
+    prev=periods[1] if len(periods)>1 else None
+    rev=_annual_balance_value(fin,['Total Revenue','Operating Revenue'],p)
+    operating=_annual_balance_value(fin,['Operating Income','EBIT'],p)
+    revenue=rev
+    opcf=_annual_balance_value(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'],p)
+    if rev is not None and rev>0 and operating is not None: margin=operating/rev
+    annual_ebitda=_annual_balance_value(fin,['EBITDA'],p)
+    annual_debt=_annual_balance_value(balance,['Net Debt'],p)
+    if annual_debt is None:
+        gross=_annual_balance_value(balance,['Total Debt'],p)
+        liquid=_annual_balance_value(balance,['Cash And Cash Equivalents'],p)
+        if gross is not None and liquid is not None: annual_debt=gross-liquid
+    if annual_ebitda is not None and annual_ebitda>0 and annual_debt is not None:
+        netdebt_ebitda=annual_debt/annual_ebitda
+    if prev is not None and 330<=(pd.Timestamp(p)-pd.Timestamp(prev)).days<=400:
+        prior_rev=_annual_balance_value(fin,['Total Revenue','Operating Revenue'],prev)
+        if rev is not None and prior_rev is not None and prior_rev>0: sales_growth_pct=(rev/prior_rev-1)*100
+        income=_annual_balance_value(fin,['Net Income Common Stockholders','Net Income'],p)
+        eq0=_annual_balance_value(balance,['Stockholders Equity','Common Stock Equity'],prev)
+        eq1=_annual_balance_value(balance,['Stockholders Equity','Common Stock Equity'],p)
+        if income is not None and eq0 is not None and eq1 is not None and eq0>0 and eq1>0:
+            roe_overview=100*income/((eq0+eq1)/2)
 # Beräkna historisk direktavkastning från faktiska utdelningar, aldrig från tvetydigt procentfält.
 dividend_yield = trailing_dividend_yield(ticker, price)
 # ROIC kompletterar endast verifierade, saknade värden.
@@ -1415,7 +1446,7 @@ if _roic_income:
     roic_currency=latest.get('currency')
     if ebita is None and isinstance(latest.get('ebita'),(int,float)):
         ebita=latest['ebita']
-    if sales_growth_pct is None and len(_roic_income)>=2:
+    if sales_growth_pct is None and len(_roic_income)>=2 and latest.get('currency') and latest.get('currency')==_roic_income[1].get('currency') and 330<=(pd.Timestamp(latest.get('period_end_date'))-pd.Timestamp(_roic_income[1].get('period_end_date'))).days<=400:
         current_rev,prior_rev=latest.get('is_sales_revenue_turnover'),_roic_income[1].get('is_sales_revenue_turnover')
         if isinstance(current_rev,(int,float)) and isinstance(prior_rev,(int,float)) and prior_rev>0:
             sales_growth_pct=(current_rev/prior_rev-1)*100
@@ -1452,12 +1483,7 @@ elif ebita is None and fin is not None and not fin.empty:
 if valuation_result.get('pe_ttm') is not None: pe=valuation_result['pe_ttm']
 else: pe=val(info,'trailingPE')
 if dividend_yield is None: dividend_yield=trailing_dividend_yield(ticker,valuation_price)
-if roe_overview is None:
-    raw_roe=val(info,'returnOnEquity')
-    if raw_roe is not None: roe_overview=raw_roe*100
-if sales_growth_pct is None:
-    raw_growth=val(info,'revenueGrowth')
-    if raw_growth is not None: sales_growth_pct=raw_growth*100
+ # No unlabelled provider-period fallback for annual ROE or growth.
 if _roic_income:
     latest=_roic_income[0]
     if revenue is None: revenue=_record_number(latest,('is_sales_revenue_turnover','revenue','total_revenue'))
@@ -1539,6 +1565,7 @@ if ticker=='WBGR-B.ST' and quote_ccy=='SEK' and (pd.Timestamp.now()-pd.Timestamp
     st.caption('Wästbygg: rapporterade R12-värden per 2026-09-30. [Delårsrapport](https://storage.mfn.se/483f4127-3e38-4f38-8898-fd6d6f348c61/delarsrapport-q3-2026-sv.pdf). Aktieantal 175 988 388 och nettoskuld 72 M inkluderar genomförd emission.')
     netdebt_ebitda=None
 st.markdown('### Finansiell översikt')
+st.caption('Årsbaserade marginaler, ROE och nettoskuld/EBITDA beräknas från matchade rapportdatum när Yahoo årsdata finns. R12 och kursbaserade värden har separata definitioner; leverantörsuppgifter är inte oberoende verifierade.')
 if report_fallback:
     st.caption('Rapporterad EBITA R12, SEK, '+report_fallback[0]+' – [Delårsrapport]('+report_fallback[1]+')')
 
@@ -1554,7 +1581,7 @@ overview_items = [
     ('EBITA (rapportperiod)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas'),
     ('Avkastning på eget kapital (ROE)',show(roe_overview,' %',1) if roe_overview is not None else 'Saknas'),
     ('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),
-    ('P/E (R12)','Ej definierat (nollvinst)' if valuation_result.get('pe_zero') else show(pe,'×') if pe is not None else 'Saknas'),
+    ('P/E (R12 om tillgängligt)','Ej definierat (nollvinst)' if valuation_result.get('pe_zero') else show(pe,'×') if pe is not None else 'Saknas'),
     ('EV/EBITA',show(ev_ebita,'×',1) if ev_ebita is not None else 'Saknas'),
     ('Nettoskuld/EBITDA',show(netdebt_ebitda,'×',2) if netdebt_ebitda is not None else 'Saknas'),
     ('Direktavkastning (12 mån)',show(dividend_yield,' %',1) if dividend_yield is not None else 'Saknas')
@@ -1848,7 +1875,8 @@ def investment_score(v, info):
         ocf=val(info,'operatingCashflow')
         sales=val(info,'totalRevenue')
         if ocf is not None and sales and sales>0:
-            add('Operativ kassaflödesmarginal',100*ocf/sales,0,15,15,' %')
+            # Provider profile fields do not expose matching report dates; do not score them.
+            pass
     if category=='Bank / finansiella tjänster':
         roa=val(info,'returnOnAssets')
         if roa is not None: add('Avkastning på tillgångar',roa*100,0,1.5,20,' %')
