@@ -175,7 +175,15 @@ def fetch(ticker):
     cash = attempt('Kassaflöde', lambda: obj.cashflow, pd.DataFrame())
     balance = attempt('Balansräkning', lambda: obj.balance_sheet, pd.DataFrame())
     # Yahoo fast_info kan fungera även när den större bolagsprofilen blockeras.
-    quick = attempt('Snabbkursdata', lambda: dict(obj.fast_info), {})
+    quick = {}
+    for field in ('currency','last_price','market_cap','shares'):
+        value=attempt('Snabbkursdata '+field,lambda field=field: obj.fast_info[field],None)
+        if value is not None: quick[field]=value
+    info=dict(info or {})
+    if not info.get('currency') and quick.get('currency'): info['currency']=quick['currency']
+    if not info.get('currency') and ticker.endswith('.ST'): info['currency']='SEK'  # Stockholm trading currency, not reporting currency
+    for label,frame in [('Resultaträkning',fin),('Balansräkning',balance),('Kassaflöde',cash),('Kurshistorik',history)]:
+        if frame.empty: errors.setdefault(label,'Datakällan returnerade tom tabell.')
     return info or {}, history, fin, cash, balance, quick or {}, errors
 
 @st.cache_data(ttl=3600,show_spinner=False)
@@ -1121,10 +1129,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v34':
+if st.session_state.get('screener_model_version')!='unified-v35':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v34'
+    st.session_state['screener_model_version']='unified-v35'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -1803,6 +1811,8 @@ with target_slot.container():
     st.markdown('<div style="padding:18px;border-radius:15px;background:'+bg+';color:'+color+';"><div>'+('Preliminär aktiekurs' if valuation_result.get('audit') else 'Motiverad aktiekurs')+' · '+valuation_result.get('method','')+'</div><div style="font-size:2rem;font-weight:800;">'+show(target,' '+str(valuation_result.get('currency') or ''),2)+'</div><div>'+valuation_result['status']+'</div><div>Potential: '+show(potential,' %',1)+'</div></div>',unsafe_allow_html=True)
     if target is None:
         st.caption('Orsak: '+ ' · '.join(valuation_result.get('missing',[]) or ['Ingen modell gav ett värde']))
+        with st.expander('Tekniska fel från datakällan'):
+            st.json(fetch_errors or valuation_result.get('fetch_errors') or {})
 def investment_score(v, info):
     # Explicit heuristic, not a probability or investment recommendation.
     category=v.get('category')
