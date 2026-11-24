@@ -951,12 +951,23 @@ if st.session_state.get('screener_model_version')!='unified-v10':
     st.session_state['screener_model_version']='unified-v10'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
+def picker_category(symbol):
+    category=valuation_category(symbol)
+    if category=='Rörelsedrivande bolag':
+        return operating_valuation_profile(symbol) or KNOWN_GROUP_BY_TICKER.get(symbol) or 'Övriga bolag'
+    return category or 'Övriga bolag'
+picker_categories={name:picker_category(symbol) for name,symbol in ALL_COMPANIES.items()}
 if 'ranked_company_pending' in st.session_state:
     st.session_state['company_picker']=st.session_state.pop('ranked_company_pending')
+    st.session_state['company_category']='Alla bolag'
 with st.sidebar:
     st.header('Välj bolag')
     st.caption('Sök genom att skriva i listan eller öppna den och skrolla bland alla bolag.')
-    options = sorted(ALL_COMPANIES, key=str.casefold)
+    selected_category=st.selectbox('Typ av bolag',['Alla bolag']+sorted(set(picker_categories.values()),key=str.casefold),key='company_category')
+    options=sorted([n for n,c in picker_categories.items() if selected_category=='Alla bolag' or c==selected_category],key=str.casefold)
+    if st.session_state.get('company_picker') not in options:
+        st.session_state['company_picker']=None
+    st.caption(f'{len(options)} bolag i urvalet')
     name = st.selectbox(
         'Sök eller välj bolag',
         options,
