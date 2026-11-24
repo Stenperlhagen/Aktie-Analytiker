@@ -978,6 +978,53 @@ PROFILE_BY_SYMBOL.update({
     'SHOT.ST':'Hotelloperatörer','AAK.ST':'Livsmedelsproduktion','SCST.ST':'Livsmedelsproduktion'
 })
 
+# Explicit profiles for remaining known instruments; provisional sector assumptions.
+VALUATION_PROFILES.update({'Stålindustri':(10.0,2.0,8.0),'Säkerhetstjänster':(9.0,3.0,11.0)})
+PROFILE_BY_SYMBOL.update({
+    'ABB.ST':'Tillverkningsindustri',
+    'ALFA.ST':'Tillverkningsindustri',
+    'ASSA-B.ST':'Tillverkningsindustri',
+    'EPI-A.ST':'Tillverkningsindustri',
+    'NIBE-B.ST':'Tillverkningsindustri',
+    'SAAB-B.ST':'Tillverkningsindustri',
+    'SAND.ST':'Tillverkningsindustri',
+    'TREL-B.ST':'Tillverkningsindustri',
+    'MTRS.ST':'Tillverkningsindustri',
+    'MYCR.ST':'Tillverkningsindustri',
+    'SKF-B.ST':'Tillverkningsindustri',
+    'SYSR.ST':'Tillverkningsindustri',
+    'ALIG.ST':'Tillverkningsindustri',
+    'ALIV-SDB.ST':'Tillverkningsindustri',
+    'MIPS.ST':'Tillverkningsindustri',
+    'GRNG.ST':'Tillverkningsindustri',
+    'HPOL-B.ST':'Tillverkningsindustri',
+    'ALLEI.ST':'Tillverkningsindustri',
+    'SVIK.ST':'Tillverkningsindustri',
+    'ENGCON-B.ST':'Tillverkningsindustri',
+    'GARO.ST':'Tillverkningsindustri',
+    'INWI.ST':'Tillverkningsindustri',
+    'MILDEF.ST':'Tillverkningsindustri',
+    'NOLA-B.ST':'Tillverkningsindustri',
+    'SINT.ST':'Tillverkningsindustri',
+    'TROAX.ST':'Tillverkningsindustri',
+    'VBG-B.ST':'Tillverkningsindustri',
+    'XANO-B.ST':'Tillverkningsindustri',
+    'SDIP-B.ST':'Tillverkningsindustri',
+    'VOLV-A.ST':'Tillverkningsindustri',
+    'VOLV-B.ST':'Tillverkningsindustri',
+    'CTT.ST':'Tillverkningsindustri',
+    'BEIJ-B.ST':'Förvärvsbolag',
+    'BUFAB.ST':'Förvärvsbolag',
+    'HEM.ST':'Teknik och mjukvara',
+    'BILL.ST':'Skogsbolag',
+    'STE-R.ST':'Skogsbolag',
+    'STG.CO':'Konsumentvaror och detaljhandel',
+    'SSAB-B.ST':'Stålindustri',
+    'SECU-B.ST':'Säkerhetstjänster',
+    'MAHA-A.ST':'Energi – prospektering och produktion',
+    'SES.ST':'Energi – prospektering och produktion',
+})
+
 def operating_valuation_profile(symbol,info=None):
     """Returnera profil bara när kategorin är identifierad; aldrig godtycklig 9/3/12-reserv."""
     if symbol=='AAK.ST': return 'Livsmedelsproduktion'
@@ -1048,6 +1095,8 @@ def comparable_ev_ebita(ebita_amount,net_debt_amount,share_count,multiple,fx):
 
 def valuation_category(symbol, info=None):
     """Konservativ kategorisering: särskilda affärsmodeller kräver andra metoder."""
+    if symbol in ('MAHA-A.ST','SES.ST'): return 'Energi – prospektering och produktion'
+    if symbol=='HEM.ST': return 'Rörelsedrivande bolag'
     if symbol=='EQT.ST': return 'Kapitalförvaltare'
     if symbol in INVESTMENT_TICKERS: return 'Investmentbolag / kapitalförvaltning'
     if symbol in BANK_TICKERS: return 'Bank / finansiella tjänster'
