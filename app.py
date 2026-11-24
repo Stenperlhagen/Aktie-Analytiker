@@ -50,11 +50,24 @@ def roic_company_data(ticker, api_key):
     symbol=ticker.removesuffix('.ST')
     queries=list(dict.fromkeys([ticker,symbol,symbol.replace('-','.'),symbol.split('-')[0]]))
     headers={'Authorization':'Bearer '+api_key}
+    import time
+    cooldown=getattr(requests,'_equitylab_roic_cooldown',0)
+    if time.time()<cooldown:
+        return {},'ROIC tillfälligt pausat efter HTTP 429; reservkällor används.'
+    def limited_get(*args,**kwargs):
+        if time.time()<getattr(requests,'_equitylab_roic_cooldown',0):
+            raise requests.RequestException('ROIC cooldown')
+        response=requests.get(*args,**kwargs)
+        if response.status_code==429:
+            try: delay=max(60,int(response.headers.get('Retry-After','900')))
+            except ValueError: delay=900
+            requests._equitylab_roic_cooldown=time.time()+delay
+        return response
     matches=[]
     errors=[]
     try:
         for query in queries:
-            response=requests.get(root+'/tickers/search',params={'query':query},headers=headers,timeout=12)
+            response=limited_get(root+'/tickers/search',params={'query':query},headers=headers,timeout=12)
             if not response.ok:
                 errors.append(str(response.status_code))
                 if response.status_code in (401,403,429): break
@@ -67,6 +80,7 @@ def roic_company_data(ticker, api_key):
             matches.extend(m for m in items if isinstance(m,dict))
             if matches: break
         if not matches:
+            if '429' in errors: return {},'ROIC anropsgräns (HTTP 429); reservkällor används.'
             detail=(' HTTP '+','.join(errors) if errors else '')
             return {},'ROIC sökning gav inga instrument för '+ticker+'.'+detail
         def parts(value):
@@ -97,7 +111,7 @@ def roic_company_data(ticker, api_key):
         if ':' not in identifier:
             return {'search_match':match},'ROIC hittade instrumentet men saknar börskvalificerad symbol.'
         def get_periods(path):
-            resp=requests.get(root+path+'/'+urllib.parse.quote(identifier,safe=':'),params={'period_type':'annual','limit':3,'order':'desc'},headers=headers,timeout=12)
+            resp=limited_get(root+path+'/'+urllib.parse.quote(identifier,safe=':'),params={'period_type':'annual','limit':3,'order':'desc'},headers=headers,timeout=12)
             resp.raise_for_status()
             body=resp.json()
             rows=body.get('data',[]) if isinstance(body,dict) else []
@@ -120,10 +134,13 @@ def roic_quarterly_income(identifier, api_key):
     """Kompletterande rapporterade kvartal, med samma identifierare som årsdata."""
     if not identifier or ':' not in identifier or not api_key:
         return [],'ROIC-instrument eller API-nyckel saknas'
+    import time
+    if time.time()<getattr(requests,'_equitylab_roic_cooldown',0): return [],'ROIC tillfälligt pausat efter HTTP 429'
     try:
         url='https://api.roic.ai/v3.0.0/fundamental/income-statement/'+urllib.parse.quote(identifier,safe=':')
         response=requests.get(url,params={'period_type':'quarterly','limit':12,'order':'desc'},
                               headers={'Authorization':'Bearer '+api_key},timeout=12)
+        if response.status_code==429: requests._equitylab_roic_cooldown=time.time()+900
         if not response.ok:
             return [],'ROIC kvartalsdata: HTTP '+str(response.status_code)
         payload=response.json()
