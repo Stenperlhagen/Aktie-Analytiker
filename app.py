@@ -1275,7 +1275,37 @@ if ev_ebita is None and report_ccy and quote_ccy and market_cap is not None and 
             ebita=annual_ebita
             ev_ebita_source='Yahoo årsrapport '+str(period)[:10]+'; '+report_ccy
             break
+# Verified report snapshots: use only as fallback, never substitute EBIT or EBITDA.
+_report_ebita={
+    'INDT.ST':(4844e6,'2026-09-30','https://financialfilings.com/filings/indutrade/interim-quarterly-report/2026/74637737/'),
+    'ADDT-B.ST':(3888e6,'2026-09-30','https://attachment.news.eu.nasdaq.com/aefe28c8ca9dfc813d7f28af3fed5608b'),
+    'INSTAL.ST':(1001e6,'2026-09-30','https://attachment.news.eu.nasdaq.com/a5d3d52407b7880f8e086d9e3715ee809'),
+}
+report_fallback=None
+if ticker in _report_ebita and (ebita is None or ev_ebita is None):
+    amount,report_period,report_url=_report_ebita[ticker]
+    if (pd.Timestamp.now()-pd.Timestamp(report_period)).days<=180:
+        ebita=amount
+        ev_ebita=None
+        report_fallback=(report_period,report_url)
+        # Do not combine report EBITA with debt from a different date.
+        if report_ccy=='SEK' and quote_ccy and market_cap is not None:
+            try:
+                quarterly_balance=yf.Ticker(ticker).quarterly_balance_sheet
+                report_debt=_annual_balance_value(quarterly_balance,['Net Debt'],report_period)
+                if report_debt is None:
+                    gross=_annual_balance_value(quarterly_balance,['Total Debt'],report_period)
+                    liquid=_annual_balance_value(quarterly_balance,['Cash And Cash Equivalents'],report_period)
+                    if gross is not None and liquid is not None: report_debt=gross-liquid
+                rate=fx_rate(quote_ccy,'SEK')
+                if report_debt is not None and rate is not None and rate>0:
+                    ev_ebita=(market_cap*rate+report_debt)/ebita
+            except Exception:
+                pass
 st.markdown('### Finansiell översikt')
+if report_fallback:
+    st.caption('Rapporterad EBITA R12, SEK, '+report_fallback[0]+' – [Delårsrapport]('+report_fallback[1]+')')
+
 if ebita is None: st.caption('EBITA saknas: separat rapporterad EBITA eller immateriell avskrivning har inte hittats.')
 elif ev_ebita is None: st.caption('EV/EBITA saknas: positiv EBITA, jämförbar nettoskuld, börsvärde eller valuta saknas.')
 
