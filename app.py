@@ -1108,10 +1108,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v30':
+if st.session_state.get('screener_model_version')!='unified-v31':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v30'
+    st.session_state['screener_model_version']='unified-v31'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -1775,11 +1775,11 @@ with target_slot.container():
     target=valuation_result.get('target')
     potential=valuation_result.get('upside')
     if valuation_result.get('audit'):
-        target=None
+        target=valuation_result.get('target')
         potential=None
     color='#166534' if potential is not None and potential>=20 else '#991b1b' if potential is not None and potential<=-20 else '#92400e' if potential is not None else '#475569'
     bg='#ecfdf3' if color=='#166534' else '#fef2f2' if color=='#991b1b' else '#fffbeb' if color=='#92400e' else '#f1f5f9'
-    st.markdown('<div style="padding:18px;border-radius:15px;background:'+bg+';color:'+color+';"><div>Motiverad aktiekurs · '+valuation_result.get('method','')+'</div><div style="font-size:2rem;font-weight:800;">'+show(target,' '+str(valuation_result.get('currency') or ''),2)+'</div><div>'+valuation_result['status']+'</div><div>Potential: '+show(potential,' %',1)+'</div></div>',unsafe_allow_html=True)
+    st.markdown('<div style="padding:18px;border-radius:15px;background:'+bg+';color:'+color+';"><div>'+('Preliminär aktiekurs' if valuation_result.get('audit') else 'Motiverad aktiekurs')+' · '+valuation_result.get('method','')+'</div><div style="font-size:2rem;font-weight:800;">'+show(target,' '+str(valuation_result.get('currency') or ''),2)+'</div><div>'+valuation_result['status']+'</div><div>Potential: '+show(potential,' %',1)+'</div></div>',unsafe_allow_html=True)
 def investment_score(v, info):
     # Explicit heuristic, not a probability or investment recommendation.
     category=v.get('category')
@@ -2663,7 +2663,7 @@ with four:
     if v.get('source'): st.caption('Källa: '+v['source'])
     if v.get('inputs'): st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in v['inputs'].items()]),hide_index=True,use_container_width=True)
     for method,value in v.get('models',{}).items(): st.metric(method,show(value,' '+str(v.get('currency') or ''),2))
-    st.metric('Motiverad aktiekurs',show(None if v.get('audit') else v.get('target'),' '+str(v.get('currency') or ''),2))
+    st.metric('Preliminär aktiekurs' if v.get('audit') else 'Motiverad aktiekurs',show(v.get('target'),' '+str(v.get('currency') or ''),2))
     st.metric('Reverse DCF – inprisad tillväxt','Ej tillämpligt' if v.get('category')=='Bank / finansiella tjänster' else show(v.get('reverse_growth'),' %',1))
     st.metric('Upp-/nedsida',show(None if v.get('audit') else v.get('upside'),' %',1))
     st.metric('Högsta köpkurs – 20 % säkerhetsmarginal',show(None if v.get('audit') else v.get('buy_limit'),' '+str(v.get('currency') or ''),2))
