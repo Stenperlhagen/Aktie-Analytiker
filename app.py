@@ -901,12 +901,15 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
                 fx=1.0
                 earnings=19656e6
                 earnings_label='EBIT'
-                fcff=None  # Reported free cash flow is not verified unlevered FCFF.
+                # Inventory revaluation is excluded from the operating profit base.
+                # Reported D&A includes write-downs; this is an illustrative historical FCFF bridge, not normalized forecast.
+                fcff=(16260e6*(1-0.206)+9918e6-15651e6-1680e6)
+                out['fcff_note']='R12 historisk FCFF-indikation: EBIT exklusive processlageromvärdering, antagen skatt 20,6 %, rapporterade av- och nedskrivningar, investeringar och rörelsekapital. Ej normaliserad prognos.'
                 out['period']='2026-09-30'
                 out['report_currency']='SEK'
                 out['source']='https://investors.boliden.com/sites/boliden-ir/files/pr/202610291842-1.pdf'
                 out['pe_ttm']=price/50.25 if price and price>0 else None
-                out['missing'].append('Boliden: separat EBITA och normaliserat FCFF för R12 behöver verifieras')
+                out['missing'].append('Boliden: separat immateriell avskrivning och normaliserat FCFF behöver verifieras; DCF är preliminär')
             # Kontrollera enheter och kapitalstruktur för ALLA bolag, inte bara specialfallen.
             market_cap=val(info,'marketCap') or val(quick,'market_cap')
             audit=[]
@@ -1071,6 +1074,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
     if symbol=='BOL.ST':
         out['emission']={'Tidigare registrerat aktieantal':273511169,'Nya aktier':10714285,'Registrerat antal efter emission':284225454,'Teckningskurs (SEK)':350,'Utspädning (%)':100*10714285/284225454,'Bruttoemissionslikvid (SEK)':10714285*350,'Emissionsrabatt (%)':3.4,'Nettoemissionslikvid (SEK)':3675e6,'Emissionskostnader (avrundat SEK)':75e6,'Teoretisk kurs efter emission (ca SEK)':(273511169*(350/(1-.034))+10714285*350)/284225454,'Utestående aktier 2026-09-30':283962452,'Utestående aktier 2025-12-31':283955454,'Nettoskuld 2025-12-31 (SEK)':15205e6}
         out['emission_source']='https://investors.boliden.com/en/node/5886 | https://investors.boliden.com/sites/boliden-ir/files/pr/202603040117-1.pdf'
+        out['pending_acquisition']={'Nya aktier (indikativt)':21400000,'Aktieantal inklusive planerad apportemission (indikativt)':283962452+21400000,'Utspädning (%)':100*21400000/(283962452+21400000)}
+        out['pending_acquisition_note']='Nexa: apportemission godkänd av stämman 23 november 2026, ännu villkorad av myndighetsgodkännanden. Förväntat slutförande Q1 2027. Ingen kontant emissionslikvid. Efterföljande kontantbud och konsolidering kräver separat pro forma-värdering.'
         out['emission_note']='Historisk riktad emission mars 2025 för gruvförvärv. Emissionslikvid och förvärv ingår i senare rapporter; ingen ytterligare mekanisk skuldjustering. TERP är approximativt från rapporterad avrundad rabatt. Kontrollera aktuellt aktieantal mot 283 962 452 per Q3 2026; nettoskuld och framtida kassaflöden måste vara efter förvärven.'
     # Extrema modellutfall är granskningsfall, inte automatiska köp-/säljsignaler.
     target=out['target']
@@ -1096,10 +1101,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v28':
+if st.session_state.get('screener_model_version')!='unified-v29':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v28'
+    st.session_state['screener_model_version']='unified-v29'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -2612,6 +2617,12 @@ with four:
         if valuation_result.get('emission_note'): st.caption(valuation_result['emission_note'])
         st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in valuation_result['emission'].items() if x is not None]),hide_index=True,use_container_width=True)
         st.caption('Emissionskälla: '+valuation_result['emission_source'])
+    if valuation_result.get('pending_acquisition'):
+        st.markdown('#### Planerad apportemission – Nexa')
+        st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in valuation_result['pending_acquisition'].items()]),hide_index=True,use_container_width=True)
+        st.caption(valuation_result['pending_acquisition_note'])
+        st.markdown('[Förvärvsmeddelande](https://investors.boliden.com/en/press/boliden-acquire-controlling-stake-nexa-resources)')
+    if valuation_result.get('fcff_note'): st.caption(valuation_result['fcff_note'])
     st.markdown('#### Kapitalavkastning och kapitalkostnad')
     cap_a,cap_b,cap_c=st.columns(3)
     if valuation_result.get('category')=='Bank / finansiella tjänster':
