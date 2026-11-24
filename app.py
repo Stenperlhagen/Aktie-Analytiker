@@ -1025,6 +1025,14 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
         out['target']=None
         out['method']='Turnaround – kapitalstruktur ej verifierad'
     # Verified issue records must contain pre-issue balances and explicit inclusion flags.
+    # Reported share-count changes are review evidence, not proof of a cash issue.
+    if len(share_periods)>=2:
+        prior_count=row(balance,['Ordinary Shares Number','Share Issued'],share_periods[1])
+        reported_count=row(balance,['Ordinary Shares Number','Share Issued'],share_periods[0])
+        if prior_count and reported_count and min(prior_count,reported_count)>0 and reported_count>prior_count:
+            out['capital_change']={'Tidigare rapporterat aktieantal':prior_count,'Senaste rapporterade aktieantal':reported_count,'Nettoökning antal aktier':reported_count-prior_count,'Förändring (%)':100*(reported_count/prior_count-1)}
+            out['capital_change_period']=str(share_periods[1])[:10]+' – '+str(share_periods[0])[:10]
+            out['capital_change_note']='Aktieantalsförändring är inte bekräftad nyemission. Kontrollera split, förvärv, optionslösen och återköp.'
     issue=info.get('verified_cash_issue')
     if isinstance(issue,dict):
         try:
@@ -1071,10 +1079,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v22':
+if st.session_state.get('screener_model_version')!='unified-v23':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v22'
+    st.session_state['screener_model_version']='unified-v23'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -2600,6 +2608,10 @@ with four:
     st.caption('Huvudmodell: samma cachade värdering som riktkursrutan och aktiescreenern. Femårsscenarier är separata och utgör inte ytterligare riktkurser. Inga analytikerriktkurser.')
     st.write('**Kategori:** '+v['category']+' · '+str(v.get('profile') or 'Sektormodell'))
     if v.get('assumptions'): st.dataframe(pd.DataFrame([{'Antagande':k,'Värde':show(x,'',2)} for k,x in v['assumptions'].items()]),hide_index=True,use_container_width=True)
+    if v.get('capital_change'):
+        st.markdown('#### Förändrad kapitalstruktur')
+        st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in v['capital_change'].items()]),hide_index=True,use_container_width=True)
+        st.caption(v['capital_change_period']+' · '+v['capital_change_note'])
     if v.get('emission'):
         st.markdown('#### Emissionsjustering')
         st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in v['emission'].items() if x is not None]),hide_index=True,use_container_width=True)
