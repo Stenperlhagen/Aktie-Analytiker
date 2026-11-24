@@ -513,6 +513,9 @@ ADDITIONAL_COMPANIES = {
     'Wästbygg Gruppen B':'WBGR-B.ST','XANO Industri B':'XANO-B.ST'
 }
 ALL_COMPANIES = {**{name:ticker for name,(ticker,_) in CAT.items()}, **ADDITIONAL_COMPANIES}
+# Prefer B shares whenever both A and B are in the universe; retain sole listed classes.
+_b_share_symbols={symbol for symbol in ALL_COMPANIES.values() if symbol.endswith('-B.ST')}
+ALL_COMPANIES={name:symbol for name,symbol in ALL_COMPANIES.items() if not (symbol.endswith('-A.ST') and symbol[:-5]+'-B.ST' in _b_share_symbols)}
 
 # Värderingskategori skiljs från branschgrupp. Okända typer får ingen P/E-köpsignal.
 INVESTMENT_TICKERS={
@@ -1119,10 +1122,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v32':
+if st.session_state.get('screener_model_version')!='unified-v33':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v32'
+    st.session_state['screener_model_version']='unified-v33'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
