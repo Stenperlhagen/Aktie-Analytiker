@@ -895,6 +895,18 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
                 fcff=None
                 out['period']='2026-09-30'
                 out['source']='https://financialfilings.com/filings/lindab-international/interim-quarterly-report/2026/74636455/'
+            if symbol=='BOL.ST' and currency=='SEK' and (pd.Timestamp.now()-pd.Timestamp('2026-09-30')).days<=180:
+                shares=283962452
+                debt=18335e6
+                fx=1.0
+                earnings=19656e6
+                earnings_label='EBIT'
+                fcff=None  # Reported free cash flow is not verified unlevered FCFF.
+                out['period']='2026-09-30'
+                out['report_currency']='SEK'
+                out['source']='https://investors.boliden.com/sites/boliden-ir/files/pr/202610291842-1.pdf'
+                out['pe_ttm']=price/50.25 if price and price>0 else None
+                out['missing'].append('Boliden: separat EBITA och normaliserat FCFF för R12 behöver verifieras')
             # Kontrollera enheter och kapitalstruktur för ALLA bolag, inte bara specialfallen.
             market_cap=val(info,'marketCap') or val(quick,'market_cap')
             audit=[]
@@ -916,6 +928,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
             preferred=latest(balance,['Preferred Stock','Preferred Stock Equity'])
             if (preferred is not None and preferred>0) or symbol=='VOLO.ST':
                 audit.append('Preferenskapital: marknadsvärde och rättigheter måste verifieras innan stamaktievärdet kan användas som köpsignal')
+            if symbol=='BOL.ST': audit.append('Nexa-förvärv: kontrollera status, finansiering och pro forma kassaflöden innan riktkurs används')
             out['audit']=audit
             out['inputs']={('EBIT' if symbol=='AAK.ST' else earnings_label):earnings,'Nettoskuld':debt,'Antal aktier':shares,'FCFF':fcff,'Valutakurs':fx}
             use_ebit=symbol=='AAK.ST' or earnings_label=='EBIT'
@@ -1083,10 +1096,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v27':
+if st.session_state.get('screener_model_version')!='unified-v28':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v27'
+    st.session_state['screener_model_version']='unified-v28'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
