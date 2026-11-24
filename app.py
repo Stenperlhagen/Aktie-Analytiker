@@ -1388,13 +1388,27 @@ if valuation_result.get('category')=='Bank / finansiella tjänster':
     if _roic_income:
         bank_record=_roic_income[0]
         if interest is None: interest=_record_number(bank_record,('is_net_interest_income','net_interest_income'))
+    bank_report_data={
+        'SWED-A.ST':(41,17.2,-0.14,'https://attachment.news.eu.nasdaq.com/a7ccb71a59ee3022b10abee8da70da6a3'),
+        'SHB-A.ST':(42.3,17.0,0.00,'https://attachment.news.eu.nasdaq.com/add2c43eefb1e5ce16ac2dbb9f69d0e42'),
+        'SHB-B.ST':(42.3,17.0,0.00,'https://attachment.news.eu.nasdaq.com/add2c43eefb1e5ce16ac2dbb9f69d0e42'),
+        'SEB-A.ST':(44,17.1,0.02,'https://www.realtid.se/bors-finans/bank-fintech/storbankerna-backar-nischbankerna-rusar-sa-gick-bankerna-i-q3/'),
+        'SEB-C.ST':(44,17.1,0.02,'https://www.realtid.se/bors-finans/bank-fintech/storbankerna-backar-nischbankerna-rusar-sa-gick-bankerna-i-q3/'),
+        'NDA-SE.ST':(46,15.8,0.07,'https://www.realtid.se/bors-finans/bank-fintech/storbankerna-backar-nischbankerna-rusar-sa-gick-bankerna-i-q3/')
+    }
+    ki_label='K/I-tal (helår)'
+    if ticker in bank_report_data and (pd.Timestamp.now()-pd.Timestamp('2026-09-30')).days<=180:
+        ki,cet1,credit_loss,bank_url=bank_report_data[ticker]
+        ki_label='K/I-tal (Q3 2026)'
+        cet1_source=None
+        st.caption('Banknyckeltal Q3 2026: [Källa]('+bank_url+'). Kreditförlustnivå enligt rapportens definition.')
     replacements={
         'EBITA (rapportperiod)':('Räntenetto (helår)',show(interest/1e6,' M',0) if interest is not None else 'Saknas'),
         'EBITA (värderingsperiod)':('Räntenetto (helår)',show(interest/1e6,' M',0) if interest is not None else 'Saknas'),
         'EV/EBITA':('P/B-tal',show(pb,'×',2)),
         'Nettoskuld/EBITDA':('Kärnprimärkapitalrelation (CET1)',show(cet1,' %',1)),
         'Operativt kassaflöde':('Kreditförlustnivå',show(credit_loss,' %',2)),
-        'Rörelsemarginal':('K/I-tal (helår)',show(ki,' %',1))
+        'Rörelsemarginal':(ki_label,show(ki,' %',1))
     }
     overview_items=[replacements.get(label,(label,value)) for label,value in overview_items]
     if cet1_source:
