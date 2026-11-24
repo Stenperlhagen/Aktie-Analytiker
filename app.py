@@ -1055,6 +1055,10 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
                 out.setdefault('audit',[]).append('Emission: kontrollera modellens aktieantal och nettoskuld före justering')
         except (ValueError,TypeError,KeyError,ZeroDivisionError):
             out.setdefault('audit',[]).append('Emissionsvillkor ofullständiga')
+    if symbol=='BOL.ST':
+        out['emission']={'Tidigare registrerat aktieantal':273511169,'Nya aktier':10714285,'Registrerat antal efter emission':284225454,'Teckningskurs (SEK)':350,'Utspädning (%)':100*10714285/284225454,'Bruttoemissionslikvid (SEK)':10714285*350,'Emissionsrabatt (%)':3.4,'Utestående aktier 2025-12-31':283955454,'Nettoskuld 2025-12-31 (SEK)':15205e6}
+        out['emission_source']='https://investors.boliden.com/en/node/5886 | https://investors.boliden.com/sites/boliden-ir/files/pr/202603040117-1.pdf'
+        out['emission_note']='Historisk riktad emission mars 2025 för gruvförvärv. Emissionslikvid och förvärv ingår i senare rapporter; ingen ytterligare mekanisk skuldjustering. Använd aktuellt aktieantal inklusive senare återköp.'
     # Extrema modellutfall är granskningsfall, inte automatiska köp-/säljsignaler.
     target=out['target']
     if target is not None and price is not None and price>0 and not 0.2<=target/price<=5:
@@ -1079,10 +1083,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v25':
+if st.session_state.get('screener_model_version')!='unified-v26':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v25'
+    st.session_state['screener_model_version']='unified-v26'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -2592,6 +2596,7 @@ with four:
         st.caption(valuation_result['capital_change_period']+' · '+valuation_result['capital_change_note'])
     if valuation_result.get('emission'):
         st.markdown('#### Emissionsjustering')
+        if valuation_result.get('emission_note'): st.caption(valuation_result['emission_note'])
         st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in valuation_result['emission'].items() if x is not None]),hide_index=True,use_container_width=True)
         st.caption('Emissionskälla: '+valuation_result['emission_source'])
     st.markdown('#### Kapitalavkastning och kapitalkostnad')
