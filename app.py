@@ -2797,15 +2797,40 @@ with three:
             if result is not None:
                 return result
         return None
-    annual = _roic_income
+    annual = []
+    forecast_source = ''
+    try:
+        bd,_=borsapi_reports(ticker,borsapi_key())
+        for record in bd.get('periods',[]):
+            if not isinstance(record,dict) or str(record.get('period'))!='5': continue
+            date=record.get('report_End_Date') or record.get('reportEndDate')
+            currency=record.get('currency')
+            rev=numeric(record.get('revenues'))
+            earnings=numeric(record.get('ebita'))
+            if date and currency and rev is not None and rev>0 and earnings is not None:
+                annual.append({'period_end_date':str(date)[:10],'currency':str(currency).upper(),'revenue':rev*1e6,'ebita':earnings*1e6})
+        annual.sort(key=lambda x:x['period_end_date'],reverse=True)
+        if annual: forecast_source='Börsdata Pro+'
+    except Exception:
+        annual=[]
+    if not annual:
+        annual=sorted([x for x in _roic_income if x.get('currency') and x.get('period_end_date') and scenario_field(x,('ebita','is_ebita')) is not None and scenario_field(x,('is_sales_revenue_turnover','revenue','total_revenue')) is not None],key=lambda x:str(x['period_end_date']),reverse=True)
+        if annual: forecast_source='ROIC.ai'
+    if not annual and report_ccy:
+        for period in sorted(fin.columns,reverse=True):
+            rev=_annual_balance_value(fin,['Total Revenue','Operating Revenue'],period)
+            earnings=_annual_balance_value(fin,['EBITA'],period)
+            if rev is not None and rev>0 and earnings is not None:
+                annual.append({'period_end_date':str(period)[:10],'currency':report_ccy,'revenue':rev,'ebita':earnings})
+        if annual: forecast_source='Yahoo Finance'
     forecast_currency = annual[0].get('currency') if annual else None
     latest_report = annual[0] if annual else {}
     forecast_revenue = scenario_field(latest_report, ('is_sales_revenue_turnover','revenue','total_revenue'))
-    forecast_ebita = scenario_field(latest_report, ('ebita',))
+    forecast_ebita = scenario_field(latest_report, ('ebita','is_ebita'))
     forecast_period = str(latest_report.get('period_end_date') or 'Okänd')[:10]
     # Utgå endast från rapporterad EBITA och omsättning för samma period och valuta.
     if not (forecast_revenue and forecast_revenue>0 and forecast_ebita is not None and forecast_currency and valuation_result.get('assumptions',{}).get('EV/EBITA')):
-        st.info('Framtidsvärdering kräver omsättning, EBITA och rapportvaluta för samma årsperiod från ROIC AI. Inga värden uppskattas när rapportdata saknas.')
+        st.info('Framtidsvärdering saknar jämförbar årsomsättning, EBITA, rapportvaluta eller branschmultipel. Börsdata prioriteras, därefter ROIC.ai och Yahoo Finance.')
     else:
         historical_growth = None
         if len(annual)>1:
@@ -2826,7 +2851,7 @@ with three:
         baseline_a.metric('Omsättning senaste helår',show(forecast_revenue/1e6,' M '+str(forecast_currency),0))
         baseline_b.metric('EBITA-marginal',show(latest_margin*100,' %',1))
         baseline_c.metric('Historisk omsättningstillväxt',show(historical_growth*100,' %/år',1) if historical_growth is not None else 'Saknas')
-        st.caption('Rapportperiod: '+forecast_period+' · Historiken avser endast tillgängliga jämförbara årsperioder.')
+        st.caption('Källa: '+forecast_source+' · Rapportperiod: '+forecast_period+' · Historiken avser endast tillgängliga jämförbara årsperioder.')
         # Inga manuella inmatningar: historikbaserade utgångspunkter och öppet redovisade antaganden.
         base_growth=float(suggested_growth)
         base_margin=float(suggested_margin)
