@@ -1056,9 +1056,9 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
         except (ValueError,TypeError,KeyError,ZeroDivisionError):
             out.setdefault('audit',[]).append('Emissionsvillkor ofullständiga')
     if symbol=='BOL.ST':
-        out['emission']={'Tidigare registrerat aktieantal':273511169,'Nya aktier':10714285,'Registrerat antal efter emission':284225454,'Teckningskurs (SEK)':350,'Utspädning (%)':100*10714285/284225454,'Bruttoemissionslikvid (SEK)':10714285*350,'Emissionsrabatt (%)':3.4,'Utestående aktier 2025-12-31':283955454,'Nettoskuld 2025-12-31 (SEK)':15205e6}
+        out['emission']={'Tidigare registrerat aktieantal':273511169,'Nya aktier':10714285,'Registrerat antal efter emission':284225454,'Teckningskurs (SEK)':350,'Utspädning (%)':100*10714285/284225454,'Bruttoemissionslikvid (SEK)':10714285*350,'Emissionsrabatt (%)':3.4,'Nettoemissionslikvid (SEK)':3675e6,'Emissionskostnader (avrundat SEK)':75e6,'Teoretisk kurs efter emission (ca SEK)':(273511169*(350/(1-.034))+10714285*350)/284225454,'Utestående aktier 2026-09-30':283962452,'Utestående aktier 2025-12-31':283955454,'Nettoskuld 2025-12-31 (SEK)':15205e6}
         out['emission_source']='https://investors.boliden.com/en/node/5886 | https://investors.boliden.com/sites/boliden-ir/files/pr/202603040117-1.pdf'
-        out['emission_note']='Historisk riktad emission mars 2025 för gruvförvärv. Emissionslikvid och förvärv ingår i senare rapporter; ingen ytterligare mekanisk skuldjustering. Använd aktuellt aktieantal inklusive senare återköp.'
+        out['emission_note']='Historisk riktad emission mars 2025 för gruvförvärv. Emissionslikvid och förvärv ingår i senare rapporter; ingen ytterligare mekanisk skuldjustering. TERP är approximativt från rapporterad avrundad rabatt. Kontrollera aktuellt aktieantal mot 283 962 452 per Q3 2026; nettoskuld och framtida kassaflöden måste vara efter förvärven.'
     # Extrema modellutfall är granskningsfall, inte automatiska köp-/säljsignaler.
     target=out['target']
     if target is not None and price is not None and price>0 and not 0.2<=target/price<=5:
@@ -1083,10 +1083,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v26':
+if st.session_state.get('screener_model_version')!='unified-v27':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v26'
+    st.session_state['screener_model_version']='unified-v27'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
