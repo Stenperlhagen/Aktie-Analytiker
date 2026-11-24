@@ -1354,8 +1354,29 @@ overview_items = [
     ('Direktavkastning',show(dividend_yield,' %',1) if dividend_yield is not None else 'Saknas')
 ]
 if valuation_result.get('category')=='Bank / finansiella tjänster':
-    bank_na={'EBITA (rapportperiod)','EBITA (värderingsperiod)','EV/EBITA','Nettoskuld/EBITDA','Operativt kassaflöde','Rörelsemarginal'}
-    overview_items=[(label,'Ej tillämpligt' if label in bank_na else value) for label,value in overview_items]
+    bank_periods=sorted(fin.columns,reverse=True)
+    bp=bank_periods[0] if bank_periods else None
+    interest=_annual_balance_value(fin,['Net Interest Income','Net Interest Revenue'],bp)
+    bank_income=_annual_balance_value(fin,['Total Revenue','Operating Revenue'],bp)
+    expenses=_annual_balance_value(fin,['Non Interest Expense','Noninterest Expense'],bp)
+    ki=abs(expenses)/bank_income*100 if expenses is not None and bank_income is not None and bank_income>0 else None
+    pb=val(info,'priceToBook')
+    cet1=None
+    credit_loss=None
+    if _roic_income:
+        bank_record=_roic_income[0]
+        if interest is None: interest=_record_number(bank_record,('is_net_interest_income','net_interest_income'))
+    replacements={
+        'EBITA (rapportperiod)':('Räntenetto (helår)',show(interest/1e6,' M',0) if interest is not None else 'Saknas'),
+        'EBITA (värderingsperiod)':('Räntenetto (helår)',show(interest/1e6,' M',0) if interest is not None else 'Saknas'),
+        'EV/EBITA':('P/B-tal',show(pb,'×',2)),
+        'Nettoskuld/EBITDA':('Kärnprimärkapitalrelation (CET1)',show(cet1,' %',1)),
+        'Operativt kassaflöde':('Kreditförlustnivå',show(credit_loss,' %',2)),
+        'Rörelsemarginal':('K/I-tal (helår)',show(ki,' %',1))
+    }
+    overview_items=[replacements.get(label,(label,value)) for label,value in overview_items]
+    st.caption('Bankspecifika nyckeltal. CET1 och kreditförlustnivå kräver kompletterande bankrapporter. K/I beräknas endast från identifierade kostnader och intäkter i samma årsperiod.')
+
 for start in range(0,len(overview_items),4):
     cols=st.columns(4)
     for col,(label,value) in zip(cols,overview_items[start:start+4]): col.metric(label,value)
