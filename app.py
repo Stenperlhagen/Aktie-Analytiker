@@ -1226,9 +1226,36 @@ valuation_price=valuation_result.get('price')
 ev_ebita=None
 if all(x is not None for x in (valuation_earnings,valuation_debt,valuation_fx,valuation_shares,valuation_price)) and valuation_earnings>0 and valuation_fx>0 and valuation_shares>0 and valuation_price>0:
     ev_ebita=(valuation_price*valuation_shares/valuation_fx+valuation_debt)/valuation_earnings
-ebita=valuation_earnings
-pe=valuation_result.get('pe_ttm')
-dividend_yield=trailing_dividend_yield(ticker,valuation_price)
+if valuation_earnings is not None:
+    ebita=valuation_earnings
+elif ebita is None and fin is not None and not fin.empty:
+    for period in fin.columns:
+        operating=_annual_balance_value(fin,['Operating Income','EBIT'],period)
+        amort=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+        if operating is not None and amort is not None:
+            ebita=operating+abs(amort)
+            break
+if valuation_result.get('pe_ttm') is not None: pe=valuation_result['pe_ttm']
+else: pe=val(info,'trailingPE')
+if dividend_yield is None: dividend_yield=trailing_dividend_yield(ticker,valuation_price)
+if roe_overview is None:
+    raw_roe=val(info,'returnOnEquity')
+    if raw_roe is not None: roe_overview=raw_roe*100
+if sales_growth_pct is None:
+    raw_growth=val(info,'revenueGrowth')
+    if raw_growth is not None: sales_growth_pct=raw_growth*100
+if _roic_income:
+    latest=_roic_income[0]
+    if revenue is None: revenue=_record_number(latest,('is_sales_revenue_turnover','revenue','total_revenue'))
+    if margin is None:
+        rev=_record_number(latest,('is_sales_revenue_turnover','revenue','total_revenue'))
+        operating=_record_number(latest,('is_operating_income','operating_income','ebit'))
+        if rev and operating is not None: margin=operating/rev
+    if ebita is None: ebita=_record_number(latest,('is_ebita','ebita'))
+    if opcf is None:
+        cf=next((x for x in _roic_data.get('cashflow',[]) if x.get('period_end_date')==latest.get('period_end_date') and x.get('currency')==latest.get('currency')),None)
+        opcf=_record_number(cf,('cf_cash_from_operating_activities','cf_net_cash_from_operating_activities','operating_cash_flow'))
+
 st.markdown('### Finansiell översikt')
 overview_items = [
     ('Börsvärde',show(market_cap/1e9,' mdkr',2) if market_cap is not None and quote_ccy=='SEK' else (show(market_cap/1e9,' md '+(quote_ccy or ''),2) if market_cap is not None else 'Saknas')),
@@ -1236,7 +1263,7 @@ overview_items = [
     ('Omsättning (LTM/helår)',show(revenue/1e6,' M',0) if revenue is not None else 'Saknas'),
     ('Omsättningstillväxt',show(sales_growth_pct,' %/år',1) if sales_growth_pct is not None else 'Saknas'),
     ('Rörelsemarginal',show(margin*100,' %') if margin is not None else 'Saknas'),
-    ('EBITA (värderingsperiod)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas'),
+    ('EBITA (rapportperiod)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas'),
     ('Avkastning på eget kapital (ROE)',show(roe_overview,' %',1) if roe_overview is not None else 'Saknas'),
     ('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),
     ('P/E (R12)',show(pe,'×') if pe is not None else 'Saknas'),
@@ -1253,7 +1280,7 @@ elif _roic_error:
     st.caption('ROIC AI: '+_roic_error)
 elif _roic_income:
     st.caption('Kompletterande rapportdata från ROIC AI (årsperiod: '+str(_roic_income[0].get('period_end_date','okänd'))+', valuta: '+str(_roic_income[0].get('currency','okänd'))+').')
-st.caption('EBITA och EV/EBITA använder huvudmodellens underlag, rapportperiod '+str(valuation_result.get('period') or 'saknas')+'. Omsättning och kassaflöde kan avse olika perioder. Omsättningstillväxt = CAGR över tillgängliga rapporterade årsperioder. EBITA visas bara om det finns som separat rapporterad post; EBIT och EBITDA används aldrig som ersättning. EV/EBITA visas endast när rapport- och handelsvaluta matchar. ROE bygger på senaste rapporterade nettoresultat och eget kapital och är en förenklad kvot, inte ett genomsnittligt eget kapital. M = miljoner.')
+st.caption('EBITA och EV/EBITA använder huvudmodellens underlag, rapportperiod '+str(valuation_result.get('period') or 'saknas')+'. Omsättning och kassaflöde kan avse olika perioder. Omsättningstillväxt = CAGR över tillgängliga rapporterade årsperioder. EBITA kan vara rapporterad eller beräknad från EBIT och separat redovisad immateriell avskrivning; EBIT och EBITDA används aldrig som ersättning. Tillväxt kan vid saknad historik avse senaste rapporterade jämförelseperiod. EV/EBITA visas endast när rapport- och handelsvaluta matchar. ROE bygger på senaste rapporterade nettoresultat och eget kapital och är en förenklad kvot, inte ett genomsnittligt eget kapital. M = miljoner.')
 
 @st.cache_data(ttl=86400,show_spinner=False)
 def swedish_ten_year_yield():
