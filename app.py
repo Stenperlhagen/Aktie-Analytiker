@@ -549,53 +549,45 @@ def render_price_events(history,company,ticker):
     fig.update_traces(line=dict(color='#87909E',width=1.5),name='Normal kursutveckling',showlegend=True)
     dates=[pd.Timestamp(x).date().isoformat() for x in chart[chart_date]]
     positions={date:i for i,date in enumerate(dates)}
-    # Color only the actual line segments; daily events take priority over overlapping five-day windows.
-    colors={}
-    for _,event in events.sort_values('Handelsdagar',ascending=False).iterrows():
-        start=positions.get(event['Från'])
-        end=positions.get(event['Datum'])
-        if start is None or end is None: continue
-        direction='up' if event['Förändring (%)']>0 else 'down'
-        for i in range(start+1,end+1):
-            colors[i]=direction
-    for direction,color,label in [('up','#00C853','Kraftig uppgång'),('down','#FF1744','Kraftig nedgång')]:
-        xs,ys=[],[]
-        for i in sorted(colors):
-            if colors[i]!=direction: continue
-            xs.extend([chart[chart_date].iloc[i-1],chart[chart_date].iloc[i],None])
-            ys.extend([chart['Adj Close'].iloc[i-1],chart['Adj Close'].iloc[i],None])
-        if xs:
-            fig.add_scatter(x=xs,y=ys,mode='lines',name=label,line=dict(color=color,width=4),connectgaps=False)
-    # Label the largest observed peak-to-trough and trough-to-peak moves in chronological order.
-    peak=trough=None
-    worst=best=None
-    for i,value in enumerate(chart['Adj Close']):
-        value=numeric(value)
+    # Directional changes: confirm a turning point after a 15% reversal.
+    moves=[]
+    pivot=extreme=None
+    direction=0
+    for idx,raw in enumerate(chart['Adj Close']):
+        value=numeric(raw)
         if value is None or value<=0: continue
-        if peak is not None:
-            change=(value/peak[1]-1)*100
-            if worst is None or change<worst[0]: worst=(change,peak[0],i)
-        if trough is not None:
-            change=(value/trough[1]-1)*100
-            if best is None or change>best[0]: best=(change,trough[0],i)
-        if peak is None or value>peak[1]: peak=(i,value)
-        if trough is None or value<trough[1]: trough=(i,value)
-    for move,color,label in [(worst,'#FF1744','Största nedgång'),(best,'#00C853','Största uppgång')]:
-        if move is None: continue
-        change,start,end=move
-        if (label=='Största nedgång' and change>=0) or (label=='Största uppgång' and change<=0): continue
-        fig.add_scatter(x=[chart[chart_date].iloc[start],chart[chart_date].iloc[end]],y=[chart['Adj Close'].iloc[start],chart['Adj Close'].iloc[end]],mode='markers',marker=dict(color=color,size=8),name=label,showlegend=False)
-        fig.add_annotation(x=chart[chart_date].iloc[end],y=chart['Adj Close'].iloc[end],text=f'{change:+.1f} %',showarrow=True,arrowcolor=color,font=dict(color=color,size=14),bgcolor='rgba(255,255,255,0.85)',ay=-35 if change>0 else 35)
-    fig.update_layout(legend=dict(orientation='h',y=1.12))
-    a,b=st.columns(2)
-    for column,move,label in [(a,worst,'Största nedgång från tidigare topp'),(b,best,'Största uppgång från tidigare botten')]:
-        if move is not None:
-            change,start,end=move
-            if (column is a and change>=0) or (column is b and change<=0): continue
-            column.metric(label,f'{change:+.1f} %')
-            column.caption(f'{dates[start]} – {dates[end]}')
+        if pivot is None:
+            pivot=extreme=(idx,value)
+            continue
+        if direction==0:
+            if value>=pivot[1]*1.15: direction=1; extreme=(idx,value)
+            elif value<=pivot[1]*.85: direction=-1; extreme=(idx,value)
+        elif direction==1:
+            if value>=extreme[1]: extreme=(idx,value)
+            elif value<=extreme[1]*.85:
+                moves.append((pivot,extreme))
+                pivot=extreme; extreme=(idx,value); direction=-1
+        else:
+            if value<=extreme[1]: extreme=(idx,value)
+            elif value>=extreme[1]*1.15:
+                moves.append((pivot,extreme))
+                pivot=extreme; extreme=(idx,value); direction=1
+    if direction and extreme[0]>pivot[0]: moves.append((pivot,extreme))
+    ranked=[((b[1]/a[1]-1)*100,a[0],b[0]) for a,b in moves]
+    ranked=sorted([m for m in ranked if abs(m[0])>=15],key=lambda m:abs(m[0]),reverse=True)[:5]
+    ranked.sort(key=lambda m:m[1])
+    summary=[]
+    for change,start,end in ranked:
+        color='#00B85A' if change>0 else '#E53935'
+        label='Kraftig uppgång' if change>0 else 'Kraftig nedgång'
+        segment=chart.iloc[start:end+1]
+        fig.add_scatter(x=segment[chart_date],y=segment['Adj Close'],mode='lines',name=label,line=dict(color=color,width=3.5),showlegend=False)
+        fig.add_annotation(x=chart[chart_date].iloc[end],y=chart['Adj Close'].iloc[end],text=f'{change:+.1f} %',showarrow=True,arrowcolor=color,font=dict(color=color,size=14),bgcolor='rgba(255,255,255,0.9)',ay=-30 if change>0 else 30)
+        summary.append({'Datum':dates[end],'Från':dates[start],'Handelsdagar':end-start,'Förändring (%)':round(change,2),'Bolagshändelse':bool(events.loc[(events['Datum']>=dates[start])&(events['Datum']<=dates[end]),'Bolagshändelse'].any()),'Kurs':numeric(chart['Close'].iloc[end]) if 'Close' in chart else None})
+    fig.update_layout(showlegend=False,height=480,margin=dict(t=65,b=35))
+    st.caption('Grafen visar högst fem större sammanhängande rörelser, identifierade med 15 % vändningströskel. Grönt = uppgång, rött = nedgång.')
     st.plotly_chart(fig,use_container_width=True)
-    display=events.sort_values(['Datum','Handelsdagar'],ascending=[False,True]).reset_index(drop=True)
+    display=(pd.DataFrame(summary) if summary else events).sort_values(['Datum','Handelsdagar'],ascending=[False,True]).reset_index(drop=True)
     st.dataframe(display.drop(columns=['Kurs']),hide_index=True,use_container_width=True)
     st.caption('Utdelningar och splittar hanteras via justerad kurs och markeras separat. Emissioner och särnoteringar kan fortfarande kräva manuell kontroll.')
     labels=[f"{r['Datum']} | {r['Handelsdagar']} dag(ar) | {r['Förändring (%)']:+.2f} %" for _,r in display.iterrows()]
