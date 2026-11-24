@@ -3009,7 +3009,9 @@ with three:
                 historical_points=historical_points[historical_points['Datum']>=today-pd.DateOffset(years=5)]
                 historical_points=pd.concat([historical_points,pd.DataFrame({'Datum':[today],'Aktiekurs':[price],'Typ':['Historik']})],ignore_index=True)
             chart=px.line(pd.concat([historical_points,forecast_points],ignore_index=True),x='Datum',y='Aktiekurs',color='Typ',line_dash='Typ',color_discrete_map={'Historik':'#64748B','Prognos':('#16A34A' if future>price else '#DC2626' if future<price else '#64748B')},line_dash_map={'Historik':'solid','Prognos':'dash'},title='Aktiekurs – historik och femårsprognos')
-            chart.update_layout(yaxis_title='Aktiekurs ('+str(quote_ccy)+')',xaxis_title=None,legend_title_text=None)
+            chart.update_traces(mode='lines+markers+text',marker=dict(size=8),text=[show(v,' '+str(quote_ccy),1) for v in forecast_points['Aktiekurs']],textposition='top center',cliponaxis=False,selector=dict(name='Prognos'))
+            chart.update_layout(yaxis_title='Aktiekurs ('+str(quote_ccy)+')',xaxis_title=None,legend_title_text=None,legend=dict(orientation='h',y=-0.18),margin=dict(t=75,r=65,b=85))
+            chart.update_yaxes(automargin=True)
             st.plotly_chart(chart,use_container_width=True)
             with st.expander('Visa beräkningsantaganden'):
                 st.dataframe(forecast_points.rename(columns={'Aktiekurs':'Prognostiserad aktiekurs'}).drop(columns='Typ'),hide_index=True,use_container_width=True)
