@@ -2955,7 +2955,7 @@ with three:
         shares=numeric(valuation_shares)
         fx=numeric(fx_rate(base['currency'],quote_ccy))
         can_value=len(mult)>=4 and base['debt'] is not None and shares is not None and shares>0 and price is not None and price>0 and fx is not None and fx>0 and not valuation_result.get('audit')
-        if not can_value: st.warning('Aktiekursprognos kräver minst fyra jämförbara historiska EV/EBIT-multiplar samt verifierad nettoskuld, aktieantal och valuta. Rörelseprognosen visas ändå.')
+        if not can_value: st.warning('Aktiekursprognos kräver minst fyra jämförbara historiska EV/EBIT-multiplar samt verifierad nettoskuld, aktieantal och valuta. Ingen aktiekursprognos visas utan tillräckligt underlag.')
         rows=[]; outcomes=[]
         for idx,(name,g,m) in enumerate(settings):
             multiple=float(mult.median()) if len(mult)>=4 else None
@@ -2968,19 +2968,29 @@ with three:
         cols=st.columns(1)
         for col,(name,g,m,multiple,future) in zip(cols,outcomes):
             col.metric('Prognostiserad aktiekurs om fem år',show(future,' '+str(quote_ccy),2) if future is not None else 'Saknas')
-            col.caption(f'Tillväxt {g*100:+.1f} % · EBIT-marginal {m*100:.1f} %')
             if future is not None:
                 col.write(f'Kurspotential: {(future/price-1)*100:+.1f} %')
                 col.write(f'Årlig kursavkastning: {((future/price)**.2-1)*100:+.1f} %')
         frame=pd.DataFrame(rows)
-        actual=pd.DataFrame([{'År':pd.Timestamp(x['date']).year,'Scenario':'Historik','Omsättning (M)':x['revenue']/1e6,'EBIT (M)':x['ebit']/1e6} for x in reversed(forecast_history)])
-        colors={'Historik':'#64748B','Bear':'#DC2626','Base':'#2563EB','Bull':'#16A34A','Prognos':'#2563EB'}
-        for metric in ('Omsättning (M)','EBIT (M)'):
-            st.plotly_chart(px.line(pd.concat([actual,frame],ignore_index=True),x='År',y=metric,color='Scenario',color_discrete_map=colors,markers=True,title=metric+' – historik och prognos'),use_container_width=True)
-        with st.expander('Årsprognoser och antaganden'):
-            st.dataframe(frame,hide_index=True,use_container_width=True)
-            st.write('Tillväxt: grundvikter 40/35/25, omfördelade proportionellt vid saknad historik. Marginal och värderingsmultipel baseras på historisk median.')
-            st.write('Historiska EV/EBIT-multiplar: '+', '.join(f'{v:.1f}×' for v in multiples) if multiples else 'Historiska multiplar saknas.')
+        if can_value:
+            today=pd.Timestamp.today().normalize()
+            forecast_points=pd.DataFrame({'Datum':[today]+[today+pd.DateOffset(years=n) for n in range(1,6)],'Aktiekurs':[price]+frame['Aktiekurs'].tolist(),'Typ':'Prognos'})
+            historical_points=pd.DataFrame(columns=['Datum','Aktiekurs','Typ'])
+            if isinstance(hist,pd.DataFrame) and not hist.empty and 'Close' in hist:
+                close_series=hist['Close'].dropna()
+                dates=pd.DatetimeIndex(close_series.index).tz_localize(None)
+                historical_points=pd.DataFrame({'Datum':dates,'Aktiekurs':close_series.to_numpy(),'Typ':'Historik'})
+                historical_points=historical_points[historical_points['Datum']>=today-pd.DateOffset(years=5)]
+                historical_points=pd.concat([historical_points,pd.DataFrame({'Datum':[today],'Aktiekurs':[price],'Typ':['Historik']})],ignore_index=True)
+            chart=px.line(pd.concat([historical_points,forecast_points],ignore_index=True),x='Datum',y='Aktiekurs',color='Typ',line_dash='Typ',color_discrete_map={'Historik':'#64748B','Prognos':'#2563EB'},line_dash_map={'Historik':'solid','Prognos':'dash'},title='Aktiekurs – historik och femårsprognos')
+            chart.update_layout(yaxis_title='Aktiekurs ('+str(quote_ccy)+')',xaxis_title=None,legend_title_text=None)
+            st.plotly_chart(chart,use_container_width=True)
+            with st.expander('Visa beräkningsantaganden'):
+                st.dataframe(forecast_points.rename(columns={'Aktiekurs':'Prognostiserad aktiekurs'}).drop(columns='Typ'),hide_index=True,use_container_width=True)
+                st.write('Tillväxt: grundvikter 40/35/25, omfördelade proportionellt vid saknad historik. Marginal och värderingsmultipel baseras på historisk median.')
+                st.write('Historiska EV/EBIT-multiplar: '+', '.join(f'{v:.1f}×' for v in multiples))
+        else:
+            st.info('Aktiekurskurvan visas när värderingsunderlaget är tillräckligt.')
         st.caption('Historikbaserad modellprognos, inte bolagets egen prognos. Oförändrad nettoskuld, aktieantal och valuta antas. Utdelning ingår inte; historiska multiplar kräver även kontroll av splittar och aktieslag. Fundamentala riktkursen påverkas inte.')
     st.divider()
     st.markdown('#### Historiska nyckeltalsindikatorer – ej investeringsbetyg')
