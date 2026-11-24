@@ -182,6 +182,19 @@ def fetch(ticker):
     info=dict(info or {})
     if not info.get('currency') and quick.get('currency'): info['currency']=quick['currency']
     if not info.get('currency') and ticker.endswith('.ST'): info['currency']='SEK'  # Stockholm trading currency, not reporting currency
+    if not info.get('financialCurrency') and not fin.empty:
+        # Recover reporting currency from the same Yahoo annual financial series, not the exchange.
+        try:
+            period=pd.Timestamp(max(fin.columns)).strftime('%Y-%m-%d')
+            url='https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/'+urllib.parse.quote(ticker,safe='')
+            payload=obj._data.get(url=url,params={'symbol':ticker,'type':'annualTotalRevenue,annualOperatingIncome','period1':int((pd.Timestamp(period)-pd.Timedelta(days=370)).timestamp()),'period2':int((pd.Timestamp(period)+pd.Timedelta(days=2)).timestamp())},timeout=12).json()
+            currencies={str(item.get('currencyCode')).upper() for series in payload.get('timeseries',{}).get('result',[]) for field in ('annualTotalRevenue','annualOperatingIncome') for item in series.get(field,[]) if item and item.get('asOfDate')==period and item.get('currencyCode')}
+            if len(currencies)==1:
+                info['financialCurrency']=currencies.pop()
+                info['_report_currency_source']='Yahoo annual financial series '+period
+            else: errors['Rapportvaluta']='Ingen entydig valuta i finansiell serie för '+period
+        except Exception as exc:
+            errors['Rapportvaluta']=type(exc).__name__+': '+str(exc)[:180]
     for label,frame in [('Resultaträkning',fin),('Balansräkning',balance),('Kassaflöde',cash),('Kurshistorik',history)]:
         if frame.empty: errors.setdefault(label,'Datakällan returnerade tom tabell.')
     return info or {}, history, fin, cash, balance, quick or {}, errors
@@ -781,11 +794,6 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
     if price is None and not hist.empty: price=numeric(hist['Close'].iloc[-1])
     currency=info.get('currency') or quick.get('currency')
     report=info.get('financialCurrency')
-    if not report:
-        # Explicit currency mappings for issuers reporting in SEK; never infer from exchange alone.
-        sek_reporters={'ALIF-B.ST','ADDT-B.ST','INDT.ST','LIFCO-B.ST','VOLV-B.ST','ATCO-B.ST','ASSA-B.ST','SAND.ST','NIBE-B.ST','SAAB-B.ST','ERIC-B.ST','TELIA.ST','TEL2-B.ST','HM-B.ST','AXFO.ST','BOL.ST','AAK.ST','LIAB.ST','BRAV.ST','SWEC-B.ST','SKA-B.ST','PEAB-B.ST','NCC-B.ST','SECU-B.ST','SEB-A.ST','SHB-A.ST','SWED-A.ST','AZA.ST','SAVE.ST','VOLO.ST','VIT-B.ST','LAGR-B.ST','ANOD-B.ST','ALFA.ST','SSAB-B.ST','SCA-B.ST','HOLM-B.ST','BILL.ST','BEIJ-B.ST','CLAS-B.ST','ELUX-B.ST','HUSQ-B.ST','DOM.ST','THULE.ST','SHOT.ST','SKIS-B.ST','BILI-A.ST','NEWA-B.ST','INSTAL.ST'}
-        if symbol in sek_reporters: report='SEK'
-        if report: info=dict(info,financialCurrency=report)
     # Do not infer reporting currency from listing currency. Preserve diagnostics for missing metadata.
     fx=fx_rate(report,currency)
     shares=val(info,'sharesOutstanding') or val(quick,'shares')
@@ -1135,10 +1143,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v37':
+if st.session_state.get('screener_model_version')!='unified-v38':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v37'
+    st.session_state['screener_model_version']='unified-v38'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
