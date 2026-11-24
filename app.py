@@ -1092,6 +1092,48 @@ def emission_adjustment(old_shares, gross, subscription_price, costs, old_debt, 
             'DCF riktkurs':(enterprise_value-debt)/total if enterprise_value is not None else None,
             'TERP':(old_market_cap+gross)/total if old_market_cap is not None else None}
 
+def biotech_rnpv(project_cashflows, rate):
+    if not math.isfinite(rate) or rate<=0: raise ValueError('Ogiltigt avkastningskrav')
+    total=0.0
+    for year,flow,probability in project_cashflows:
+        if not all(math.isfinite(x) for x in (year,flow,probability)) or year<0 or not 0<=probability<=1:
+            raise ValueError('Ogiltigt kassaflöde, år eller sannolikhet')
+        total+=flow*probability/(1+rate)**year
+    return total
+
+def render_biotech_scenario(ticker,category,valuation):
+    st.markdown('#### Riskjusterad läkemedelsvärdering')
+    st.caption('Scenario i handelsvalutan, miljoner. Ange egna verifierade prognoser. Inga förifyllda bolagsprognoser eller automatiska riktkurser.')
+    hybrid=category=='Läkemedel – royalty och pipeline'
+    with st.form('biotech_'+ticker):
+        rate=st.number_input('Avkastningskrav (%)',min_value=0.1,max_value=100.0,value=10.0)/100
+        cash=st.number_input('Nettokassa (negativ vid nettoskuld), miljoner',value=0.0)
+        overhead=st.number_input('Nuvärde av centrala kostnader utanför projekten, miljoner',min_value=0.0,value=0.0)
+        shares=st.number_input('Förväntat antal aktier efter finansiering, miljoner',min_value=0.0,value=0.0)
+        proceeds=st.number_input('Nettolikvid från framtida emissioner som ingår i aktieantalet, miljoner',min_value=0.0,value=0.0)
+        commercial=st.number_input('Nuvärde av befintliga produkt- och royaltykassaflöden, miljoner',value=0.0) if hybrid else 0.0
+        st.caption('En rad per kassaflöde och projekt. Negativa utvecklingskostnader viktas med sannolikheten att kostnaden uppstår; positiva produktintäkter med sannolikheten att de uppstår. Ingen dubbelräkning med kommersiellt nuvärde.')
+        rows=st.data_editor(pd.DataFrame([{'Projekt':'','År':0.0,'Kassaflöde (m)':0.0,'Sannolikhet (%)':100.0}]),num_rows='dynamic',hide_index=True,key='biotech_rows_'+ticker)
+        confirmed=st.checkbox('Jag har kontrollerat valuta, projektprognoser, nettokassa, kostnader och utspädning.')
+        submit=st.form_submit_button('Beräkna scenario')
+    if submit:
+        try:
+            if not confirmed or shares<=0 or not len(rows): raise ValueError('Komplettera och verifiera underlaget.')
+            groups={}
+            for _,row in rows.iterrows():
+                name=str(row['Projekt']).strip()
+                if not name or name=='nan': raise ValueError('Ange projektnamn.')
+                groups.setdefault(name,[]).append((float(row['År']),float(row['Kassaflöde (m)']),float(row['Sannolikhet (%)'])/100))
+            values={name:biotech_rnpv(flows,rate) for name,flows in groups.items()}
+            equity=sum(values.values())+commercial+cash+proceeds-overhead
+            target=max(0,equity)/shares
+            st.metric('Indikativt scenariovärde per aktie',f'{target:.2f}')
+            st.dataframe(pd.DataFrame([{'Projekt':name,'rNPV (m)':v} for name,v in values.items()]),hide_index=True)
+            price=numeric(valuation.get('price'))
+            if price is not None and price>0: st.metric('Indikativ potential',f'{(target/price-1)*100:+.1f} %')
+            st.caption('Manuellt scenario, inte en automatisk fundamental riktkurs. Nettolikvid ska inte dubbelräknas i nettokassan.')
+        except (ValueError,TypeError,OverflowError) as exc: st.error(str(exc))
+
 def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
     # ROIC primary for matching annual statements; never mix currencies or periods.
     primary_source='Yahoo Finance'
@@ -3038,6 +3080,8 @@ with three:
 
 with four:
     st.subheader('Bolagsvärdering – '+company)
+    if valuation_result.get('category') in ('Forskningsbolag','Läkemedel – royalty och pipeline'):
+        render_biotech_scenario(ticker,valuation_result['category'],valuation_result)
     score,score_items,score_coverage=investment_score(valuation_result,info)
     if ticker=='WBGR-B.ST' and not valuation_result.get('emission'):
         valuation_result['emission']={'Tidigare antal aktier':51744264,'Nya aktier inklusive garantiemission':124244124,'Totalt antal aktier':175988388,'Utspädning (%)':124244124/175988388*100,'Emissionsbelopp (rapporterat)':191e6,'Emissionskostnader':27e6,'Nettoskuld efter emission':72e6}
