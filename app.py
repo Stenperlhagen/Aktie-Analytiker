@@ -971,10 +971,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v12':
+if st.session_state.get('screener_model_version')!='unified-v13':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v12'
+    st.session_state['screener_model_version']='unified-v13'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 def picker_category(symbol):
@@ -1314,6 +1314,7 @@ if ev_ebita is None and report_ccy and quote_ccy and market_cap is not None and 
             break
 # Verified report snapshots: use only as fallback, never substitute EBIT or EBITDA.
 _report_ebita={
+    'LIAB.ST':(830e6,'2026-09-30','https://financialfilings.com/filings/lindab-international/interim-quarterly-report/2026/74636455/'),
     'BRAV.ST':(1996e6,'2026-09-30','https://www.bravida.se/4aa4cd/contentassets/9f029b25d6b5454f975af1a2bbb580f6/en-bravidainterimreportjulyseptember2026.pdf'),
     'BEIJ-B.ST':(4063e6,'2026-09-30','https://financialfilings.com/filings/beijer-ref/interim-quarterly-report/2026/74432767/'),
     'INDT.ST':(4844e6,'2026-09-30','https://financialfilings.com/filings/indutrade/interim-quarterly-report/2026/74637737/'),
@@ -1328,7 +1329,9 @@ if ticker in _report_ebita and (ebita is None or ev_ebita is None):
         ev_ebita=None
         report_fallback=(report_period,report_url)
         # Do not combine report EBITA with debt from a different date.
-        if report_ccy=='SEK' and quote_ccy and market_cap is not None:
+        if ticker=='LIAB.ST' and quote_ccy=='SEK' and market_cap is not None:
+            ev_ebita=(market_cap+4459e6)/ebita
+        elif report_ccy=='SEK' and quote_ccy and market_cap is not None:
             try:
                 quarterly_balance=yf.Ticker(ticker).quarterly_balance_sheet
                 report_debt=_annual_balance_value(quarterly_balance,['Net Debt'],report_period)
