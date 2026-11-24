@@ -1007,14 +1007,14 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v17':
+if st.session_state.get('screener_model_version')!='unified-v18':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v17'
+    st.session_state['screener_model_version']='unified-v18'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
-ALL_COMPANIES={name:symbol for name,symbol in ALL_COMPANIES.items() if symbol not in {'FNOX.ST','COALA.ST'}}
+ALL_COMPANIES={name:symbol for name,symbol in ALL_COMPANIES.items() if symbol not in {'FNOX.ST','COALA.ST','ADDV-B.ST','ADDV-A.ST'}}
 def picker_category(symbol):
     category=valuation_category(symbol)
     if category=='Rörelsedrivande bolag':
