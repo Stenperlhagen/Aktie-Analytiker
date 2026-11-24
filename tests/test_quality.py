@@ -35,5 +35,21 @@ class QualityTests(unittest.TestCase):
     def test_no_ambiguous_yield_field(self):
         self.assertNotIn("dividend_yield = val(info,'dividendYield')", SOURCE)
 
+    def test_ev_ebita(self):
+        ns = {"math": math, "pd": pd}
+        load_function("numeric", ns)
+        calc = load_function("comparable_ev_ebita", ns)
+        self.assertAlmostEqual(calc(100, 200, 10, 12, 1), 100)
+        self.assertAlmostEqual(calc(100, 200, 10, 12, 2), 200)
+        for args in [(0,200,10,12,1),(100,None,10,12,1),(100,200,0,12,1),(100,200,10,12,0)]:
+            self.assertIsNone(calc(*args))
+
+    def test_emission(self):
+        calc = load_function("emission_adjustment", {})
+        result = calc(100, 200, 10, 20, 500, 1000)
+        self.assertEqual(result["Totalt antal aktier"], 120)
+        self.assertEqual(result["Justerad nettoskuld"], 320)
+        self.assertEqual(result["TERP"], 10)
+
 if __name__ == "__main__":
     unittest.main()
