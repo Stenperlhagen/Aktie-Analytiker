@@ -967,47 +967,41 @@ with st.sidebar:
     st.caption(f'Ticker: {ticker or "–"}')
     if st.button('Uppdatera data', use_container_width=True):
         st.cache_data.clear()
+        st.session_state['screener_results']={}
+        st.session_state['ranking_timestamps']={}
         st.rerun()
     st.divider()
-    st.subheader('Hitta undervärderade aktier')
-    st.caption('Sök bland samtliga bolag. Resultatet visas i huvudfönstret.')
+    st.subheader('Störst kurspotential')
     universe=list(dict.fromkeys(ALL_COMPANIES.values()))
     screener_names={symbol:company_name for company_name,symbol in ALL_COMPANIES.items()}
-    if st.session_state.get('screener_model_version')!='unified-v10':
-        st.session_state.screener_results={}
-        st.session_state.screener_running=False
-        st.session_state.screener_model_version='unified-v10'
-    if 'screener_results' not in st.session_state:
-        st.session_state.screener_results={}
-    if 'screener_running' not in st.session_state:
-        st.session_state.screener_running=False
-    if st.button('Sök igenom alla bolag',key='scan_all_stocks',use_container_width=True):
-        st.session_state.screener_running=True
-    scan_a,scan_b=st.columns(2)
-    if scan_a.button('Pausa',key='pause_scan_stocks',use_container_width=True):
-        st.session_state.screener_running=False
-    if scan_b.button('Börja om',key='reset_scan_stocks',use_container_width=True):
-        st.session_state.screener_running=False
-        st.session_state.screener_results={}
-    if st.session_state.get('screener_running',False):
-        pending=[symbol for symbol in universe if symbol not in st.session_state.screener_results]
-        for symbol in pending[:8]:
-            st.session_state.screener_results[symbol]=screener_snapshot(symbol)
-        if len(st.session_state.screener_results)>=len(universe):
-            st.session_state.screener_running=False
-    completed=len(st.session_state.screener_results)
-    st.progress(completed/max(1,len(universe)),text=f'Genomsökta: {completed} av {len(universe)}')
-if st.session_state.get('screener_results',{}):
-    st.subheader('Resultat från aktiescreenern')
-    names={v:k for k,v in ALL_COMPANIES.items()}
-    rows=[{'Bolag':names.get(sym,sym),'Ticker':sym,'Kategori':v.get('category'),'Metod':v.get('method'),'Riktkurs':v.get('target'),'Aktiekurs':v.get('price'),'Potential (%)':v.get('upside'),'Signal':v.get('status'),'Saknas':'; '.join(v.get('missing',[]))} for sym,v in st.session_state['screener_results'].items()]
-    results=pd.DataFrame(rows)
-    st.caption(f"Värderade: {results['Riktkurs'].notna().sum()} av {len(results)} genomsökta.")
-    choice=st.radio('Visa',['Intressanta','Alla resultat','Saknade riktkurser'],horizontal=True,key='unified_filter')
-    visible=results[results['Signal']=='Undervärderad enligt modellen'] if choice=='Intressanta' else results[results['Riktkurs'].isna()] if choice=='Saknade riktkurser' else results
-    st.dataframe(visible.sort_values('Potential (%)',ascending=False,na_position='last'),hide_index=True,use_container_width=True)
-    st.download_button('Exportera samtliga resultat',results.to_csv(index=False).encode('utf-8-sig'),'equitylab.csv')
-if st.session_state.get('screener_running',False): st.rerun()
+    def open_ranked_company(company_name):
+        st.session_state['company_picker']=company_name
+    @st.fragment(run_every=2)
+    def ranked_companies():
+        import time
+        now=time.time()
+        results=st.session_state['screener_results']
+        timestamps=st.session_state.setdefault('ranking_timestamps',{})
+        pending=[sym for sym in universe if sym not in results or now-timestamps.get(sym,0)>=21600]
+        # One company per fragment run; the main company view remains independent.
+        if pending:
+            sym=pending[0]
+            results[sym]=screener_snapshot(sym)
+            timestamps[sym]=time.time()
+        valid=[]
+        for sym,v in results.items():
+            potential=numeric(v.get('upside'))
+            if sym in screener_names and potential is not None and abs(potential)!=float('inf') and v.get('target') is not None and not v.get('audit'):
+                valid.append((sym,potential))
+        st.caption(f'Automatisk ranking · {len(results)} av {len(universe)} genomsökta · {len(valid)} utan granskningsvarning')
+        if pending: st.caption('Listan uppdateras successivt.')
+        for heading,entries in [('Störst uppgångspotential',sorted((x for x in valid if x[1]>0),key=lambda x:-x[1])[:5]),('Störst nedgångspotential',sorted((x for x in valid if x[1]<0),key=lambda x:x[1])[:5])]:
+            st.markdown('**'+heading+'**')
+            if not entries: st.caption('Inga kvalificerade resultat ännu.')
+            for rank,(sym,potential) in enumerate(entries,1):
+                st.button(f'{rank}. {screener_names[sym]} · {potential:+.1f} %',key='rank_'+sym,on_click=open_ranked_company,args=(screener_names[sym],),use_container_width=True)
+        st.caption('Modellpotential, inte prognos. Resultat med granskningsvarningar utesluts.')
+    ranked_companies()
 if not ticker:st.stop()
 with st.spinner(f'Hämtar data för {name or ticker}…'):
     try: info,hist,fin,cash,balance,quick,fetch_errors=fetch(ticker)
