@@ -42,7 +42,7 @@ def tests():
     assert abs(v['inputs']['FCFF']-61.46e6)<1
     assert abs(v['target']-sum(v['models'].values())/len(v['models']))<1e-8
     assert valuation_category('AAK.ST')=='Rörelsedrivande bolag'
-    assert operating_valuation_profile('AAK.ST')=='Tillverkningsindustri'
+    assert operating_valuation_profile('AAK.ST')=='Livsmedelsproduktion'
     assert comparable_ev_ebita(4777e6,3134e6,259708000,11,1)>0
     assert abs(v['buy_limit']-v['target']*.8)<1e-8
     assert abs(v['upside']-(v['target']/v['price']-1)*100)<1e-8
