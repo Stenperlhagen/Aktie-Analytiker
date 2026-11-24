@@ -693,27 +693,36 @@ def render_bull_bear(ticker):
     dd=(p/p.cummax()-1).min()*100
     st.metric('Maximal historisk nedgång',f'{dd:.1f} %')
     st.caption(f'Justerad kursserie {p.index[0].date()} – {p.index[-1].date()}.')
+    st.markdown('#### Marknadsstruktur – toppar och bottnar')
+    st.caption('Grönt = högre topp eller botten. Rött = lägre topp eller botten. Grått = första eller oförändrade nivån.')
     frame=pd.DataFrame({'Datum':p.index,'Justerad kurs':p.values})
     fig=px.line(frame,x='Datum',y='Justerad kurs')
-    selected=st.multiselect('Glidande medelvärden',[50,200,400,1000],default=[200,400],key='bull_ma_'+ticker)
+    fig.update_traces(line=dict(color='#64748B',width=1.5),name='Aktiekurs',showlegend=True)
+    selected=st.multiselect('Visa glidande medelvärden',[50,200,400,1000],default=[],format_func=lambda n:f'MA{n}',key='bull_ma_'+ticker)
+    show_labels=st.checkbox('Visa text vid toppar och bottnar',value=True,key='bull_labels_'+ticker)
+    ma_colors={50:'#0891B2',200:'#2563EB',400:'#D97706',1000:'#9333EA'}
     for n in selected:
-        if ma[n].notna().any(): fig.add_scatter(x=p.index,y=ma[n],name=f'MA{n}',mode='lines')
-    for points,label,color,series,up in [(highs,'Bekräftad topp','#E53935',raw['High']*factor,True),(lows,'Bekräftad botten','#00B85A',raw['Low']*factor,False)]:
-        xs,ys,labels,hover=[],[],[],[]
+        if ma[n].notna().any(): fig.add_scatter(x=p.index,y=ma[n],name=f'MA{n}',mode='lines',line=dict(color=ma_colors[n],width=1.6,dash='dot'))
+    for points,label,series,up in [(highs,'Topp',raw['High']*factor,True),(lows,'Botten',raw['Low']*factor,False)]:
+        xs,ys,labels,hover,colors=[],[],[],[],[]
         previous=None
         for month,value in points:
             days=series.loc[series.index.to_period('M')==month].dropna()
             if days.empty: continue
             day=days.idxmax() if up else days.idxmin()
-            tag=('HH' if value>previous else 'LH' if value<previous else 'H') if up and previous is not None else ('HL' if value>previous else 'LL' if value<previous else 'L') if previous is not None else ('H' if up else 'L')
+            sign=compare(value,previous) if previous is not None else 0
+            tag=('Högre ' if sign>0 else 'Lägre ' if sign<0 else '')+label.lower()
             xs.append(day); ys.append(float(p.loc[day])); labels.append(tag)
-            hover.append(f'{label}: {value:.2f} (justerad intradagkurs)')
+            colors.append('#008A42' if sign>0 else '#D32F2F' if sign<0 else '#64748B')
+            hover.append(f'{tag.capitalize()}: {value:.2f} (justerad intradagkurs)')
             previous=value
         if xs:
-            fig.add_scatter(x=xs,y=ys,mode='markers+text',text=labels,textposition='top center' if up else 'bottom center',textfont=dict(color=color,size=13),name=label,marker=dict(color=color,size=12,symbol='triangle-down' if up else 'triangle-up',line=dict(color='white',width=1)),customdata=hover,hovertemplate='%{x|%Y-%m-%d}<br>%{customdata}<extra></extra>')
-    st.caption('Markörerna sitter på stängningskurslinjen på dagen för respektive bekräftad månads extremkurs. HH/LH = högre/lägre topp, HL/LL = högre/lägre botten.')
+            fig.add_scatter(x=xs,y=ys,mode='markers+text' if show_labels else 'markers',text=labels,textposition='top center' if up else 'bottom center',textfont=dict(color=colors,size=11),name=label,marker=dict(color=colors,size=10,symbol='triangle-down' if up else 'triangle-up',line=dict(color='white',width=1)),customdata=hover,hovertemplate='%{x|%Y-%m-%d}<br>%{customdata}<extra></extra>')
+    fig.update_layout(height=520,legend=dict(orientation='h',y=-0.20),margin=dict(t=40,b=100),xaxis_title=None,yaxis_title='Justerad kurs',hovermode='closest')
+    fig.update_xaxes(rangeselector=dict(buttons=[dict(count=1,label='1 år',step='year',stepmode='backward'),dict(count=3,label='3 år',step='year',stepmode='backward'),dict(count=5,label='5 år',step='year',stepmode='backward'),dict(step='all',label='All historik')]))
     if not highs or not lows: st.info('För få bekräftade månadstoppar eller månadsbottnar i historiken.')
     st.plotly_chart(fig,use_container_width=True)
+    st.caption('Nedåtriktad triangel = topp. Uppåtriktad triangel = botten. Markörerna visas på stängningskursen på extremdagen; trendberäkningen använder justerade intradagsnivåer.')
     st.dataframe(pd.DataFrame([{'Indikator':name,'Poäng':sign*weight if sign is not None else None,'Maxvikt':weight} for name,sign,weight in scores]),hide_index=True)
     st.caption('Toppar och bottnar bekräftas först två avslutade månader senare. Full trendpoäng visas inte utan jämförbart totalavkastningsindex. Teknisk rekommendation visas endast med komplett underlag.')
 
