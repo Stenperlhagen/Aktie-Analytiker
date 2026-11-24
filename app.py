@@ -1018,8 +1018,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
             out['pe_ttm']=price/(-1.00) if price is not None else None
             out['pe_zero']=False
             out['roe']=-0.20
-            out['emission']={'Tidigare antal aktier':51744264,'Nya aktier inklusive garantiemission':124244124,'Totalt antal aktier':175988388,'Utspädning (%)':124244124/175988388*100,'Emissionsbelopp (rapporterat)':191e6,'Emissionskostnader':27e6,'Nettoskuld efter emission':72e6}
-            out['emission_source']='https://storage.mfn.se/483f4127-3e38-4f38-8898-fd6d6f348c61/delarsrapport-q3-2026-sv.pdf'
+        out['emission']={'Tidigare antal aktier':51744264,'Nya aktier inklusive garantiemission':124244124,'Totalt antal aktier':175988388,'Utspädning (%)':124244124/175988388*100,'Emissionsbelopp (rapporterat)':191e6,'Emissionskostnader':27e6,'Nettoskuld efter emission':72e6}
+        out['emission_source']='https://storage.mfn.se/483f4127-3e38-4f38-8898-fd6d6f348c61/delarsrapport-q3-2026-sv.pdf'
         out['unreviewed_target']=out.get('target')
         out['models']={}
         out['target']=None
@@ -1079,10 +1079,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v24':
+if st.session_state.get('screener_model_version')!='unified-v25':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v24'
+    st.session_state['screener_model_version']='unified-v25'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -2579,7 +2579,11 @@ with three:
 with four:
     st.subheader('Bolagsvärdering – '+company)
     score,score_items,score_coverage=investment_score(valuation_result,info)
+    if ticker=='WBGR-B.ST' and not valuation_result.get('emission'):
+        valuation_result['emission']={'Tidigare antal aktier':51744264,'Nya aktier inklusive garantiemission':124244124,'Totalt antal aktier':175988388,'Utspädning (%)':124244124/175988388*100,'Emissionsbelopp (rapporterat)':191e6,'Emissionskostnader':27e6,'Nettoskuld efter emission':72e6}
+        valuation_result['emission_source']='https://storage.mfn.se/483f4127-3e38-4f38-8898-fd6d6f348c61/delarsrapport-q3-2026-sv.pdf'
     st.markdown('#### Nyemissioner och kapitalstruktur')
+    if ticker=='WBGR-B.ST': st.caption('Historiska emissionsuppgifter enligt Q3 2026; inte en bekräftelse på dagens aktieantal.')
     if not valuation_result.get('emission') and not valuation_result.get('capital_change'):
         st.caption('Inga verifierade emissionsuppgifter tillgängliga. Detta betyder inte att bolaget saknar nyemissioner.')
     if valuation_result.get('capital_change'):
