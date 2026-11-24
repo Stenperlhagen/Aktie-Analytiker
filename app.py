@@ -698,8 +698,21 @@ def render_bull_bear(ticker):
     selected=st.multiselect('Glidande medelvärden',[50,200,400,1000],default=[200,400],key='bull_ma_'+ticker)
     for n in selected:
         if ma[n].notna().any(): fig.add_scatter(x=p.index,y=ma[n],name=f'MA{n}',mode='lines')
-    for points,label,color in [(highs,'Bekräftad topp','#E53935'),(lows,'Bekräftad botten','#00B85A')]:
-        if points: fig.add_scatter(x=[d.to_timestamp(how='end') for d,v in points],y=[v for d,v in points],mode='markers',name=label,marker=dict(color=color,size=8))
+    for points,label,color,series,up in [(highs,'Bekräftad topp','#E53935',raw['High']*factor,True),(lows,'Bekräftad botten','#00B85A',raw['Low']*factor,False)]:
+        xs,ys,labels,hover=[],[],[],[]
+        previous=None
+        for month,value in points:
+            days=series.loc[series.index.to_period('M')==month].dropna()
+            if days.empty: continue
+            day=days.idxmax() if up else days.idxmin()
+            tag=('HH' if value>previous else 'LH' if value<previous else 'H') if up and previous is not None else ('HL' if value>previous else 'LL' if value<previous else 'L') if previous is not None else ('H' if up else 'L')
+            xs.append(day); ys.append(float(p.loc[day])); labels.append(tag)
+            hover.append(f'{label}: {value:.2f} (justerad intradagkurs)')
+            previous=value
+        if xs:
+            fig.add_scatter(x=xs,y=ys,mode='markers+text',text=labels,textposition='top center' if up else 'bottom center',textfont=dict(color=color,size=13),name=label,marker=dict(color=color,size=12,symbol='triangle-down' if up else 'triangle-up',line=dict(color='white',width=1)),customdata=hover,hovertemplate='%{x|%Y-%m-%d}<br>%{customdata}<extra></extra>')
+    st.caption('Markörerna sitter på stängningskurslinjen på dagen för respektive bekräftad månads extremkurs. HH/LH = högre/lägre topp, HL/LL = högre/lägre botten.')
+    if not highs or not lows: st.info('För få bekräftade månadstoppar eller månadsbottnar i historiken.')
     st.plotly_chart(fig,use_container_width=True)
     st.dataframe(pd.DataFrame([{'Indikator':name,'Poäng':sign*weight if sign is not None else None,'Maxvikt':weight} for name,sign,weight in scores]),hide_index=True)
     st.caption('Toppar och bottnar bekräftas först två avslutade månader senare. Full trendpoäng visas inte utan jämförbart totalavkastningsindex. Teknisk rekommendation visas endast med komplett underlag.')
