@@ -1365,22 +1365,25 @@ if valuation_result.get('category')=='Bank / finansiella tjänster':
     cet1_source=None
     cet1_capital=None
     cet1_rwa=None
+    cet1_candidates=[]
     for period in sorted(balance.columns,reverse=True):
         capital=_annual_balance_value(balance,['Common Equity Tier 1 Capital','CET1 Capital'],period)
         rwa=_annual_balance_value(balance,['Risk Weighted Assets','Total Risk Weighted Assets','Total Risk Exposure Amount'],period)
         if capital is not None and rwa is not None and capital>0 and rwa>0:
-            cet1=capital/rwa*100
-            cet1_capital,cet1_rwa=capital,rwa
-            cet1_source='Yahoo balansdata '+str(period)[:10]
-            break
-    for record in sorted(roic_balance,key=lambda x:str(x.get('period_end_date') or ''),reverse=True):
+            cet1_candidates.append((str(period)[:10],0,capital/rwa*100,capital,rwa,'Yahoo balansdata'))
+    for record in roic_balance:
+        period=str(record.get('period_end_date') or '')[:10]
+        if not period: continue
         capital=_record_number(record,('common_equity_tier_1_capital','cet1_capital','bs_common_equity_tier_1_capital'))
         rwa=_record_number(record,('risk_weighted_assets','total_risk_exposure_amount','bs_risk_weighted_assets'))
+        ratio=_record_number(record,('cet1_ratio_pct','common_equity_tier_1_ratio_pct'))
+        if ratio is not None and 0<ratio<=100:
+            cet1_candidates.append((period,2,ratio,None,None,'ROIC rapporterad CET1'))
         if capital is not None and rwa is not None and capital>0 and rwa>0:
-            cet1=capital/rwa*100
-            cet1_capital,cet1_rwa=capital,rwa
-            cet1_source='ROIC '+str(record.get('period_end_date') or '')
-            break
+            cet1_candidates.append((period,1,capital/rwa*100,capital,rwa,'ROIC beräknad CET1'))
+    if cet1_candidates:
+        period,priority,cet1,cet1_capital,cet1_rwa,source=max(cet1_candidates,key=lambda x:(x[0],x[1]))
+        cet1_source=source+' '+period
     credit_loss=None
     if _roic_income:
         bank_record=_roic_income[0]
@@ -1394,7 +1397,8 @@ if valuation_result.get('category')=='Bank / finansiella tjänster':
         'Rörelsemarginal':('K/I-tal (helår)',show(ki,' %',1))
     }
     overview_items=[replacements.get(label,(label,value)) for label,value in overview_items]
-    if cet1_source: st.caption('CET1: '+show(cet1_capital/1e6,' M',1)+' / '+show(cet1_rwa/1e6,' M',1)+' × 100. Källa: '+cet1_source)
+    if cet1_source:
+        st.caption('CET1: '+(show(cet1_capital/1e6,' M',1)+' / '+show(cet1_rwa/1e6,' M',1)+' × 100. ' if cet1_capital is not None and cet1_rwa is not None else '')+'Källa: '+cet1_source)
     st.caption('Bankspecifika nyckeltal. CET1 och kreditförlustnivå kräver kompletterande bankrapporter när underlag saknas. K/I beräknas endast från identifierade kostnader och intäkter i samma årsperiod.')
 
 for start in range(0,len(overview_items),4):
