@@ -1389,6 +1389,7 @@ if valuation_result.get('category')=='Bank / finansiella tjänster':
         bank_record=_roic_income[0]
         if interest is None: interest=_record_number(bank_record,('is_net_interest_income','net_interest_income'))
     bank_report_data={
+        'TFBANK.ST':(33.2,12.5,5.1,'https://mb.cision.com/Main/13973/4408388/4316442.pdf'),
         'SWED-A.ST':(41,17.2,-0.14,'https://attachment.news.eu.nasdaq.com/a7ccb71a59ee3022b10abee8da70da6a3'),
         'SHB-A.ST':(42.3,17.0,0.00,'https://attachment.news.eu.nasdaq.com/add2c43eefb1e5ce16ac2dbb9f69d0e42'),
         'SHB-B.ST':(42.3,17.0,0.00,'https://attachment.news.eu.nasdaq.com/add2c43eefb1e5ce16ac2dbb9f69d0e42'),
@@ -1417,6 +1418,16 @@ if valuation_result.get('category')=='Bank / finansiella tjänster':
             return (*vals,period.group(1)+' '+period.group(2),url)
         except Exception:
             return None
+    # Explicit unit-bearing fields only; no inferred credit loss or capital ratios.
+    for record in sorted(_roic_income,key=lambda x:str(x.get('period_end_date') or ''),reverse=True):
+        reported_ki=_record_number(record,('cost_income_ratio_pct','cost_to_income_ratio_pct'))
+        reported_loss=_record_number(record,('credit_loss_ratio_pct','net_loan_loss_ratio_pct','net_ecl_level_pct'))
+        if reported_loss is None:
+            bp_loss=_record_number(record,('loan_loss_ratio_bps','credit_loss_ratio_bps'))
+            if bp_loss is not None: reported_loss=bp_loss/100
+        if ki is None and reported_ki is not None and 0<reported_ki<200: ki=reported_ki
+        if credit_loss is None and reported_loss is not None and abs(reported_loss)<100: credit_loss=reported_loss
+        if ki is not None and credit_loss is not None: break
     ki_label='K/I-tal (helår)'
     if ticker in bank_report_data and (pd.Timestamp.now()-pd.Timestamp('2026-09-30')).days<=180:
         ki,cet1,credit_loss,bank_url=bank_report_data[ticker]
