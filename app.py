@@ -810,6 +810,11 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
                     amort=row(fin,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
                     if amort is None and period in cash.columns:
                         amort=row(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+                    if amort is None and period in cash.columns:
+                        total_da=row(cash,['Depreciation And Amortization','Depreciation Amortization Depletion'],period)
+                        depreciation=row(cash,['Depreciation','Depreciation And Depletion'],period)
+                        if total_da is not None and depreciation is not None and abs(total_da)>=abs(depreciation):
+                            amort=abs(total_da)-abs(depreciation)
                     if ebit is not None:
                         earnings=ebit+abs(amort) if amort is not None else ebit
                         earnings_label='EBITA (beräknad)' if amort is not None else 'EBIT'
@@ -988,10 +993,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v13':
+if st.session_state.get('screener_model_version')!='unified-v14':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v13'
+    st.session_state['screener_model_version']='unified-v14'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 def picker_category(symbol):
@@ -1317,6 +1322,11 @@ if ev_ebita is None and report_ccy and quote_ccy and market_cap is not None and 
             operating=_annual_balance_value(fin,['Operating Income','EBIT'],period)
             amort=_annual_balance_value(fin,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
             if amort is None: amort=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+            if amort is None:
+                total_da=_annual_balance_value(cash,['Depreciation And Amortization','Depreciation Amortization Depletion'],period)
+                depreciation=_annual_balance_value(cash,['Depreciation','Depreciation And Depletion'],period)
+                if total_da is not None and depreciation is not None and abs(total_da)>=abs(depreciation):
+                    amort=abs(total_da)-abs(depreciation)
             if operating is not None and amort is not None: annual_ebita=operating+abs(amort)
         annual_debt=_annual_balance_value(balance,['Net Debt'],period)
         if annual_debt is None:
