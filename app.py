@@ -2319,10 +2319,19 @@ with four:
     score,score_items,score_coverage=investment_score(valuation_result,info)
     st.markdown('#### Kapitalavkastning och kapitalkostnad')
     cap_a,cap_b,cap_c=st.columns(3)
-    cap_a.metric('ROIC (rapporterat underlag)',show(valuation_result.get('roic'),' %',1))
-    cap_b.metric('WACC (modellantagande)',show(valuation_result.get('assumptions',{}).get('WACC (%)'),' %',1))
-    cap_c.metric('Avkastningskrav eget kapital',show(valuation_result.get('cost_of_equity_pct'),' %',1))
-    st.caption('ROIC = EBIT efter rapporterad effektiv skatt / genomsnittligt investerat kapital. WACC och avkastningskrav på eget kapital är separata modellantaganden.')
+    if valuation_result.get('category')=='Bank / finansiella tjänster':
+        bank_roe=valuation_result.get('roe')
+        bank_roe_pct=bank_roe*100 if bank_roe is not None else roe_overview
+        bank_ke=valuation_result.get('cost_of_equity_pct')
+        cap_a.metric('ROE – avkastning på eget kapital',show(bank_roe_pct,' %',1))
+        cap_b.metric('Avkastningskrav eget kapital',show(bank_ke,' %',1))
+        cap_c.metric('Överavkastning (ROE − avkastningskrav)',show(bank_roe_pct-bank_ke,' procentenheter',1) if bank_roe_pct is not None and bank_ke is not None else 'Saknas')
+        st.caption('För banker används ROE och avkastningskrav på eget kapital istället för ROIC och WACC. Avkastningskravet är ett modellantagande, inte en observerad kapitalkostnad.')
+    else:
+        cap_a.metric('ROIC (rapporterat underlag)',show(valuation_result.get('roic'),' %',1))
+        cap_b.metric('WACC (modellantagande)',show(valuation_result.get('assumptions',{}).get('WACC (%)'),' %',1))
+        cap_c.metric('Avkastningskrav eget kapital',show(valuation_result.get('cost_of_equity_pct'),' %',1))
+        st.caption('ROIC = EBIT efter rapporterad effektiv skatt / genomsnittligt investerat kapital. WACC och avkastningskrav på eget kapital är separata modellantaganden.')
     st.markdown('#### Fundamentalt investeringsbetyg')
     st.metric('Investeringsbetyg',show(score,' / 100',0))
     st.caption('Indikatorbaserad modell, ej historiskt kalibrerad. Datatäckning: '+show(score_coverage,' %',0)+'. Betyg visas för rörelsedrivande bolag, banker och fastighetsbolag med tillräckliga nyckeltal. Bankbetyget saknar ännu kapitaltäckning och kreditförluster; fastighetsbetyget saknar ännu belåningsgrad och räntetäckning. Övriga sektorer kräver ytterligare underlag.')
