@@ -997,7 +997,8 @@ def operating_valuation_profile(symbol,info=None):
     if sector in ('industrials','basic materials'): return 'Tillverkningsindustri'
     return None
 
-RESEARCH_TICKERS={'BIOA-B.ST','ACE.ST','HNSA.ST','SYNACT.ST'}
+RESEARCH_TICKERS={'ACE.ST','SYNACT.ST'}
+HYBRID_PHARMA_TICKERS={'BIOA-B.ST','HNSA.ST'}
 ESTABLISHED_PHARMA_TICKERS={'AZN.ST','SOBI.ST','CAMX.ST'}
 # Medicinteknik och diagnostik (t.ex. Surgical Science, Senzime, Bactiguard)
 # klassificeras inte automatiskt som kliniska läkemedelsprojekt.
@@ -1052,6 +1053,7 @@ def valuation_category(symbol, info=None):
     if symbol in BANK_TICKERS: return 'Bank / finansiella tjänster'
     if symbol in INSURANCE_TICKERS: return 'Försäkring'
     if symbol in PROPERTY_TICKERS: return 'Fastigheter'
+    if symbol in HYBRID_PHARMA_TICKERS: return 'Läkemedel – royalty och pipeline'
     if symbol in RESEARCH_TICKERS: return 'Forskningsbolag'
     if symbol in ESTABLISHED_PHARMA_TICKERS: return 'Etablerade läkemedelsbolag'
     details=info or {}
@@ -1372,6 +1374,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
             out['period']=nav['date']
             out['source']=nav['source']
         else: out['missing'].append('Rapporterat NAV eller verifierat driftnetto och direktavkastningskrav' if category=='Fastigheter' else 'Rapporterat substansvärde')
+    elif category=='Läkemedel – royalty och pipeline': out['missing'].append('Sum-of-parts: normaliserade produkt- och royaltykassaflöden, riskjusterad pipeline, nettokassa och utspädning')
     elif category=='Forskningsbolag': out['missing'].append('rNPV: projektkassaflöden, sannolikheter, nettokassa och utspädning')
     else: out['missing'].append('Sektorspecifikt värderingsunderlag')
     if not out['models'] and category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') and params and shares and shares>0 and fx and fx>0 and symbol not in ('VOLO.ST','AAK.ST'):
