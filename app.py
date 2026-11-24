@@ -3013,10 +3013,10 @@ with three:
             chart.update_traces(line=dict(width=1.6),selector=dict(name='Historik'))
             chart.update_traces(mode='lines+markers',marker=dict(size=7),line=dict(width=2.2,dash='dash'),selector=dict(name='Prognos'))
             for n,point in forecast_points.iterrows():
-                chart.add_annotation(x=point['Datum'],y=point['Aktiekurs'],text=('Idag · ' if n==0 else '')+show(point['Aktiekurs'],' kr' if quote_ccy=='SEK' else ' '+str(quote_ccy),1),showarrow=False,yshift=17,font=dict(size=13,color='#64748B' if n==0 else forecast_color),bgcolor='rgba(255,255,255,0.92)',borderpad=3)
+                chart.add_annotation(x=point['Datum'],y=point['Aktiekurs'],text=('Idag · ' if n==0 else '')+show(point['Aktiekurs'],' kr' if quote_ccy=='SEK' else ' '+str(quote_ccy),1),showarrow=False,xshift=35 if n==0 else 0,yshift=20,font=dict(size=12,color='#64748B' if n==0 else forecast_color),bgcolor='rgba(255,255,255,0)',borderpad=0)
             chart.add_vline(x=today.timestamp()*1000,line_width=1,line_dash='dot',line_color='#94A3B8')
             chart.update_layout(height=420,yaxis_title=None,xaxis_title=None,legend_title_text=None,legend=dict(orientation='h',y=-0.16),margin=dict(t=65,r=85,b=70,l=45),hovermode='x unified')
-            chart.update_xaxes(tickvals=forecast_points['Datum'].tolist(),ticktext=['Idag']+[str((today+pd.DateOffset(years=n)).year) for n in range(1,6)],showgrid=False)
+            chart.update_xaxes(tickvals=[today-pd.DateOffset(years=n) for n in range(5,0,-1)]+forecast_points['Datum'].tolist(),ticktext=[str((today-pd.DateOffset(years=n)).year) for n in range(5,0,-1)]+['Idag']+[str((today+pd.DateOffset(years=n)).year) for n in range(1,6)],range=[today-pd.DateOffset(years=5),today+pd.DateOffset(years=5,months=5)],showgrid=False)
             chart.update_yaxes(automargin=True,gridcolor='rgba(148,163,184,0.18)')
             st.plotly_chart(chart,use_container_width=True)
             with st.expander('Visa beräkningsantaganden'):
