@@ -558,15 +558,42 @@ def render_price_events(history,company,ticker):
         direction='up' if event['Förändring (%)']>0 else 'down'
         for i in range(start+1,end+1):
             colors[i]=direction
-    for direction,color,label in [('up','#16803C','Kraftig uppgång'),('down','#C53030','Kraftig nedgång')]:
+    for direction,color,label in [('up','#00C853','Kraftig uppgång'),('down','#FF1744','Kraftig nedgång')]:
         xs,ys=[],[]
         for i in sorted(colors):
             if colors[i]!=direction: continue
             xs.extend([chart[chart_date].iloc[i-1],chart[chart_date].iloc[i],None])
             ys.extend([chart['Adj Close'].iloc[i-1],chart['Adj Close'].iloc[i],None])
         if xs:
-            fig.add_scatter(x=xs,y=ys,mode='lines',name=label,line=dict(color=color,width=2.5),connectgaps=False)
+            fig.add_scatter(x=xs,y=ys,mode='lines',name=label,line=dict(color=color,width=4),connectgaps=False)
+    # Label the largest observed peak-to-trough and trough-to-peak moves in chronological order.
+    peak=trough=None
+    worst=best=None
+    for i,value in enumerate(chart['Adj Close']):
+        value=numeric(value)
+        if value is None or value<=0: continue
+        if peak is not None:
+            change=(value/peak[1]-1)*100
+            if worst is None or change<worst[0]: worst=(change,peak[0],i)
+        if trough is not None:
+            change=(value/trough[1]-1)*100
+            if best is None or change>best[0]: best=(change,trough[0],i)
+        if peak is None or value>peak[1]: peak=(i,value)
+        if trough is None or value<trough[1]: trough=(i,value)
+    for move,color,label in [(worst,'#FF1744','Största nedgång'),(best,'#00C853','Största uppgång')]:
+        if move is None: continue
+        change,start,end=move
+        if (label=='Största nedgång' and change>=0) or (label=='Största uppgång' and change<=0): continue
+        fig.add_scatter(x=[chart[chart_date].iloc[start],chart[chart_date].iloc[end]],y=[chart['Adj Close'].iloc[start],chart['Adj Close'].iloc[end]],mode='markers',marker=dict(color=color,size=8),name=label,showlegend=False)
+        fig.add_annotation(x=chart[chart_date].iloc[end],y=chart['Adj Close'].iloc[end],text=f'{change:+.1f} %',showarrow=True,arrowcolor=color,font=dict(color=color,size=14),bgcolor='rgba(255,255,255,0.85)',ay=-35 if change>0 else 35)
     fig.update_layout(legend=dict(orientation='h',y=1.12))
+    a,b=st.columns(2)
+    for column,move,label in [(a,worst,'Största nedgång från tidigare topp'),(b,best,'Största uppgång från tidigare botten')]:
+        if move is not None:
+            change,start,end=move
+            if (column is a and change>=0) or (column is b and change<=0): continue
+            column.metric(label,f'{change:+.1f} %')
+            column.caption(f'{dates[start]} – {dates[end]}')
     st.plotly_chart(fig,use_container_width=True)
     display=events.sort_values(['Datum','Handelsdagar'],ascending=[False,True]).reset_index(drop=True)
     st.dataframe(display.drop(columns=['Kurs']),hide_index=True,use_container_width=True)
