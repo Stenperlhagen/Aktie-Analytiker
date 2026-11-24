@@ -911,11 +911,12 @@ def borsapi_reports(symbol,api_key):
     instruments,error=borsapi_instruments(api_key)
     if error: return {},error
     requested=symbol.removesuffix('.ST').removesuffix('.CO').upper()
+    def normalize(s): return re.sub(r'[^A-Z0-9]','',str(s).upper().removesuffix('.ST').removesuffix('.CO'))
     matches=[]
     for inst in instruments:
         if not isinstance(inst,dict): continue
         candidates=[inst.get(k) for k in ('ticker','tickerSymbol','symbol','shortName','stockSymbol','yahoo')]
-        if requested in [str(c).upper().replace('.ST','').replace('.CO','') for c in candidates if c]:
+        if normalize(requested) in [normalize(c) for c in candidates if c]:
             matches.append(inst)
     ids={str(x.get('insId') or x.get('insID') or x.get('instrumentId') or '') for x in matches}
     ids.discard('')
@@ -928,7 +929,8 @@ def borsapi_reports(symbol,api_key):
         if not response.ok: return {},'Börsdata rapport HTTP '+str(response.status_code)
         payload=response.json()
         periods=payload.get('reports',[]) if isinstance(payload,dict) else []
-        return {'periods':periods if isinstance(periods,list) else [],
+        if not isinstance(periods,list) or not periods: return {},'Börsdata returnerade inga årsrapporter'
+        return {'periods':periods,
                 'instrument_id':instrument_id},''
     except Exception as exc:
         return {},type(exc).__name__
@@ -2881,8 +2883,9 @@ with three:
     can_value=False
     annual=[]
     forecast_source=''
+    bd_reason=''
     try:
-        bd,_=borsapi_reports(ticker,borsapi_key())
+        bd,bd_reason=borsapi_reports(ticker,borsapi_key())
         for record in bd.get('periods',[]):
             if str(record.get('period'))!='5': continue
             date=record.get('report_End_Date') or record.get('reportEndDate')
@@ -2895,8 +2898,12 @@ with three:
             if date and currency and rev is not None and rev>0 and ebit is not None:
                 annual.append(dict(date=str(date)[:10],currency=str(currency).upper(),revenue=rev*1e6,ebit=ebit*1e6,debt=debt*1e6 if debt is not None else None,shares=shares*1e6 if shares is not None else None))
         if annual: forecast_source='Börsdata Pro+'
-    except Exception:
+        elif not bd_reason: bd_reason='Årsrapporter mottagna men jämförbar omsättning, EBIT, datum eller valuta saknas'
+    except Exception as exc:
         annual=[]
+        bd_reason=type(exc).__name__
+    if not annual:
+        st.caption('Börsdata: '+(bd_reason or 'Inget användbart rapportunderlag')+'. Reservkälla används om tillgänglig.')
     if not annual and report_ccy:
         for period in sorted(fin.columns,reverse=True):
             rev=_annual_balance_value(fin,['Total Revenue','Operating Revenue'],period)
