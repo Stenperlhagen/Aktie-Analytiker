@@ -3008,7 +3008,7 @@ with three:
                 historical_points=pd.DataFrame({'Datum':dates,'Aktiekurs':close_series.to_numpy(),'Typ':'Historik'})
                 historical_points=historical_points[historical_points['Datum']>=today-pd.DateOffset(years=5)]
                 historical_points=pd.concat([historical_points,pd.DataFrame({'Datum':[today],'Aktiekurs':[price],'Typ':['Historik']})],ignore_index=True)
-            chart=px.line(pd.concat([historical_points,forecast_points],ignore_index=True),x='Datum',y='Aktiekurs',color='Typ',line_dash='Typ',color_discrete_map={'Historik':'#64748B','Prognos':'#2563EB'},line_dash_map={'Historik':'solid','Prognos':'dash'},title='Aktiekurs – historik och femårsprognos')
+            chart=px.line(pd.concat([historical_points,forecast_points],ignore_index=True),x='Datum',y='Aktiekurs',color='Typ',line_dash='Typ',color_discrete_map={'Historik':'#64748B','Prognos':('#16A34A' if future>price else '#DC2626' if future<price else '#64748B')},line_dash_map={'Historik':'solid','Prognos':'dash'},title='Aktiekurs – historik och femårsprognos')
             chart.update_layout(yaxis_title='Aktiekurs ('+str(quote_ccy)+')',xaxis_title=None,legend_title_text=None)
             st.plotly_chart(chart,use_container_width=True)
             with st.expander('Visa beräkningsantaganden'):
