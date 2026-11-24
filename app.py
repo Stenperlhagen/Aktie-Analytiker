@@ -924,7 +924,7 @@ def borsapi_reports(symbol,api_key):
     try:
         response=requests.get(
             'https://apiservice.borsdata.se/v1/instruments/'+instrument_id+'/reports/year',
-            params={'authKey':api_key,'maxcount':5,'original':1},timeout=20)
+            params={'authKey':api_key,'maxcount':10,'original':1},timeout=20)
         if not response.ok: return {},'Börsdata rapport HTTP '+str(response.status_code)
         payload=response.json()
         periods=payload.get('reports',[]) if isinstance(payload,dict) else []
@@ -2797,158 +2797,107 @@ with three:
             if result is not None:
                 return result
         return None
-    annual = []
-    forecast_source = ''
+    annual=[]
+    forecast_source=''
     try:
         bd,_=borsapi_reports(ticker,borsapi_key())
         for record in bd.get('periods',[]):
-            if not isinstance(record,dict) or str(record.get('period'))!='5': continue
+            if str(record.get('period'))!='5': continue
             date=record.get('report_End_Date') or record.get('reportEndDate')
             currency=record.get('currency')
             rev=numeric(record.get('revenues'))
-            earnings=numeric(record.get('ebita'))
-            if date and currency and rev is not None and rev>0 and earnings is not None:
-                annual.append({'period_end_date':str(date)[:10],'currency':str(currency).upper(),'revenue':rev*1e6,'ebita':earnings*1e6})
-        annual.sort(key=lambda x:x['period_end_date'],reverse=True)
+            # EBIT is not EBITA; use consistently labelled EBIT when EBITA unavailable.
+            ebit=numeric(record.get('operating_Income'))
+            debt=numeric(record.get('net_Debt'))
+            shares=numeric(record.get('number_Of_Shares'))
+            if date and currency and rev is not None and rev>0 and ebit is not None:
+                annual.append(dict(date=str(date)[:10],currency=str(currency).upper(),revenue=rev*1e6,ebit=ebit*1e6,debt=debt*1e6 if debt is not None else None,shares=shares*1e6 if shares is not None else None))
         if annual: forecast_source='Börsdata Pro+'
     except Exception:
         annual=[]
-    if not annual:
-        annual=sorted([x for x in _roic_income if x.get('currency') and x.get('period_end_date') and scenario_field(x,('ebita','is_ebita')) is not None and scenario_field(x,('is_sales_revenue_turnover','revenue','total_revenue')) is not None],key=lambda x:str(x['period_end_date']),reverse=True)
-        if annual: forecast_source='ROIC.ai'
     if not annual and report_ccy:
         for period in sorted(fin.columns,reverse=True):
             rev=_annual_balance_value(fin,['Total Revenue','Operating Revenue'],period)
-            earnings=_annual_balance_value(fin,['EBITA'],period)
-            if rev is not None and rev>0 and earnings is not None:
-                annual.append({'period_end_date':str(period)[:10],'currency':report_ccy,'revenue':rev,'ebita':earnings})
+            ebit=_annual_balance_value(fin,['Operating Income','EBIT'],period)
+            debt=_annual_balance_value(balance,['Net Debt'],period)
+            shares=_annual_balance_value(balance,['Ordinary Shares Number','Share Issued'],period)
+            if rev is not None and rev>0 and ebit is not None:
+                annual.append(dict(date=str(period)[:10],currency=report_ccy,revenue=rev,ebit=ebit,debt=debt,shares=shares))
         if annual: forecast_source='Yahoo Finance'
-    forecast_currency = annual[0].get('currency') if annual else None
-    latest_report = annual[0] if annual else {}
-    forecast_revenue = scenario_field(latest_report, ('is_sales_revenue_turnover','revenue','total_revenue'))
-    forecast_ebita = scenario_field(latest_report, ('ebita','is_ebita'))
-    forecast_period = str(latest_report.get('period_end_date') or 'Okänd')[:10]
-    # Utgå endast från rapporterad EBITA och omsättning för samma period och valuta.
-    if not (forecast_revenue and forecast_revenue>0 and forecast_ebita is not None and forecast_currency and valuation_result.get('assumptions',{}).get('EV/EBITA')):
-        st.info('Framtidsvärdering saknar jämförbar årsomsättning, EBITA, rapportvaluta eller branschmultipel. Börsdata prioriteras, därefter ROIC.ai och Yahoo Finance.')
+    annual=sorted({x['date']:x for x in annual}.values(),key=lambda x:x['date'],reverse=True)
+    if annual: annual=[x for x in annual if x['currency']==annual[0]['currency']]
+    growths={}
+    if annual:
+        base=annual[0]
+        for n in (1,3,5):
+            target=pd.Timestamp(base['date'])-pd.DateOffset(years=n)
+            older=next((x for x in annual[1:] if abs((pd.Timestamp(x['date'])-target).days)<=45),None)
+            if older:
+                years=(pd.Timestamp(base['date'])-pd.Timestamp(older['date'])).days/365.2425
+                growths[n]=(base['revenue']/older['revenue'])**(1/years)-1
+    if valuation_result.get('category') not in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
+        st.info('Denna rörelseresultatbaserade prognos passar inte bolagets affärsmodell. En sektorspecifik femårsmodell krävs.')
+    elif len(growths)!=3:
+        st.info('Femårsprognosen kräver jämförbar omsättning för 1, 3 och 5 års tillväxt (minst sex årsslut). Inga reservantaganden används.')
     else:
-        historical_growth = None
-        if len(annual)>1:
-            older = annual[1]
-            older_revenue = scenario_field(older, ('is_sales_revenue_turnover','revenue','total_revenue'))
-            if older_revenue and older_revenue>0 and older.get('currency')==forecast_currency:
-                try:
-                    years = (pd.Timestamp(forecast_period)-pd.Timestamp(older.get('period_end_date'))).days/365.25
-                    if 0.8<=years<=3.2:
-                        historical_growth = (forecast_revenue/older_revenue)**(1/years)-1
-                except (ValueError,TypeError,OverflowError):
-                    pass
-        latest_margin = forecast_ebita/forecast_revenue
-        suggested_growth = max(-10.0,min(20.0,round(100*historical_growth,1))) if historical_growth is not None else 5.0
-        suggested_margin = max(0.0,min(35.0,round(latest_margin*100,1)))
-        st.markdown('#### 1. Utgångsläge')
-        baseline_a,baseline_b,baseline_c=st.columns(3)
-        baseline_a.metric('Omsättning senaste helår',show(forecast_revenue/1e6,' M '+str(forecast_currency),0))
-        baseline_b.metric('EBITA-marginal',show(latest_margin*100,' %',1))
-        baseline_c.metric('Historisk omsättningstillväxt',show(historical_growth*100,' %/år',1) if historical_growth is not None else 'Saknas')
-        st.caption('Källa: '+forecast_source+' · Rapportperiod: '+forecast_period+' · Historiken avser endast tillgängliga jämförbara årsperioder.')
-        # Inga manuella inmatningar: historikbaserade utgångspunkter och öppet redovisade antaganden.
-        base_growth=float(suggested_growth)
-        base_margin=float(suggested_margin)
-        hurdle=valuation_result['cost_of_equity_pct']
-        base_multiple=valuation_result.get('assumptions',{}).get('EV/EBITA')
-        multiple_source='Huvudmodellens branschmultipel'
-        st.markdown('#### 2. Så räknar modellen')
-        st.write('Modellen använder rapporterad omsättning och EBITA, uppskattar utvecklingen under fem år och värderar därefter bolaget med en EV/EBITA-multipel.')
-        with st.expander('Visa beräkningsantaganden'):
-            st.write('Årlig omsättningstillväxt: **'+show(base_growth,' %',1)+'**'+(' (historiskt härledd)' if historical_growth is not None else ' (illustrativt antagande – historik saknas)'))
-            st.write('EBITA-marginal år fem: **'+show(base_margin,' %',1)+'** (utgår från senast rapporterad marginal)')
-            st.write('EV/EBITA år fem: **'+show(base_multiple,'×',1)+'** ('+multiple_source+')')
-            st.write('Avkastningskrav: **10 % per år** (modellantagande)')
-            st.caption('Negativt och positivt scenario varierar tillväxt ±5 procentenheter, marginal ±2 procentenheter och EV/EBITA ±3×. Antagandena är inte bolagsprognoser.')
-        # Nettoskuld måste komma från samma årsbalans som EBITA.
-        balance_period = next((x for x in _roic_data.get('balance',[]) if str(x.get('period_end_date') or '')[:10]==forecast_period and x.get('currency')==forecast_currency),None)
-        debt_annual = scenario_field(balance_period or {},('bs_total_debt','total_debt','totalDebt'))
-        cash_annual = scenario_field(balance_period or {},('bs_cash_and_cash_equivalents','cash_and_cash_equivalents','cash_and_short_term_investments'))
-        same_basis=str(valuation_result.get('period'))==forecast_period and valuation_result.get('report_currency')==forecast_currency
-        annual_netdebt=valuation_debt if same_basis else None
-        market_fx=1/valuation_fx if same_basis and valuation_fx and valuation_fx>0 else None
-        price=valuation_price
-        market_cap=price*valuation_shares if price and valuation_shares else None
-        can_value = not valuation_result.get('audit') and all(x is not None for x in (annual_netdebt,market_fx,market_cap,price)) and market_cap>0 and price>0 and market_fx>0
-        if not can_value:
-            st.warning('Aktiepris i scenariot kräver samma rapportperiod och valuta som huvudmodellen, samt aktieantal, nettoskuld och godkända datakontroller.')
-        else:
-            st.caption('Värderingen antar oförändrad nominell nettoskuld under fem år, oförändrat antal aktier och ingen utdelning. Den inkluderar inte förvärvskostnader eller framtida kapitalanskaffningar.')
-        scenarios = [
-            ('Negativt',max(-25.0,base_growth-5),max(0.0,base_margin-2),max(2.0,base_multiple-3)),
-            ('Bas',base_growth,base_margin,base_multiple),
-            ('Positivt',min(35.0,base_growth+5),min(50.0,base_margin+2),base_multiple+3),
-        ]
-        scenario_rows = []
-        for scenario_name,growth_pct,margin_pct,multiple in scenarios:
-            projected_sales = forecast_revenue*(1+growth_pct/100)**5
-            projected_ebita = projected_sales*margin_pct/100
-            projected_ev = projected_ebita*multiple
-            future_equity = max(0.0,projected_ev-annual_netdebt) if can_value else None
-            current_equity_report = market_cap*market_fx if can_value else None
-            future_price = price*future_equity/current_equity_report if can_value else None
-            annual_return = ((future_price/price)**(1/5)-1)*100 if future_price is not None and future_price>0 else (-100.0 if future_price==0 else None)
-            fair_price = future_price/(1+hurdle/100)**5 if future_price is not None else None
-            safety_margin = (1-price/fair_price)*100 if fair_price is not None and fair_price>0 else None
-            scenario_rows.append({
-                'Scenario':scenario_name,
-                'Tillväxt/år':f'{growth_pct:.1f} %',
-                'EBITA-marginal år 5':f'{margin_pct:.1f} %',
-                'EV/EBITA år 5':f'{multiple:.1f}×',
-                'EBITA år 5 (M '+str(forecast_currency)+')':round(projected_ebita/1e6,1),
-                'Aktiekurs år 5':show(future_price,' '+str(quote_ccy),2) if future_price is not None else 'Saknas',
-                'Avkastning/år':show(annual_return,' %',1) if annual_return is not None else 'Saknas',
-                'Diskonterat femårsscenario':show(fair_price,' '+str(quote_ccy),2) if fair_price is not None else 'Saknas',
-                'Säkerhetsmarginal':show(safety_margin,' %',1) if safety_margin is not None else 'Saknas'
-            })
-        st.markdown('#### 3. Resultat – tre möjliga utvecklingar')
-        if can_value:
-            st.caption('Beräknade priser och kursavkastning, exklusive utdelning. Resultaten bygger på de redovisade antagandena ovan.')
-            for item in scenario_rows:
-                with st.container(border=True):
-                    st.markdown('**'+item['Scenario']+' scenario**')
-                    sc1,sc2,sc3=st.columns(3)
-                    sc1.metric('Aktiekurs om fem år',item['Aktiekurs år 5'])
-                    sc2.metric('Årlig kursavkastning',item['Avkastning/år'])
-                    sc3.metric('Diskonterat femårsscenario',item['Diskonterat femårsscenario'])
-        else:
-            st.info('Scenariernas resultat och EBITA kan beräknas, men ett aktiepris kräver verifierad nettoskuld och valuta.')
-        with st.expander('Visa detaljerad scenariotabell'):
-            st.dataframe(pd.DataFrame(scenario_rows),hide_index=True,use_container_width=True)
-        if can_value:
-            base_case = scenario_rows[1]
-            base_future_ev = forecast_revenue*(1+base_growth/100)**5*(base_margin/100)*base_multiple
-            base_equity_report = max(0.0,base_future_ev-annual_netdebt)
-            base_fair_price = price*base_equity_report/(market_cap*market_fx)/(1+hurdle/100)**5
-            base_return = (base_equity_report/(market_cap*market_fx))**(1/5)-1 if base_equity_report>0 else -1.0
-            st.caption('Diskonterat femårsscenario är en separat scenarioanalys, inte appens motiverade aktiekurs. Det diskonterar värdet om fem år med avkastningskravet. Säkerhetsmarginalen är '+show((1-price/base_fair_price)*100,' %',1)+' i basscenariot.' if base_fair_price>0 else 'Basscenariot ger inget positivt motiverat aktiepris.')
-            # Omvänd värdering: vilken omsättningstillväxt behövs för att nå avkastningskravet?
-            target_equity = market_cap*market_fx*(1+hurdle/100)**5
-            required_ev = target_equity+annual_netdebt
-            required_revenue = required_ev/(base_multiple*(base_margin/100)) if base_multiple>0 and base_margin>0 and required_ev>0 else None
-            required_growth = ((required_revenue/forecast_revenue)**(1/5)-1)*100 if required_revenue is not None and required_revenue>0 else None
-            st.markdown('#### Vad måste bolaget prestera för att nå ditt avkastningskrav?')
-            if required_growth is None:
-                st.info('Kan inte beräknas med dessa antaganden. Kontrollera positiv marginal och framtida företagsvärde.')
-            else:
-                st.metric('Nödvändig omsättningstillväxt per år',show(required_growth,' %',1))
-                if historical_growth is not None:
-                    difference=required_growth-historical_growth*100
-                    st.write('Krävd tillväxt ligger '+show(abs(difference),' procentenheter ',1)+('över' if difference>0 else 'under eller i nivå med')+' den senast uppmätta historiska tillväxttakten.')
-                st.caption('Omvänd beräkning håller EBITA-marginal, exitmultipel och nettoskuld oförändrade enligt basscenariot. Den är inte en prognos.')
-            st.markdown('#### Möjligheter och risker')
-            if historical_growth is not None and historical_growth>0:
-                st.write(f'Förutsättning: omsättningen har ökat med {historical_growth*100:.1f} % per år mellan de två senaste jämförbara årsrapporterna. Det är historik, inte en garanti för framtida tillväxt.')
-            if latest_margin>0:
-                st.write(f'Förutsättning: senaste rapporterade EBITA-marginal är {latest_margin*100:.1f} %. Scenarierna prövar hur marginalförändringar påverkar aktievärdet.')
-            st.write('Risk: en lägre tillväxt, pressade marginaler eller lägre framtida värderingsmultipel kan ge betydligt sämre avkastning. Modellen antar dessutom oförändrad nettoskuld.')
-            st.caption('Scenarierna är känslighetsberäkningar, inte prognoser. Oförändrad nettoskuld och antal aktier antas; utdelning och framtida finansieringsbehov ingår inte.')
+        base=annual[0]
+        hist=[x for x in annual if (pd.Timestamp(base['date'])-pd.Timestamp(x['date'])).days<=1830]
+        growth=.4*growths[1]+.35*growths[3]+.25*growths[5]
+        margins=pd.Series([x['ebit']/x['revenue'] for x in hist])
+        gm=pd.Series(list(growths.values()))
+        st.caption(f"Källa: {forecast_source} · {base['date']} · {base['currency']}. Prognosen använder EBIT (inte EBITA).")
+        cols=st.columns(4)
+        for col,n in zip(cols,(1,3,5)): col.metric(f'Tillväxt {n} år',f'{growths[n]*100:+.1f} %/år')
+        cols[3].metric('Viktad tillväxt',f'{growth*100:+.1f} %/år')
+        settings=[('Bear',min(growth,float(gm.min())),min(float(margins.quantile(.25)),float(margins.median()))),('Base',growth,float(margins.median())),('Bull',max(growth,float(gm.max())),max(float(margins.quantile(.75)),float(margins.median())))]
+        # Historical EV/EBIT from actual year-end prices, matching debt, shares and currency.
+        multiples=[]
+        try:
+            prices=long_history(ticker)
+            close=prices['Close'].copy()
+            close.index=pd.DatetimeIndex(close.index).tz_localize(None)
+            if quote_ccy==base['currency']:
+                for x in hist:
+                    cutoff=pd.Timestamp(x['date'])
+                    prior=close.loc[close.index<=cutoff]
+                    if prior.empty or (cutoff-prior.index[-1]).days>7: continue
+                    if x['shares'] is None or x['shares']<=0 or x['debt'] is None or x['ebit']<=0: continue
+                    multiple=(float(prior.iloc[-1])*x['shares']+x['debt'])/x['ebit']
+                    if math.isfinite(multiple) and multiple>0: multiples.append(multiple)
+        except Exception:
+            multiples=[]
+        mult=pd.Series(multiples,dtype=float)
+        price=numeric(valuation_result.get('price'))
+        shares=numeric(valuation_shares)
+        fx=numeric(fx_rate(base['currency'],quote_ccy))
+        can_value=len(mult)>=4 and base['debt'] is not None and shares is not None and shares>0 and price is not None and price>0 and fx is not None and fx>0 and not valuation_result.get('audit')
+        if not can_value: st.warning('Aktiekursprognos kräver minst fyra jämförbara historiska EV/EBIT-multiplar samt verifierad nettoskuld, aktieantal och valuta. Rörelseprognosen visas ändå.')
+        rows=[]; outcomes=[]
+        for idx,(name,g,m) in enumerate(settings):
+            multiple=float(mult.quantile([.25,.5,.75][idx])) if len(mult)>=4 else None
+            for year in range(1,6):
+                sales=base['revenue']*(1+g)**year
+                ebit=sales*m
+                future=max(0,ebit*multiple-base['debt'])*fx/shares if can_value else None
+                rows.append({'År':pd.Timestamp(base['date']).year+year,'Scenario':name,'Omsättning (M)':sales/1e6,'EBIT (M)':ebit/1e6,'Aktiekurs':future})
+            outcomes.append((name,g,m,multiple,future))
+        cols=st.columns(3)
+        for col,(name,g,m,multiple,future) in zip(cols,outcomes):
+            col.metric(name,show(future,' '+str(quote_ccy),2) if future is not None else 'Saknas')
+            col.caption(f'Tillväxt {g*100:+.1f} % · EBIT-marginal {m*100:.1f} %')
+            if future is not None:
+                col.write(f'Kurspotential: {(future/price-1)*100:+.1f} %')
+                col.write(f'Årlig kursavkastning: {((future/price)**.2-1)*100:+.1f} %')
+        frame=pd.DataFrame(rows)
+        actual=pd.DataFrame([{'År':pd.Timestamp(x['date']).year,'Scenario':'Historik','Omsättning (M)':x['revenue']/1e6,'EBIT (M)':x['ebit']/1e6} for x in reversed(hist)])
+        colors={'Historik':'#64748B','Bear':'#DC2626','Base':'#2563EB','Bull':'#16A34A'}
+        for metric in ('Omsättning (M)','EBIT (M)'):
+            st.plotly_chart(px.line(pd.concat([actual,frame],ignore_index=True),x='År',y=metric,color='Scenario',color_discrete_map=colors,markers=True,title=metric+' – historik och prognos'),use_container_width=True)
+        with st.expander('Årsprognoser och antaganden'):
+            st.dataframe(frame,hide_index=True,use_container_width=True)
+            st.write('Tillväxt: 40 % senaste året, 35 % treårig CAGR, 25 % femårig CAGR. Bear/Bull använder lägsta/högsta observerade tillväxt; marginal och multipel baseras på historiska kvartiler.')
+            st.write('Historiska EV/EBIT-multiplar: '+', '.join(f'{v:.1f}×' for v in multiples) if multiples else 'Historiska multiplar saknas.')
+        st.caption('Historikbaserade scenarier, inte bolagsprognoser. Oförändrad nettoskuld, aktieantal och valuta antas. Utdelning ingår inte; historiska multiplar kräver även kontroll av splittar och aktieslag. Fundamentala riktkursen påverkas inte.')
     st.divider()
     st.markdown('#### Historiska nyckeltalsindikatorer – ej investeringsbetyg')
     st.caption('Den äldre färgmodellen är inte kalibrerad för framtida tillväxt och används inte för scenariovärderingen ovan.')
