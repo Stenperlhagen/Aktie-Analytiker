@@ -1239,7 +1239,6 @@ overview_items = [
     ('Omsättningstillväxt',show(sales_growth_pct,' %/år',1) if sales_growth_pct is not None else 'Saknas'),
     ('Rörelsemarginal',show(margin*100,' %') if margin is not None else 'Saknas'),
     ('EBITA (värderingsperiod)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas'),
-    ('EBIT (värderingsperiod)',show(valuation_inputs.get('EBIT')/1e6,' M',0) if valuation_inputs.get('EBIT') is not None else 'Saknas'),
     ('Avkastning på eget kapital (ROE)',show(roe_overview,' %',1) if roe_overview is not None else 'Saknas'),
     ('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),
     ('P/E (R12)',show(pe,'×') if pe is not None else 'Saknas'),
