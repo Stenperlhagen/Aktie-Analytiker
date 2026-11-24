@@ -3009,9 +3009,15 @@ with three:
                 historical_points=historical_points[historical_points['Datum']>=today-pd.DateOffset(years=5)]
                 historical_points=pd.concat([historical_points,pd.DataFrame({'Datum':[today],'Aktiekurs':[price],'Typ':['Historik']})],ignore_index=True)
             chart=px.line(pd.concat([historical_points,forecast_points],ignore_index=True),x='Datum',y='Aktiekurs',color='Typ',line_dash='Typ',color_discrete_map={'Historik':'#64748B','Prognos':('#16A34A' if future>price else '#DC2626' if future<price else '#64748B')},line_dash_map={'Historik':'solid','Prognos':'dash'},title='Aktiekurs – historik och femårsprognos')
-            chart.update_traces(mode='lines+markers+text',marker=dict(size=8),text=[show(v,' '+str(quote_ccy),1) for v in forecast_points['Aktiekurs']],textposition='top center',cliponaxis=False,selector=dict(name='Prognos'))
-            chart.update_layout(yaxis_title='Aktiekurs ('+str(quote_ccy)+')',xaxis_title=None,legend_title_text=None,legend=dict(orientation='h',y=-0.18),margin=dict(t=75,r=65,b=85))
-            chart.update_yaxes(automargin=True)
+            forecast_color='#16A34A' if future>price else '#DC2626' if future<price else '#64748B'
+            chart.update_traces(line=dict(width=1.6),selector=dict(name='Historik'))
+            chart.update_traces(mode='lines+markers',marker=dict(size=7),line=dict(width=2.2,dash='dash'),selector=dict(name='Prognos'))
+            for n,point in forecast_points.iterrows():
+                chart.add_annotation(x=point['Datum'],y=point['Aktiekurs'],text=('Idag · ' if n==0 else '')+show(point['Aktiekurs'],' kr' if quote_ccy=='SEK' else ' '+str(quote_ccy),1),showarrow=False,yshift=17,font=dict(size=13,color='#64748B' if n==0 else forecast_color),bgcolor='rgba(255,255,255,0.92)',borderpad=3)
+            chart.add_vline(x=today.timestamp()*1000,line_width=1,line_dash='dot',line_color='#94A3B8')
+            chart.update_layout(height=420,yaxis_title=None,xaxis_title=None,legend_title_text=None,legend=dict(orientation='h',y=-0.16),margin=dict(t=65,r=85,b=70,l=45),hovermode='x unified')
+            chart.update_xaxes(tickvals=forecast_points['Datum'].tolist(),ticktext=['Idag']+[str((today+pd.DateOffset(years=n)).year) for n in range(1,6)],showgrid=False)
+            chart.update_yaxes(automargin=True,gridcolor='rgba(148,163,184,0.18)')
             st.plotly_chart(chart,use_container_width=True)
             with st.expander('Visa beräkningsantaganden'):
                 st.dataframe(forecast_points.rename(columns={'Aktiekurs':'Prognostiserad aktiekurs'}).drop(columns='Typ'),hide_index=True,use_container_width=True)
