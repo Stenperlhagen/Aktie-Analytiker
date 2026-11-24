@@ -781,6 +781,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
     if price is None and not hist.empty: price=numeric(hist['Close'].iloc[-1])
     currency=info.get('currency') or quick.get('currency')
     report=info.get('financialCurrency')
+    # Do not infer reporting currency from listing currency. Preserve diagnostics for missing metadata.
     fx=fx_rate(report,currency)
     shares=val(info,'sharesOutstanding') or val(quick,'shares')
     if not shares:
@@ -1129,10 +1130,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v35':
+if st.session_state.get('screener_model_version')!='unified-v36':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v35'
+    st.session_state['screener_model_version']='unified-v36'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -1812,7 +1813,7 @@ with target_slot.container():
     if target is None:
         st.caption('Orsak: '+ ' · '.join(valuation_result.get('missing',[]) or ['Ingen modell gav ett värde']))
         with st.expander('Tekniska fel från datakällan'):
-            st.json(fetch_errors or valuation_result.get('fetch_errors') or {})
+            st.json({'Datakällans fel':fetch_errors or valuation_result.get('fetch_errors') or {},'Handelsvaluta':valuation_result.get('currency'),'Rapportvaluta':valuation_result.get('report_currency'),'Modellunderlag':valuation_result.get('inputs',{}),'Aktiekurs':valuation_result.get('price'),'Rapportperiod':valuation_result.get('period'),'Resultatperioder':[str(p) for p in fin.columns],'Balansperioder':[str(p) for p in balance.columns],'Yahoo financialCurrency':info.get('financialCurrency'),'Yahoo sharesOutstanding':info.get('sharesOutstanding')})
 def investment_score(v, info):
     # Explicit heuristic, not a probability or investment recommendation.
     category=v.get('category')
