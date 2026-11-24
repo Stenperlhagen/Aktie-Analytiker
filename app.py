@@ -627,9 +627,30 @@ PROFILE_TICKERS={
     'Konsumentvaror och detaljhandel':{'HM-B.ST','ESSITY-B.ST','AXFO.ST','ELUX-B.ST','HUSQ-B.ST','THULE.ST','DOM.ST','SHOT.ST','SKIS-B.ST','BETS-B.ST','BILI-A.ST','NEWA-B.ST','BOKUS.ST','BMAX.ST','RUSTA.ST','RVRC.ST','BHG.ST','BOOZT.ST','CLA-B.ST','DUNI.ST','FOI-B.ST','NELLY.ST','SCST.ST','MSON-B.ST','EVO.ST','CLAS-B.ST','ATT.ST','HUM.ST','ACAD.ST','VSURE.ST','KAR.ST'}
 }
 PROFILE_BY_SYMBOL={symbol:category for category,symbols in PROFILE_TICKERS.items() for symbol in symbols}
+# Explicit business-model refinements; assumptions are provisional, not peer-derived.
+VALUATION_PROFILES.update({
+    'Telekomoperatörer':(9.0,2.0,10.0),
+    'Gruvbolag':(10.0,2.0,8.0),
+    'Skogsbolag':(9.0,2.0,10.0),
+    'Etablerade läkemedelsbolag':(9.0,5.0,14.0),
+    'Medicinteknik':(10.0,5.0,14.0),
+    'Spelutvecklare':(11.0,4.0,12.0),
+    'Hotelloperatörer':(10.0,3.0,10.0),
+    'Livsmedelsproduktion':(9.0,3.0,11.0)
+})
+PROFILE_BY_SYMBOL.update({
+    'TELIA.ST':'Telekomoperatörer','TEL2-B.ST':'Telekomoperatörer',
+    'BOL.ST':'Gruvbolag','LUMI.ST':'Gruvbolag',
+    'SCA-B.ST':'Skogsbolag','HOLM-B.ST':'Skogsbolag',
+    'AZN.ST':'Etablerade läkemedelsbolag','SOBI.ST':'Etablerade läkemedelsbolag','CAMX.ST':'Etablerade läkemedelsbolag',
+    'GETI-B.ST':'Medicinteknik','EKTA-B.ST':'Medicinteknik','ARJO-B.ST':'Medicinteknik','BONEX.ST':'Medicinteknik','VITR.ST':'Medicinteknik','SEZI.ST':'Medicinteknik','SUS.ST':'Medicinteknik','BACTI-B.ST':'Medicinteknik',
+    'PDX.ST':'Spelutvecklare','EMBRAC-B.ST':'Spelutvecklare','SF.ST':'Spelutvecklare',
+    'SHOT.ST':'Hotelloperatörer','AAK.ST':'Livsmedelsproduktion','SCST.ST':'Livsmedelsproduktion'
+})
+
 def operating_valuation_profile(symbol,info=None):
     """Returnera profil bara när kategorin är identifierad; aldrig godtycklig 9/3/12-reserv."""
-    if symbol=='AAK.ST': return 'Tillverkningsindustri'
+    if symbol=='AAK.ST': return 'Livsmedelsproduktion'
     if symbol in PROFILE_BY_SYMBOL: return PROFILE_BY_SYMBOL[symbol]
     industry=str((info or {}).get('industry') or '').lower()
     sector=str((info or {}).get('sector') or '').lower()
@@ -696,6 +717,7 @@ def comparable_ev_ebita(ebita_amount,net_debt_amount,share_count,multiple,fx):
 
 def valuation_category(symbol, info=None):
     """Konservativ kategorisering: särskilda affärsmodeller kräver andra metoder."""
+    if symbol=='EQT.ST': return 'Kapitalförvaltare'
     if symbol in INVESTMENT_TICKERS: return 'Investmentbolag / kapitalförvaltning'
     if symbol in BANK_TICKERS: return 'Bank / finansiella tjänster'
     if symbol in INSURANCE_TICKERS: return 'Försäkring'
@@ -1145,7 +1167,7 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v39':
+if st.session_state.get('screener_model_version')!='unified-v40':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
     st.session_state['screener_model_version']='unified-v39'
