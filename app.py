@@ -1159,7 +1159,7 @@ if _roic_income and market_cap is not None and market_cap>0 and quote_ccy:
     inc=_roic_income[0]
     report_date=str(inc.get('period_end_date') or '')[:10]
     report_currency=inc.get('currency')
-    ebita_annual=_record_number(inc,('ebita',))
+    ebita_annual=_record_number(inc,('is_ebita','ebita'))
     if report_date and report_currency and ebita_annual is not None and ebita_annual>0:
         balance_match=next((x for x in roic_balance if str(x.get('period_end_date') or '')[:10]==report_date and x.get('currency')==report_currency),None)
         debt_annual=_record_number(balance_match,(
@@ -1223,7 +1223,6 @@ valuation_debt=valuation_inputs.get('Nettoskuld')
 valuation_fx=valuation_inputs.get('Valutakurs')
 valuation_shares=valuation_inputs.get('Antal aktier')
 valuation_price=valuation_result.get('price')
-ev_ebita=None
 if all(x is not None for x in (valuation_earnings,valuation_debt,valuation_fx,valuation_shares,valuation_price)) and valuation_earnings>0 and valuation_fx>0 and valuation_shares>0 and valuation_price>0:
     ev_ebita=(valuation_price*valuation_shares/valuation_fx+valuation_debt)/valuation_earnings
 if valuation_earnings is not None:
@@ -1256,7 +1255,30 @@ if _roic_income:
         cf=next((x for x in _roic_data.get('cashflow',[]) if x.get('period_end_date')==latest.get('period_end_date') and x.get('currency')==latest.get('currency')),None)
         opcf=_record_number(cf,('cf_cash_from_operating_activities','cf_net_cash_from_operating_activities','operating_cash_flow'))
 
+# Independent annual-report fallback, requiring a single matched period and currency.
+if ev_ebita is None and report_ccy and quote_ccy and market_cap is not None and fin is not None and not fin.empty:
+    for period in fin.columns:
+        annual_ebita=_annual_balance_value(fin,['EBITA'],period)
+        if annual_ebita is None:
+            operating=_annual_balance_value(fin,['Operating Income','EBIT'],period)
+            amort=_annual_balance_value(fin,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+            if amort is None: amort=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+            if operating is not None and amort is not None: annual_ebita=operating+abs(amort)
+        annual_debt=_annual_balance_value(balance,['Net Debt'],period)
+        if annual_debt is None:
+            gross=_annual_balance_value(balance,['Total Debt'],period)
+            liquid=_annual_balance_value(balance,['Cash And Cash Equivalents'],period)
+            if gross is not None and liquid is not None: annual_debt=gross-liquid
+        rate=fx_rate(quote_ccy,report_ccy)
+        if annual_ebita is not None and annual_ebita>0 and annual_debt is not None and rate is not None and rate>0:
+            ev_ebita=(market_cap*rate+annual_debt)/annual_ebita
+            ebita=annual_ebita
+            ev_ebita_source='Yahoo årsrapport '+str(period)[:10]+'; '+report_ccy
+            break
 st.markdown('### Finansiell översikt')
+if ebita is None: st.caption('EBITA saknas: separat rapporterad EBITA eller immateriell avskrivning har inte hittats.')
+elif ev_ebita is None: st.caption('EV/EBITA saknas: positiv EBITA, jämförbar nettoskuld, börsvärde eller valuta saknas.')
+
 overview_items = [
     ('Börsvärde',show(market_cap/1e9,' mdkr',2) if market_cap is not None and quote_ccy=='SEK' else (show(market_cap/1e9,' md '+(quote_ccy or ''),2) if market_cap is not None else 'Saknas')),
     ('Aktiekurs',show(valuation_price,' '+(valuation_result.get('currency') or ''),2)),
