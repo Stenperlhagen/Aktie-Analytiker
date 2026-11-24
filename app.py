@@ -2790,7 +2790,7 @@ with three:
 
     st.markdown('### Vad kan aktien vara värd om fem år?')
     st.caption('Utifrån bolagets rapporterade resultat beräknar modellen ett möjligt framtida aktiepris och vad det skulle innebära för din avkastning.')
-    st.markdown('**Så använder du analysen:** Se de tre möjliga utfallen och kontrollera antagandena bakom beräkningen. Du behöver inte fylla i några siffror.')
+    st.markdown('**Så använder du analysen:** Se modellens femårsprognos och kontrollera antagandena bakom beräkningen. Du behöver inte fylla i några siffror.')
     def scenario_field(record, keys):
         for key in keys:
             result = numeric(record.get(key))
@@ -2852,7 +2852,7 @@ with three:
         cols=st.columns(4)
         for col,n in zip(cols,(1,3,5)): col.metric(f'Tillväxt {n} år',f'{growths[n]*100:+.1f} %/år' if n in growths else 'Saknas')
         cols[3].metric('Viktad tillväxt',f'{growth*100:+.1f} %/år')
-        settings=[('Bear',min(growth,float(gm.min())),min(float(margins.quantile(.25)),float(margins.median()))),('Base',growth,float(margins.median())),('Bull',max(growth,float(gm.max())),max(float(margins.quantile(.75)),float(margins.median())))]
+        settings=[('Prognos',growth,float(margins.median()))]
         # Historical EV/EBIT from actual year-end prices, matching debt, shares and currency.
         multiples=[]
         try:
@@ -2877,30 +2877,30 @@ with three:
         if not can_value: st.warning('Aktiekursprognos kräver minst fyra jämförbara historiska EV/EBIT-multiplar samt verifierad nettoskuld, aktieantal och valuta. Rörelseprognosen visas ändå.')
         rows=[]; outcomes=[]
         for idx,(name,g,m) in enumerate(settings):
-            multiple=float(mult.quantile([.25,.5,.75][idx])) if len(mult)>=4 else None
+            multiple=float(mult.median()) if len(mult)>=4 else None
             for year in range(1,6):
                 sales=base['revenue']*(1+g)**year
                 ebit=sales*m
                 future=max(0,ebit*multiple-base['debt'])*fx/shares if can_value else None
                 rows.append({'År':pd.Timestamp(base['date']).year+year,'Scenario':name,'Omsättning (M)':sales/1e6,'EBIT (M)':ebit/1e6,'Aktiekurs':future})
             outcomes.append((name,g,m,multiple,future))
-        cols=st.columns(3)
+        cols=st.columns(1)
         for col,(name,g,m,multiple,future) in zip(cols,outcomes):
-            col.metric(name,show(future,' '+str(quote_ccy),2) if future is not None else 'Saknas')
+            col.metric('Prognostiserad aktiekurs om fem år',show(future,' '+str(quote_ccy),2) if future is not None else 'Saknas')
             col.caption(f'Tillväxt {g*100:+.1f} % · EBIT-marginal {m*100:.1f} %')
             if future is not None:
                 col.write(f'Kurspotential: {(future/price-1)*100:+.1f} %')
                 col.write(f'Årlig kursavkastning: {((future/price)**.2-1)*100:+.1f} %')
         frame=pd.DataFrame(rows)
         actual=pd.DataFrame([{'År':pd.Timestamp(x['date']).year,'Scenario':'Historik','Omsättning (M)':x['revenue']/1e6,'EBIT (M)':x['ebit']/1e6} for x in reversed(hist)])
-        colors={'Historik':'#64748B','Bear':'#DC2626','Base':'#2563EB','Bull':'#16A34A'}
+        colors={'Historik':'#64748B','Bear':'#DC2626','Base':'#2563EB','Bull':'#16A34A','Prognos':'#2563EB'}
         for metric in ('Omsättning (M)','EBIT (M)'):
             st.plotly_chart(px.line(pd.concat([actual,frame],ignore_index=True),x='År',y=metric,color='Scenario',color_discrete_map=colors,markers=True,title=metric+' – historik och prognos'),use_container_width=True)
         with st.expander('Årsprognoser och antaganden'):
             st.dataframe(frame,hide_index=True,use_container_width=True)
-            st.write('Tillväxt: grundvikter 40/35/25, omfördelade proportionellt vid saknad historik. Bear/Bull använder lägsta/högsta observerade tillväxt; marginal och multipel baseras på historiska kvartiler.')
+            st.write('Tillväxt: grundvikter 40/35/25, omfördelade proportionellt vid saknad historik. Marginal och värderingsmultipel baseras på historisk median.')
             st.write('Historiska EV/EBIT-multiplar: '+', '.join(f'{v:.1f}×' for v in multiples) if multiples else 'Historiska multiplar saknas.')
-        st.caption('Historikbaserade scenarier, inte bolagsprognoser. Oförändrad nettoskuld, aktieantal och valuta antas. Utdelning ingår inte; historiska multiplar kräver även kontroll av splittar och aktieslag. Fundamentala riktkursen påverkas inte.')
+        st.caption('Historikbaserad modellprognos, inte bolagets egen prognos. Oförändrad nettoskuld, aktieantal och valuta antas. Utdelning ingår inte; historiska multiplar kräver även kontroll av splittar och aktieslag. Fundamentala riktkursen påverkas inte.')
     st.divider()
     st.markdown('#### Historiska nyckeltalsindikatorer – ej investeringsbetyg')
     st.caption('Den äldre färgmodellen är inte kalibrerad för framtida tillväxt och används inte för scenariovärderingen ovan.')
