@@ -514,8 +514,7 @@ ADDITIONAL_COMPANIES = {
 }
 ALL_COMPANIES = {**{name:ticker for name,(ticker,_) in CAT.items()}, **ADDITIONAL_COMPANIES}
 # Prefer B shares whenever both A and B are in the universe; retain sole listed classes.
-_b_share_symbols={symbol for symbol in ALL_COMPANIES.values() if symbol.endswith('-B.ST')}
-ALL_COMPANIES={name:symbol for name,symbol in ALL_COMPANIES.items() if not (symbol.endswith('-A.ST') and symbol[:-5]+'-B.ST' in _b_share_symbols)}
+ALL_COMPANIES={name:symbol for name,symbol in ALL_COMPANIES.items() if not (symbol.endswith('-A.ST') and symbol[:-5]+'-B.ST' in ALL_COMPANIES.values())}
 
 # Värderingskategori skiljs från branschgrupp. Okända typer får ingen P/E-köpsignal.
 INVESTMENT_TICKERS={
