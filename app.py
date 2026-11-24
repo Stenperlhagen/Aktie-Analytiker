@@ -1075,7 +1075,14 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
         out['emission']={'Tidigare registrerat aktieantal':273511169,'Nya aktier':10714285,'Registrerat antal efter emission':284225454,'Teckningskurs (SEK)':350,'Utspädning (%)':100*10714285/284225454,'Bruttoemissionslikvid (SEK)':10714285*350,'Emissionsrabatt (%)':3.4,'Nettoemissionslikvid (SEK)':3675e6,'Emissionskostnader (avrundat SEK)':75e6,'Teoretisk kurs efter emission (ca SEK)':(273511169*(350/(1-.034))+10714285*350)/284225454,'Utestående aktier 2026-09-30':283962452,'Utestående aktier 2025-12-31':283955454,'Nettoskuld 2025-12-31 (SEK)':15205e6}
         out['emission_source']='https://investors.boliden.com/en/node/5886 | https://investors.boliden.com/sites/boliden-ir/files/pr/202603040117-1.pdf'
         out['pending_acquisition']={'Nya aktier (indikativt)':21400000,'Aktieantal inklusive planerad apportemission (indikativt)':283962452+21400000,'Utspädning (%)':100*21400000/(283962452+21400000)}
-        out['pending_acquisition_note']='Nexa: apportemission godkänd av stämman 23 november 2026, ännu villkorad av myndighetsgodkännanden. Förväntat slutförande Q1 2027. Ingen kontant emissionslikvid. Efterföljande kontantbud och konsolidering kräver separat pro forma-värdering.'
+        out['pending_acquisition'].update({'Ägarandel Nexa (%)':64.68,'Kombinerad omsättning R12 Q2 2026 (SEK)':136e9,'Kombinerad EBITDA R12 Q2 2026 (SEK)':38e9,'Nexa nettoskuld Q2 2026 (USD)':1336e6,'Nexa befintliga minoritetsintressen Q2 2026 (USD)':306e6,'Avtalat antal nya aktier':21413782,'Registrerat aktieantal efter apport enligt avtalet':305639236})
+        out['pending_acquisition']['Aktieantal inklusive planerad apportemission (indikativt)']=283962452+21413782
+        out['pending_acquisition']['Utspädning (%)']=100*21413782/(283962452+21413782)
+        out['pending_acquisition'].pop('Nya aktier (indikativt)',None)
+        out['pending_acquisition']['Nexa återstående minoritetsandel (%)']=35.32
+        out['pending_acquisition']['Indikativt kontantbud vid annonserat aktievärde (SEK)']=19296e6*.3532
+        out['pending_acquisition']['EPS-scenario vid 8 procent ökning (SEK)']=50.25*1.08
+        out['pending_acquisition_note']='Nexa: apportemission godkänd av stämman 23 november 2026, ännu villkorad av myndighetsgodkännanden. Förväntat slutförande Q1 2027. Ingen kontant emissionslikvid. Kontantbudets belopp är endast illustrativt vid annonserat aktievärde; faktisk kurs bestäms vid slutförandet. EPS-scenariot applicerar illustrativt 8 % på historiskt R12-EPS, inte en prognos. Konsoliderad EBITA, FCFF, förvärvsanalys och minoritetsvärden krävs för en pro forma-riktkurs.'
         out['emission_note']='Historisk riktad emission mars 2025 för gruvförvärv. Emissionslikvid och förvärv ingår i senare rapporter; ingen ytterligare mekanisk skuldjustering. TERP är approximativt från rapporterad avrundad rabatt. Kontrollera aktuellt aktieantal mot 283 962 452 per Q3 2026; nettoskuld och framtida kassaflöden måste vara efter förvärven.'
     # Extrema modellutfall är granskningsfall, inte automatiska köp-/säljsignaler.
     target=out['target']
@@ -1101,10 +1108,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v29':
+if st.session_state.get('screener_model_version')!='unified-v30':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v29'
+    st.session_state['screener_model_version']='unified-v30'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
