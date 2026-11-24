@@ -1396,12 +1396,42 @@ if valuation_result.get('category')=='Bank / finansiella tjänster':
         'SEB-C.ST':(44,17.1,0.02,'https://www.realtid.se/bors-finans/bank-fintech/storbankerna-backar-nischbankerna-rusar-sa-gick-bankerna-i-q3/'),
         'NDA-SE.ST':(46,15.8,0.07,'https://www.realtid.se/bors-finans/bank-fintech/storbankerna-backar-nischbankerna-rusar-sa-gick-bankerna-i-q3/')
     }
+    @st.cache_data(ttl=21600,show_spinner=False)
+    def live_swedbank_metrics():
+        import re
+        from html import unescape
+        url='https://www.swedbank.com/investor-relations/'
+        try:
+            response=requests.get(url,timeout=15)
+            response.raise_for_status()
+            plain=re.sub(r'\s+',' ',unescape(re.sub(r'<[^>]+>',' ',response.text)))
+            period=re.search(r'Key figures\s+(Q[1-4])\s+(20\d{2})',plain,re.I)
+            if not period: return None
+            section=plain[period.end():period.end()+2000]
+            patterns=[r'([-−]?\d+(?:[.,]\d+)?)\s*(%?)\s*\(C/I ratio, costs in relation to total income\)',r'([-−]?\d+(?:[.,]\d+)?)\s*(%)\s*\(Common Equity Tier 1 capital ratio\)',r'([-−]?\d+(?:[.,]\d+)?)\s*(%)\s*\(credit impairment ratio\)']
+            matches=[re.search(p,section,re.I) for p in patterns]
+            if not all(matches): return None
+            vals=[float(m.group(1).replace(',','.').replace('−','-')) for m in matches]
+            if not matches[0].group(2): vals[0]*=100
+            if not (0<vals[0]<200 and 0<vals[1]<100 and abs(vals[2])<20): return None
+            return (*vals,period.group(1)+' '+period.group(2),url)
+        except Exception:
+            return None
     ki_label='K/I-tal (helår)'
     if ticker in bank_report_data and (pd.Timestamp.now()-pd.Timestamp('2026-09-30')).days<=180:
         ki,cet1,credit_loss,bank_url=bank_report_data[ticker]
         ki_label='K/I-tal (Q3 2026)'
         cet1_source=None
         st.caption('Banknyckeltal Q3 2026: [Källa]('+bank_url+'). Kreditförlustnivå enligt rapportens definition.')
+    if ticker=='SWED-A.ST':
+        live=live_swedbank_metrics()
+        if live:
+            live_ki,live_cet1,live_loss,live_period,live_url=live
+            if (int(live_period[-4:]),int(live_period[1])) >= (2026,3):
+                ki,cet1,credit_loss=live_ki,live_cet1,live_loss
+                ki_label='K/I-tal ('+live_period+')'
+                cet1_source=None
+                st.caption('Automatiskt hämtade banknyckeltal '+live_period+' – [Swedbank IR]('+live_url+').')
     replacements={
         'EBITA (rapportperiod)':('Räntenetto (helår)',show(interest/1e6,' M',0) if interest is not None else 'Saknas'),
         'EBITA (värderingsperiod)':('Räntenetto (helår)',show(interest/1e6,' M',0) if interest is not None else 'Saknas'),
