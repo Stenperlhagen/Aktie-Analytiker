@@ -2878,6 +2878,7 @@ with three:
             if result is not None:
                 return result
         return None
+    can_value=False
     annual=[]
     forecast_source=''
     try:
@@ -2954,15 +2955,33 @@ with three:
         price=numeric(valuation_result.get('price'))
         shares=numeric(valuation_shares)
         fx=numeric(fx_rate(base['currency'],quote_ccy))
-        can_value=len(mult)>=4 and base['debt'] is not None and shares is not None and shares>0 and price is not None and price>0 and fx is not None and fx>0 and not valuation_result.get('audit')
-        if not can_value: st.warning('Aktiekursprognos kräver minst fyra jämförbara historiska EV/EBIT-multiplar samt verifierad nettoskuld, aktieantal och valuta. Ingen aktiekursprognos visas utan tillräckligt underlag.')
+        forecast_debt=base['debt']
+        if forecast_debt is None and str(valuation_result.get('period'))[:10]==base['date'] and valuation_result.get('report_currency')==base['currency']:
+            forecast_debt=numeric(valuation_debt)
+        multiple=float(mult.median()) if len(mult)>=2 else None
+        multiple_source=f'Historisk median ({len(mult)} år)'
+        if multiple is None and all(x is not None for x in (price,shares,fx,forecast_debt)) and price>0 and shares>0 and fx>0 and base['ebit']>0:
+            candidate=(price*shares/fx+forecast_debt)/base['ebit']
+            if candidate>0 and math.isfinite(candidate):
+                multiple=candidate
+                multiple_source='Aktuell EV/EBIT baserad på senaste årsrapport; oförändrad värderingsnivå antas'
+        can_value=multiple is not None and forecast_debt is not None and shares is not None and shares>0 and price is not None and price>0 and fx is not None and fx>0 and not valuation_result.get('audit')
+        if can_value: st.caption('Värderingsmultipel: '+multiple_source)
+        else:
+            missing=[]
+            if multiple is None: missing.append('EV/EBIT')
+            if forecast_debt is None: missing.append('nettoskuld')
+            if shares is None or shares<=0: missing.append('aktieantal')
+            if price is None or price<=0: missing.append('aktiekurs')
+            if fx is None or fx<=0: missing.append('valuta')
+            if valuation_result.get('audit'): missing.append('datakontroll: '+ '; '.join(valuation_result['audit']))
+            st.warning('Aktiekursprognos saknar godkänt underlag: '+', '.join(missing))
         rows=[]; outcomes=[]
         for idx,(name,g,m) in enumerate(settings):
-            multiple=float(mult.median()) if len(mult)>=4 else None
             for year in range(1,6):
                 sales=base['revenue']*(1+g)**year
                 ebit=sales*m
-                future=max(0,ebit*multiple-base['debt'])*fx/shares if can_value else None
+                future=max(0,ebit*multiple-forecast_debt)*fx/shares if can_value else None
                 rows.append({'År':pd.Timestamp(base['date']).year+year,'Scenario':name,'Omsättning (M)':sales/1e6,'EBIT (M)':ebit/1e6,'Aktiekurs':future})
             outcomes.append((name,g,m,multiple,future))
         cols=st.columns(1)
@@ -2992,6 +3011,10 @@ with three:
         else:
             st.info('Aktiekurskurvan visas när värderingsunderlaget är tillräckligt.')
         st.caption('Historikbaserad modellprognos, inte bolagets egen prognos. Oförändrad nettoskuld, aktieantal och valuta antas. Utdelning ingår inte; historiska multiplar kräver även kontroll av splittar och aktieslag. Fundamentala riktkursen påverkas inte.')
+    if not can_value and isinstance(hist,pd.DataFrame) and not hist.empty and 'Close' in hist:
+        historical_close=hist['Close'].dropna()
+        historical_chart=px.line(x=historical_close.index,y=historical_close.to_numpy(),labels={'x':'Datum','y':'Aktiekurs ('+str(quote_ccy)+')'},title='Aktiekurs – historik (prognosunderlag saknas)')
+        st.plotly_chart(historical_chart,use_container_width=True)
     st.divider()
     st.markdown('#### Historiska nyckeltalsindikatorer – ej investeringsbetyg')
     st.caption('Den äldre färgmodellen är inte kalibrerad för framtida tillväxt och används inte för scenariovärderingen ovan.')
