@@ -839,6 +839,14 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
                 out['period']='2026-09-30'
                 out['source']='https://financialfilings.com/filings/aak/interim-quarterly-report/2026/74641045/'
                 out['missing'].append('AAK: separat EBITA och normaliserad FCFF ej verifierade; rapporterad EBIT används i separat EV/EBIT-modell.')
+            if symbol=='LIAB.ST' and info.get('financialCurrency')=='SEK' and (pd.Timestamp.now()-pd.Timestamp('2026-09-30')).days<=180:
+                # Reported EBIT plus acquisition-related amortisation/impairment, not adjusted EBITA.
+                earnings=830e6
+                earnings_label='EBITA (beräknad)'
+                debt=4459e6
+                fcff=None
+                out['period']='2026-09-30'
+                out['source']='https://financialfilings.com/filings/lindab-international/interim-quarterly-report/2026/74636455/'
             # Kontrollera enheter och kapitalstruktur för ALLA bolag, inte bara specialfallen.
             market_cap=val(info,'marketCap') or val(quick,'market_cap')
             audit=[]
@@ -963,10 +971,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v11':
+if st.session_state.get('screener_model_version')!='unified-v12':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v11'
+    st.session_state['screener_model_version']='unified-v12'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 def picker_category(symbol):
