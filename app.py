@@ -1277,6 +1277,7 @@ if ev_ebita is None and report_ccy and quote_ccy and market_cap is not None and 
             break
 # Verified report snapshots: use only as fallback, never substitute EBIT or EBITDA.
 _report_ebita={
+    'BEIJ-B.ST':(4063e6,'2026-09-30','https://financialfilings.com/filings/beijer-ref/interim-quarterly-report/2026/74432767/'),
     'INDT.ST':(4844e6,'2026-09-30','https://financialfilings.com/filings/indutrade/interim-quarterly-report/2026/74637737/'),
     'ADDT-B.ST':(3888e6,'2026-09-30','https://attachment.news.eu.nasdaq.com/aefe28c8ca9dfc813d7f28af3fed5608b'),
     'INSTAL.ST':(1001e6,'2026-09-30','https://attachment.news.eu.nasdaq.com/a5d3d52407b7880f8e086d9e3715ee809'),
