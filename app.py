@@ -1079,10 +1079,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v23':
+if st.session_state.get('screener_model_version')!='unified-v24':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v23'
+    st.session_state['screener_model_version']='unified-v24'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -2579,6 +2579,17 @@ with three:
 with four:
     st.subheader('Bolagsvärdering – '+company)
     score,score_items,score_coverage=investment_score(valuation_result,info)
+    st.markdown('#### Nyemissioner och kapitalstruktur')
+    if not valuation_result.get('emission') and not valuation_result.get('capital_change'):
+        st.caption('Inga verifierade emissionsuppgifter tillgängliga. Detta betyder inte att bolaget saknar nyemissioner.')
+    if valuation_result.get('capital_change'):
+        st.markdown('#### Förändrad kapitalstruktur')
+        st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in valuation_result['capital_change'].items()]),hide_index=True,use_container_width=True)
+        st.caption(valuation_result['capital_change_period']+' · '+valuation_result['capital_change_note'])
+    if valuation_result.get('emission'):
+        st.markdown('#### Emissionsjustering')
+        st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in valuation_result['emission'].items() if x is not None]),hide_index=True,use_container_width=True)
+        st.caption('Emissionskälla: '+valuation_result['emission_source'])
     st.markdown('#### Kapitalavkastning och kapitalkostnad')
     cap_a,cap_b,cap_c=st.columns(3)
     if valuation_result.get('category')=='Bank / finansiella tjänster':
@@ -2608,14 +2619,6 @@ with four:
     st.caption('Huvudmodell: samma cachade värdering som riktkursrutan och aktiescreenern. Femårsscenarier är separata och utgör inte ytterligare riktkurser. Inga analytikerriktkurser.')
     st.write('**Kategori:** '+v['category']+' · '+str(v.get('profile') or 'Sektormodell'))
     if v.get('assumptions'): st.dataframe(pd.DataFrame([{'Antagande':k,'Värde':show(x,'',2)} for k,x in v['assumptions'].items()]),hide_index=True,use_container_width=True)
-    if v.get('capital_change'):
-        st.markdown('#### Förändrad kapitalstruktur')
-        st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in v['capital_change'].items()]),hide_index=True,use_container_width=True)
-        st.caption(v['capital_change_period']+' · '+v['capital_change_note'])
-    if v.get('emission'):
-        st.markdown('#### Emissionsjustering')
-        st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in v['emission'].items() if x is not None]),hide_index=True,use_container_width=True)
-        st.caption('Emissionskälla: '+v['emission_source'])
     if v.get('period'): st.caption('Rapportperiod: '+v['period'])
     if v.get('source'): st.caption('Källa: '+v['source'])
     if v.get('inputs'): st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in v['inputs'].items()]),hide_index=True,use_container_width=True)
