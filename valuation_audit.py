@@ -69,9 +69,18 @@ if __name__=='__main__':
         except Exception as e:
             failures.append(symbol+': '+str(e))
             rows.append({'ticker':symbol,'missing':type(e).__name__+': '+str(e),'report_verified':False})
-        print(symbol,rows[-1].get('target'),flush=True)
+        if 'v' in locals() and rows[-1].get('category'):
+            inputs=v.get('inputs',{})
+            earnings=inputs.get('EBITA')
+            if earnings is None: earnings=inputs.get('EBITA (beräknad)')
+            debt,fx,shares,price=(inputs.get('Nettoskuld'),inputs.get('Valutakurs'),inputs.get('Antal aktier'),v.get('price'))
+            applicable=v.get('category')=='Rörelsedrivande bolag'
+            multiple=(price*shares/fx+debt)/earnings if applicable and all(x is not None for x in (earnings,debt,fx,shares,price)) and min(earnings,fx,shares,price)>0 else None
+            rows[-1].update({'ebita':earnings,'ev_ebita':multiple,'ebita_status':'Ej tillämpligt' if not applicable else 'Saknas EBITA' if earnings is None else 'Saknas jämförbar EV/EBITA' if multiple is None else 'Underlag finns'})
+        print(symbol,rows[-1].get('target'),rows[-1].get('ebita_status'),flush=True)
         pd.DataFrame(rows).to_csv('valuation-audit.csv',index=False)
     print('Total:',len(rows),'With target:',sum(r.get('target') is not None for r in rows))
 
+    print('EBITA coverage:',pd.Series([r.get('ebita_status','Fel') for r in rows]).value_counts().to_dict(),flush=True)
     print('Execution failures:',len(failures),flush=True)
     if failures: raise AssertionError('; '.join(failures))
