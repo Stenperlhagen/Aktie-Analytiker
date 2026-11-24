@@ -542,12 +542,31 @@ def render_price_events(history,company,ticker):
     if events.empty:
         st.info('Inga identifierade rörelser eller justerad kurshistorik saknas.')
         return
-    chart=history.reset_index()
+    chart=history.sort_index().copy()
+    chart=chart.loc[~chart.index.duplicated(keep='last')].reset_index()
     chart_date=chart.columns[0]
     fig=px.line(chart,x=chart_date,y='Adj Close',title='Större kursrörelser – fem år')
-    for date,group in events.groupby('Datum'):
-        row=group.sort_values('Handelsdagar').iloc[0]
-        fig.add_vline(x=date,line_color='#16803C' if row['Förändring (%)']>0 else '#C53030',line_width=1,opacity=.55)
+    fig.update_traces(line=dict(color='#87909E',width=1.5),name='Normal kursutveckling',showlegend=True)
+    dates=[pd.Timestamp(x).date().isoformat() for x in chart[chart_date]]
+    positions={date:i for i,date in enumerate(dates)}
+    # Color only the actual line segments; daily events take priority over overlapping five-day windows.
+    colors={}
+    for _,event in events.sort_values('Handelsdagar',ascending=False).iterrows():
+        start=positions.get(event['Från'])
+        end=positions.get(event['Datum'])
+        if start is None or end is None: continue
+        direction='up' if event['Förändring (%)']>0 else 'down'
+        for i in range(start+1,end+1):
+            colors[i]=direction
+    for direction,color,label in [('up','#16803C','Kraftig uppgång'),('down','#C53030','Kraftig nedgång')]:
+        xs,ys=[],[]
+        for i in sorted(colors):
+            if colors[i]!=direction: continue
+            xs.extend([chart[chart_date].iloc[i-1],chart[chart_date].iloc[i],None])
+            ys.extend([chart['Adj Close'].iloc[i-1],chart['Adj Close'].iloc[i],None])
+        if xs:
+            fig.add_scatter(x=xs,y=ys,mode='lines',name=label,line=dict(color=color,width=2.5),connectgaps=False)
+    fig.update_layout(legend=dict(orientation='h',y=1.12))
     st.plotly_chart(fig,use_container_width=True)
     display=events.sort_values(['Datum','Handelsdagar'],ascending=[False,True]).reset_index(drop=True)
     st.dataframe(display.drop(columns=['Kurs']),hide_index=True,use_container_width=True)
