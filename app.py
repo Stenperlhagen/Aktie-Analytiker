@@ -612,21 +612,18 @@ def long_history(symbol):
     except Exception:
         return pd.DataFrame()
 
-def render_bull_bear(ticker):
-    st.subheader('Bull & Bear – långsiktig trendanalys')
-    st.caption('Dow Theory · 3–10 års placeringshorisont. Teknisk analys, separat från fundamental riktkurs.')
+def bull_structure(ticker):
     h=long_history(ticker)
     if h.empty or 'Adj Close' not in h:
-        st.info('Justerad kurshistorik saknas.')
-        return
+        return None
     p=pd.to_numeric(h['Adj Close'],errors='coerce').dropna().sort_index()
     p=p[p>0]
-    if p.empty: return
+    if p.empty: return None
     p.index=pd.DatetimeIndex(p.index).tz_localize(None)
     p=p[~p.index.duplicated(keep='last')]
     now=pd.Timestamp.now()
     p=p[p.index.normalize()<now.normalize()]
-    if p.empty: return
+    if p.empty: return None
     # Monthly adjusted highs/lows, using the same adjustment factor as adjusted close.
     raw=h.copy()
     raw.index=pd.DatetimeIndex(raw.index).tz_localize(None)
@@ -640,6 +637,38 @@ def render_bull_bear(ticker):
         row=monthly.iloc[i]
         if row.High==window.High.max() and (window.High==row.High).sum()==1: highs.append((monthly.index[i],row.High))
         if row.Low==window.Low.min() and (window.Low==row.Low).sum()==1: lows.append((monthly.index[i],row.Low))
+    return p,raw,factor,monthly,highs,lows
+
+def render_main_technical(ticker):
+    data=bull_structure(ticker)
+    label='OTILLRÄCKLIGT UNDERLAG'; color='#64748B'; reason='Bekräftade toppar och bottnar saknas.'
+    if data is not None:
+        p,raw,factor,monthly,highs,lows=data
+        if len(highs)>=2 and len(lows)>=2 and not monthly.empty:
+            last=float(p.iloc[-1]); close=float(monthly.Close.iloc[-1])
+            top=highs[-1][1]; bottom=lows[-1][1]
+            higher=lows[-1][1]>lows[-2][1]; lower=highs[-1][1]<highs[-2][1]
+            if last<bottom:
+                if lower and close<bottom: label='SÄLJ'; reason='Lägre topp och avslutad månad under stödnivån.'
+                else: label='SÄLJVARNING'; reason='Aktien har brutit under en viktig stödnivå.'
+                color='#D32F2F'
+            elif last>top:
+                if higher and close>top: label='KÖP'; reason='Högre botten och avslutad månad över motståndsnivån.'
+                else: label='KÖPLÄGE BEVAKAS'; reason='Aktien har brutit över en tidigare topp.'
+                color='#07833D'
+            else:
+                label='BEHÅLL'; color='#B8860B'; reason='Ingen aktuell bekräftad nivåsignal.'
+    st.markdown(f'<div style="display:flex;align-items:center;gap:16px;margin:12px 0;padding:12px;border:1px solid #cbd5e1;border-radius:10px"><span style="background:{color};color:white;padding:12px 16px;border-radius:8px;font-weight:800">{label}</span><div><b>Teknisk nivåsignal</b><br>{reason}</div></div>',unsafe_allow_html=True)
+    st.caption('Separat från fundamental riktkurs och fullständig trendpoäng. Se Bull & Bear för detaljer.')
+
+def render_bull_bear(ticker):
+    st.subheader('Bull & Bear – långsiktig trendanalys')
+    st.caption('Dow Theory · 3–10 års placeringshorisont. Teknisk analys, separat från fundamental riktkurs.')
+    data=bull_structure(ticker)
+    if data is None:
+        st.info('Justerad kurshistorik saknas.')
+        return
+    p,raw,factor,monthly,highs,lows=data
     def compare(a,b):
         return 1 if a>b else -1 if a<b else 0
     hh=compare(highs[-1][1],highs[-2][1]) if len(highs)>=2 else None
@@ -2224,6 +2253,7 @@ def investment_score(v, info):
     score=sum(x['Poäng']*x['Vikt'] for x in items)/coverage if eligible and coverage>=expected*.75 and len(items)>=4 and not v.get('audit') else None
     return score,items,coverage/expected*100
 
+render_main_technical(ticker)
 one,two,three,four,five,six=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering','Kurspåverkande händelser','Bull & Bear'])
 with six:
     render_bull_bear(ticker)
