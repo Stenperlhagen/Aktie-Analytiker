@@ -698,11 +698,16 @@ def render_bull_bear(ticker):
     frame=pd.DataFrame({'Datum':p.index,'Justerad kurs':p.values})
     fig=px.line(frame,x='Datum',y='Justerad kurs')
     fig.update_traces(line=dict(color='#64748B',width=1.5),name='Aktiekurs',showlegend=True)
-    selected=st.multiselect('Visa glidande medelvärden',[50,200,400,1000],default=[],format_func=lambda n:f'MA{n}',key='bull_ma_'+ticker)
+    selected=st.multiselect('Visa glidande medelvärden',[50,200,400,1000],default=[],format_func=lambda n:f'MA{n}',key='bull_ma_v2_'+ticker)
     show_labels=st.checkbox('Visa text vid toppar och bottnar',value=True,key='bull_labels_'+ticker)
     ma_colors={50:'#0891B2',200:'#2563EB',400:'#D97706',1000:'#9333EA'}
-    for n in selected:
-        if ma[n].notna().any(): fig.add_scatter(x=p.index,y=ma[n],name=f'MA{n}',mode='lines',line=dict(color=ma_colors[n],width=1.6,dash='dot'))
+    for choice in selected:
+        try:
+            n=int(str(choice).upper().removeprefix('MA'))
+        except (ValueError,TypeError):
+            continue
+        if n in ma and ma[n].notna().any():
+            fig.add_scatter(x=p.index,y=ma[n],name=f'MA{n}',mode='lines',line=dict(color=ma_colors[n],width=1.6,dash='dot'))
     for points,label,series,up in [(highs,'Topp',raw['High']*factor,True),(lows,'Botten',raw['Low']*factor,False)]:
         xs,ys,labels,hover,colors=[],[],[],[],[]
         previous=None
