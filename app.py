@@ -983,6 +983,24 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
     if out['models']:
         out['target']=sum(out['models'].values())/len(out['models'])
         out['method']=' + '.join(out['models'])
+    # Capital structure review applies to all sectors, including fallback models.
+    capital_flags=[]
+    current_cap=val(info,'marketCap') or val(quick,'market_cap')
+    if shares and price and current_cap and min(shares,price,current_cap)>0:
+        if abs(shares*price/current_cap-1)>0.10:
+            capital_flags.append('Aktuellt aktieantal och börsvärde avviker mer än 10 %; kontrollera emissioner och aktieslag')
+    share_periods=sorted(balance.columns,reverse=True)
+    if len(share_periods)>=2:
+        recent=row(balance,['Ordinary Shares Number','Share Issued'],share_periods[0])
+        previous=row(balance,['Ordinary Shares Number','Share Issued'],share_periods[1])
+        if recent and previous and min(recent,previous)>0 and abs(recent/previous-1)>0.10:
+            capital_flags.append('Rapporterat aktieantal har förändrats mer än 10 % mellan årsperioder; kontrollera emission, split eller återköp')
+        if recent and shares and min(recent,shares)>0 and abs(shares/recent-1)>0.10:
+            capital_flags.append('Aktuellt aktieantal avviker från senaste årsbalans; kontrollera emissionslikvid och aktuell nettoskuld')
+    if symbol=='WBGR-B.ST':
+        capital_flags.append('Wästbygg: nyemissioner 2025–2026 och teckningsoptioner; verifiera registrerat aktieantal, emissionslikvid, nettoskuld och potentiell utspädning innan riktkurs används')
+    if capital_flags:
+        out.setdefault('audit',[]).extend(capital_flags)
     # Extrema modellutfall är granskningsfall, inte automatiska köp-/säljsignaler.
     target=out['target']
     if target is not None and price is not None and price>0 and not 0.2<=target/price<=5:
@@ -1007,10 +1025,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v18':
+if st.session_state.get('screener_model_version')!='unified-v19':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v18'
+    st.session_state['screener_model_version']='unified-v19'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
