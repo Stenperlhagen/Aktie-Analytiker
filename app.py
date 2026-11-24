@@ -693,6 +693,40 @@ def render_bull_bear(ticker):
     dd=(p/p.cummax()-1).min()*100
     st.metric('Maximal historisk nedgång',f'{dd:.1f} %')
     st.caption(f'Justerad kursserie {p.index[0].date()} – {p.index[-1].date()}.')
+    # Signals use only completed months and pivots confirmed two months later.
+    signals=[]
+    state=0
+    prior_close=None
+    for i,(month,row) in enumerate(monthly.iterrows()):
+        confirmed=monthly.index[i-2] if i>=2 else None
+        hs=[v for d,v in highs if confirmed is not None and d<=confirmed]
+        ls=[v for d,v in lows if confirmed is not None and d<=confirmed]
+        close=float(row.Close)
+        if len(hs)>=2 and len(ls)>=2:
+            if hs[-1]<hs[-2] and ls[-1]<ls[-2]: state=-1
+            elif hs[-1]>hs[-2] and ls[-1]>ls[-2]: state=1
+            if prior_close is not None:
+                if state==-1 and ls[-1]>ls[-2] and prior_close<=hs[-1]<close:
+                    signals.append((month,close,'KÖP')); state=1
+                elif state==1 and hs[-1]<hs[-2] and prior_close>=ls[-1]>close:
+                    signals.append((month,close,'SÄLJ')); state=-1
+        prior_close=close
+    st.markdown('#### Tekniska köp- och säljnivåer')
+    st.caption('Bevakningsnivåer enligt Dow Theory. Bekräftelse kräver avslutad månad och relevant topp-/bottenstruktur.')
+    buy=highs[-1][1] if highs else None
+    sell=lows[-1][1] if lows else None
+    # Translate adjusted levels to latest observed unadjusted price scale.
+    scale=numeric(raw['Close'].iloc[-1]/last)
+    if scale is None or scale<=0: scale=1
+    cols=st.columns(3)
+    cols[0].metric('Senaste avslutade dagskurs',f'{last*scale:.2f}')
+    cols[1].metric('Bevaka köp över',f'{buy*scale:.2f}' if buy is not None else 'Saknas',f'{(buy/last-1)*100:+.1f} %' if buy is not None else None,delta_color='off')
+    cols[2].metric('Bevaka sälj under',f'{sell*scale:.2f}' if sell is not None else 'Saknas',f'{(sell/last-1)*100:+.1f} %' if sell is not None else None,delta_color='off')
+    if signals:
+        month,close,signal=signals[-1]
+        st.write(f'Senaste historiska trendvändningssignal: **{signal}** – {month}.')
+    else: st.info('Ingen bekräftad historisk trendvändningssignal enligt reglerna.')
+    st.caption('Säljbevakning är inte en automatisk stop-loss eller fundamental riktkurs. Ett brott under nivån behöver även en lägre bekräftad topp.')
     st.markdown('#### Marknadsstruktur – toppar och bottnar')
     st.caption('Grönt = högre topp eller botten. Rött = lägre topp eller botten. Grått = första eller oförändrade nivån.')
     frame=pd.DataFrame({'Datum':p.index,'Justerad kurs':p.values})
@@ -723,6 +757,14 @@ def render_bull_bear(ticker):
             previous=value
         if xs:
             fig.add_scatter(x=xs,y=ys,mode='markers+text' if show_labels else 'markers',text=labels,textposition='top center' if up else 'bottom center',textfont=dict(color=colors,size=11),name=label,marker=dict(color=colors,size=10,symbol='triangle-down' if up else 'triangle-up',line=dict(color='white',width=1)),customdata=hover,hovertemplate='%{x|%Y-%m-%d}<br>%{customdata}<extra></extra>')
+    if st.checkbox('Visa köp- och säljnivåer',value=True,key='bull_levels_'+ticker):
+        for level,color,label in [(buy,'#008A42','Köpbevakning'),(sell,'#D32F2F','Säljbevakning')]:
+            if level is not None: fig.add_hline(y=level,line_color=color,line_dash='dash',annotation_text=label,annotation_position='top left')
+    if st.checkbox('Visa historiska köp- och säljsignaler',value=True,key='bull_signals_'+ticker):
+        for signal,color in [('KÖP','#008A42'),('SÄLJ','#D32F2F')]:
+            rows=[(m,v) for m,v,s in signals if s==signal]
+            xs=[p.index[p.index.to_period('M')==m][-1] for m,v in rows]
+            if rows: fig.add_scatter(x=xs,y=[v for m,v in rows],mode='markers+text',text=[signal]*len(rows),textposition='bottom center' if signal=='KÖP' else 'top center',name=signal,marker=dict(color=color,size=13,symbol='diamond'),textfont=dict(color=color,size=12))
     fig.update_layout(height=520,legend=dict(orientation='h',y=-0.20),margin=dict(t=40,b=100),xaxis_title=None,yaxis_title='Justerad kurs',hovermode='closest')
     fig.update_xaxes(rangeselector=dict(buttons=[dict(count=1,label='1 år',step='year',stepmode='backward'),dict(count=3,label='3 år',step='year',stepmode='backward'),dict(count=5,label='5 år',step='year',stepmode='backward'),dict(step='all',label='All historik')]))
     if not highs or not lows: st.info('För få bekräftade månadstoppar eller månadsbottnar i historiken.')
