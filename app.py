@@ -1251,17 +1251,22 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
     eps_ccy=info.get('financialCurrency')
     eps_fx=fx_rate(eps_ccy,currency) if eps_ccy and currency else None
     out['pe_ttm']=None
+    out['pe_period']='R12' if eps is not None else None
     out['pe_nonpositive']=eps is not None and eps<=0
     out['pe_zero']=eps is not None and eps==0
     if price and price>0 and eps is not None and eps!=0 and eps_fx and eps_fx>0:
         out['pe_ttm']=price/(eps*eps_fx)
     if out['pe_ttm'] is None and not out['pe_zero'] and not out['pe_nonpositive']:
         reported_pe=val(info,'trailingPE')
-        if reported_pe is not None and reported_pe!=0: out['pe_ttm']=reported_pe
+        if reported_pe is not None and reported_pe!=0:
+            out['pe_ttm']=reported_pe
+            out['pe_period']='R12'
     if out['pe_ttm'] is None and not out['pe_zero'] and price and price>0 and shares and shares>0 and eps_fx and eps_fx>0:
         profit=val(info,'netIncomeToCommon')
         if profit is not None:
-            if profit!=0: out['pe_ttm']=price*shares/(profit*eps_fx)
+            if profit!=0:
+                out['pe_ttm']=price*shares/(profit*eps_fx)
+                out['pe_period']=None
             else: out['pe_zero']=True
     out['roe']=val(info,'returnOnEquity')
     out['cost_of_equity_pct']=10.0
@@ -1911,7 +1916,10 @@ elif ebita is None and fin is not None and not fin.empty:
         if operating is not None and amort is not None:
             ebita=operating+abs(amort)
             break
-if valuation_result.get('pe_ttm') is not None: pe=valuation_result['pe_ttm']
+if valuation_result.get('pe_ttm') is not None:
+    pe=valuation_result['pe_ttm']
+    pe_source='Värderingsmotor'
+    eps_report_period=None
 else: pe=val(info,'trailingPE')
 if dividend_yield is None: dividend_yield=trailing_dividend_yield(ticker,valuation_price)
  # No unlabelled provider-period fallback for annual ROE or growth.
@@ -2003,6 +2011,17 @@ if report_fallback:
 if valuation_result.get('category')!='Bank / finansiella tjänster' and ebita is None: st.caption('EBITA saknas: separat rapporterad EBITA eller immateriell avskrivning har inte hittats.')
 elif valuation_result.get('category')!='Bank / finansiella tjänster' and ev_ebita is None: st.caption('EV/EBITA saknas: positiv EBITA, jämförbar nettoskuld, börsvärde eller valuta saknas.')
 
+# Only label a ratio R12 when its actual input period is known.
+pe_period_label=valuation_result.get('pe_period') if pe_source=='Värderingsmotor' else ('R12' if pe_source=='Yahoo Finance trailingPE' else str(eps_report_period)[:4] if eps_report_period else None)
+if ticker=='WBGR-B.ST' and valuation_result.get('pe_ttm') is not None: pe_period_label=None
+pe_label='P/E'+(' ('+pe_period_label+')' if pe_period_label and pe is not None else '')
+ebita_period_label=None
+if report_fallback and ev_ebita is not None:
+    # Report fallback is explicitly described as R12 in the report caption.
+    ebita_period_label='R12'
+elif ev_ebita is not None and ev_ebita_source.startswith('Yahoo årsrapport '):
+    ebita_period_label=ev_ebita_source.split()[2][:4]
+ev_ebita_label='EV/EBITA'+(' ('+ebita_period_label+')' if ebita_period_label else '')
 overview_items = [
     ('Börsvärde',show(market_cap/1e9,' mdkr',2) if market_cap is not None and quote_ccy=='SEK' else (show(market_cap/1e9,' md '+(quote_ccy or ''),2) if market_cap is not None else 'Saknas')),
     ('Aktiekurs',show(valuation_price,' '+(valuation_result.get('currency') or ''),2)),
@@ -2012,8 +2031,8 @@ overview_items = [
     ('EBITA (rapportperiod)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas'),
     ('Avkastning på eget kapital (ROE)',show(roe_overview,' %',1) if roe_overview is not None else 'Saknas'),
     ('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),
-    ('P/E (R12 om tillgängligt)','Ej definierat (nollvinst)' if valuation_result.get('pe_zero') else show(pe,'×') if pe is not None else 'Saknas'),
-    ('EV/EBITA',show(ev_ebita,'×',1) if ev_ebita is not None else 'Saknas'),
+    (pe_label,'Ej definierat (nollvinst)' if valuation_result.get('pe_zero') else show(pe,'×') if pe is not None else 'Saknas'),
+    (ev_ebita_label,show(ev_ebita,'×',1) if ev_ebita is not None else 'Saknas'),
     ('Nettoskuld/EBITDA',show(netdebt_ebitda,'×',2) if netdebt_ebitda is not None else 'Saknas'),
     ('Direktavkastning (12 mån)',show(dividend_yield,' %',1) if dividend_yield is not None else 'Saknas')
 ]
