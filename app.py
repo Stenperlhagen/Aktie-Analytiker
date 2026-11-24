@@ -713,10 +713,10 @@ def emission_adjustment(old_shares, gross, subscription_price, costs, old_debt, 
             'DCF riktkurs':(enterprise_value-debt)/total if enterprise_value is not None else None,
             'TERP':(old_market_cap+gross)/total if old_market_cap is not None else None}
 
-def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
+def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
     # ROIC primary for matching annual statements; never mix currencies or periods.
     primary_source='Yahoo Finance'
-    key=roic_key()
+    key=roic_key() if use_roic else ''
     if key:
         try:
             data,_=roic_company_data(symbol,key)
@@ -1104,14 +1104,25 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
 def screener_snapshot(symbol):
     try:
         info,hist,fin,cash,balance,quick,errors=fetch(symbol)
-        return valuation_engine(symbol,info,fin,cash,balance,quick,hist)
+        try:
+            result=valuation_engine(symbol,info,fin,cash,balance,quick,hist)
+        except Exception as exc:
+            result=valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=False)
+            result['missing'].append('Primär modell: '+type(exc).__name__+': '+str(exc)[:200])
+        if result.get('target') is None and roic_key():
+            fallback=valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=False)
+            if fallback.get('target') is not None:
+                fallback['missing'].append('ROIC-underlag gav ingen riktkurs; Yahoo-reservmodell används.')
+                result=fallback
+        result['fetch_errors']=errors
+        return result
     except Exception as exc:
-        return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
+        return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v31':
+if st.session_state.get('screener_model_version')!='unified-v32':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v31'
+    st.session_state['screener_model_version']='unified-v32'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
