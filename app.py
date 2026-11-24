@@ -653,9 +653,33 @@ def render_bull_bear(ticker):
     m200,m400=numeric(ma[200].iloc[-1]),numeric(ma[400].iloc[-1])
     # No price-only index substituted for total-return benchmark.
     scores=[('Månadstoppar',hh,20),('Månadsbottnar',hl,20),('Kurs / MA200',ma_signal(200),10),('Kurs / MA400',ma_signal(400),10),('MA200 / MA400',compare(m200,m400) if m200 is not None and m400 is not None else None,10),('Relativ totalavkastning 3 år',None,15),('Relativ totalavkastning 5 år',None,15)]
+    complete=all(sign is not None for _,sign,_ in scores)
+    score=sum(sign*weight for _,sign,weight in scores) if complete else None
+    if score is None:
+        recommendation='Otillräckligt underlag'
+        color='#64748B'
+    elif score>=20:
+        recommendation='KÖP'
+        color='#07833D'
+    elif score<=-20:
+        recommendation='SÄLJ'
+        color='#D32F2F'
+    else:
+        recommendation='BEHÅLL'
+        color='#B8860B'
+    st.markdown(f'<div style="background:{color};color:white;padding:18px;border-radius:10px;text-align:center"><div style="font-size:14px">Teknisk rekommendation</div><div style="font-size:30px;font-weight:700">{recommendation}</div></div>',unsafe_allow_html=True)
+    positive=[name for name,sign,_ in scores if sign==1]
+    negative=[name for name,sign,_ in scores if sign==-1]
+    missing=[name for name,sign,_ in scores if sign is None]
+    reasons=[]
+    if positive: reasons.append('Positiva signaler: '+', '.join(positive)+'.')
+    if negative: reasons.append('Negativa signaler: '+', '.join(negative)+'.')
+    if missing: reasons.append('Rekommendation kan inte beräknas. Saknas: '+', '.join(missing)+'.')
+    st.write(' '.join(reasons) or 'Indikatorerna är neutrala.')
+    st.caption('Teknisk trendsignal, inte fundamental värdering eller individuell investeringsrådgivning.')
     a,b=st.columns(2)
     a.metric('Långsiktig trend',trend)
-    b.metric('Trendpoäng','Saknas – indexunderlag ej verifierat')
+    b.metric('Trendpoäng',f'{score:+d} / 100' if score is not None else 'Saknas – otillräckligt underlag')
     st.write('Marknadsstruktur: '+('HH' if hh==1 else 'LH' if hh==-1 else 'Neutral / saknas')+' + '+('HL' if hl==1 else 'LL' if hl==-1 else 'Neutral / saknas'))
     metrics=st.columns(4)
     for col,n in zip(metrics,(1,3,5,10)):
@@ -678,7 +702,7 @@ def render_bull_bear(ticker):
         if points: fig.add_scatter(x=[d.to_timestamp(how='end') for d,v in points],y=[v for d,v in points],mode='markers',name=label,marker=dict(color=color,size=8))
     st.plotly_chart(fig,use_container_width=True)
     st.dataframe(pd.DataFrame([{'Indikator':name,'Poäng':sign*weight if sign is not None else None,'Maxvikt':weight} for name,sign,weight in scores]),hide_index=True)
-    st.caption('Toppar och bottnar bekräftas först två avslutade månader senare. Full trendpoäng visas inte utan jämförbart totalavkastningsindex. Ingen köp- eller säljsignal.')
+    st.caption('Toppar och bottnar bekräftas först två avslutade månader senare. Full trendpoäng visas inte utan jämförbart totalavkastningsindex. Teknisk rekommendation visas endast med komplett underlag.')
 
 def parse_file(upload):
     raw=upload.getvalue(); name=upload.name.lower()
