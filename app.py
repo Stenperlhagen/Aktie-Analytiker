@@ -1362,6 +1362,25 @@ if valuation_result.get('category')=='Bank / finansiella tjänster':
     ki=abs(expenses)/bank_income*100 if expenses is not None and bank_income is not None and bank_income>0 else None
     pb=val(info,'priceToBook')
     cet1=None
+    cet1_source=None
+    cet1_capital=None
+    cet1_rwa=None
+    for period in sorted(balance.columns,reverse=True):
+        capital=_annual_balance_value(balance,['Common Equity Tier 1 Capital','CET1 Capital'],period)
+        rwa=_annual_balance_value(balance,['Risk Weighted Assets','Total Risk Weighted Assets','Total Risk Exposure Amount'],period)
+        if capital is not None and rwa is not None and capital>0 and rwa>0:
+            cet1=capital/rwa*100
+            cet1_capital,cet1_rwa=capital,rwa
+            cet1_source='Yahoo balansdata '+str(period)[:10]
+            break
+    for record in sorted(roic_balance,key=lambda x:str(x.get('period_end_date') or ''),reverse=True):
+        capital=_record_number(record,('common_equity_tier_1_capital','cet1_capital','bs_common_equity_tier_1_capital'))
+        rwa=_record_number(record,('risk_weighted_assets','total_risk_exposure_amount','bs_risk_weighted_assets'))
+        if capital is not None and rwa is not None and capital>0 and rwa>0:
+            cet1=capital/rwa*100
+            cet1_capital,cet1_rwa=capital,rwa
+            cet1_source='ROIC '+str(record.get('period_end_date') or '')
+            break
     credit_loss=None
     if _roic_income:
         bank_record=_roic_income[0]
@@ -1375,7 +1394,8 @@ if valuation_result.get('category')=='Bank / finansiella tjänster':
         'Rörelsemarginal':('K/I-tal (helår)',show(ki,' %',1))
     }
     overview_items=[replacements.get(label,(label,value)) for label,value in overview_items]
-    st.caption('Bankspecifika nyckeltal. CET1 och kreditförlustnivå kräver kompletterande bankrapporter. K/I beräknas endast från identifierade kostnader och intäkter i samma årsperiod.')
+    if cet1_source: st.caption('CET1: '+show(cet1_capital/1e6,' M',1)+' / '+show(cet1_rwa/1e6,' M',1)+' × 100. Källa: '+cet1_source)
+    st.caption('Bankspecifika nyckeltal. CET1 och kreditförlustnivå kräver kompletterande bankrapporter när underlag saknas. K/I beräknas endast från identifierade kostnader och intäkter i samma årsperiod.')
 
 for start in range(0,len(overview_items),4):
     cols=st.columns(4)
