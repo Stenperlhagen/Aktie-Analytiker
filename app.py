@@ -701,6 +701,18 @@ def valuation_category(symbol, info=None):
         return 'Ej klassificerad'
     return 'Rörelsedrivande bolag'
 
+def emission_adjustment(old_shares, gross, subscription_price, costs, old_debt, old_market_cap=None, enterprise_value=None, ebita=None, multiple=None):
+    """All amounts in one currency; inputs must precede the same completed cash issue."""
+    if old_shares<=0 or gross<=0 or subscription_price<=0 or not 0<=costs<=gross:
+        raise ValueError('Ogiltiga emissionsvillkor')
+    new_shares=gross/subscription_price
+    total=old_shares+new_shares
+    debt=old_debt-gross+costs
+    return {'Nya aktier':new_shares,'Totalt antal aktier':total,'Utspädning (%)':100*new_shares/total,'Justerad nettoskuld':debt,
+            'EV/EBITA riktkurs':(ebita*multiple-debt)/total if ebita is not None and ebita>0 and multiple is not None else None,
+            'DCF riktkurs':(enterprise_value-debt)/total if enterprise_value is not None else None,
+            'TERP':(old_market_cap+gross)/total if old_market_cap is not None else None}
+
 def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
     # ROIC primary for matching annual statements; never mix currencies or periods.
     primary_source='Yahoo Finance'
@@ -1006,6 +1018,29 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
         out['models']={}
         out['target']=None
         out['method']='Turnaround – kapitalstruktur ej verifierad'
+    # Verified issue records must contain pre-issue balances and explicit inclusion flags.
+    issue=info.get('verified_cash_issue')
+    if isinstance(issue,dict):
+        try:
+            if issue.get('verified') is not True or not issue.get('source') or not issue.get('date'):
+                raise ValueError('Emissionskälla saknas')
+            calc=emission_adjustment(issue['old_shares'],issue['gross'],issue['subscription_price'],issue['costs'],issue['old_debt'],issue.get('old_market_cap'))
+            out['emission']=calc
+            out['emission_source']=issue['source']
+            # Revalue enterprise-based models only if their original share and debt bases are known.
+            inputs=out.get('inputs',{})
+            base_shares=inputs.get('Antal aktier')
+            base_debt=inputs.get('Nettoskuld')
+            if issue.get('shares_included') is False and issue.get('cash_included') is False and base_shares==issue['old_shares'] and base_debt==issue['old_debt'] and fx and fx>0 and set(out['models']).issubset({'DCF','EV/EBITA','EV/EBIT'}):
+                for method,value in out['models'].items():
+                    out['models'][method]=(value*base_shares+(base_debt-calc['Justerad nettoskuld'])*fx)/calc['Totalt antal aktier']
+                inputs['Antal aktier']=calc['Totalt antal aktier']
+                inputs['Nettoskuld']=calc['Justerad nettoskuld']
+                if out['models']: out['target']=sum(out['models'].values())/len(out['models'])
+            elif not (issue.get('shares_included') is True and issue.get('cash_included') is True):
+                out.setdefault('audit',[]).append('Emission: kontrollera modellens aktieantal och nettoskuld före justering')
+        except (ValueError,TypeError,KeyError,ZeroDivisionError):
+            out.setdefault('audit',[]).append('Emissionsvillkor ofullständiga')
     # Extrema modellutfall är granskningsfall, inte automatiska köp-/säljsignaler.
     target=out['target']
     if target is not None and price is not None and price>0 and not 0.2<=target/price<=5:
@@ -1030,10 +1065,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v20':
+if st.session_state.get('screener_model_version')!='unified-v21':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v20'
+    st.session_state['screener_model_version']='unified-v21'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -2548,6 +2583,10 @@ with four:
     st.caption('Huvudmodell: samma cachade värdering som riktkursrutan och aktiescreenern. Femårsscenarier är separata och utgör inte ytterligare riktkurser. Inga analytikerriktkurser.')
     st.write('**Kategori:** '+v['category']+' · '+str(v.get('profile') or 'Sektormodell'))
     if v.get('assumptions'): st.dataframe(pd.DataFrame([{'Antagande':k,'Värde':show(x,'',2)} for k,x in v['assumptions'].items()]),hide_index=True,use_container_width=True)
+    if v.get('emission'):
+        st.markdown('#### Emissionsjustering')
+        st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in v['emission'].items() if x is not None]),hide_index=True,use_container_width=True)
+        st.caption('Emissionskälla: '+v['emission_source'])
     if v.get('period'): st.caption('Rapportperiod: '+v['period'])
     if v.get('source'): st.caption('Källa: '+v['source'])
     if v.get('inputs'): st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in v['inputs'].items()]),hide_index=True,use_container_width=True)
