@@ -1001,13 +1001,18 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist):
         capital_flags.append('Wästbygg: nyemissioner 2025–2026 och teckningsoptioner; verifiera registrerat aktieantal, emissionslikvid, nettoskuld och potentiell utspädning innan riktkurs används')
     if capital_flags:
         out.setdefault('audit',[]).extend(capital_flags)
+    if symbol=='WBGR-B.ST':
+        out['unreviewed_target']=out.get('target')
+        out['models']={}
+        out['target']=None
+        out['method']='Turnaround – kapitalstruktur ej verifierad'
     # Extrema modellutfall är granskningsfall, inte automatiska köp-/säljsignaler.
     target=out['target']
     if target is not None and price is not None and price>0 and not 0.2<=target/price<=5:
         out.setdefault('audit',[]).append('Modellvärdet avviker kraftigt från börskursen; kontrollera rapportdata och modell innan signal används')
     if out.get('audit'):
         out['missing'].extend(out['audit'])
-        out['unreviewed_target']=target
+        if target is not None: out['unreviewed_target']=target
     if target is not None and price is not None and price>0:
         out['upside']=(target/price-1)*100
         out['buy_limit']=target*0.8
@@ -1025,10 +1030,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__]}
 
-if st.session_state.get('screener_model_version')!='unified-v19':
+if st.session_state.get('screener_model_version')!='unified-v20':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v19'
+    st.session_state['screener_model_version']='unified-v20'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -1680,6 +1685,9 @@ global_display_method='Historisk P/E-jämförelse'
 with target_slot.container():
     target=valuation_result.get('target')
     potential=valuation_result.get('upside')
+    if valuation_result.get('audit'):
+        target=None
+        potential=None
     color='#166534' if potential is not None and potential>=20 else '#991b1b' if potential is not None and potential<=-20 else '#92400e' if potential is not None else '#475569'
     bg='#ecfdf3' if color=='#166534' else '#fef2f2' if color=='#991b1b' else '#fffbeb' if color=='#92400e' else '#f1f5f9'
     st.markdown('<div style="padding:18px;border-radius:15px;background:'+bg+';color:'+color+';"><div>Motiverad aktiekurs · '+valuation_result.get('method','')+'</div><div style="font-size:2rem;font-weight:800;">'+show(target,' '+str(valuation_result.get('currency') or ''),2)+'</div><div>'+valuation_result['status']+'</div><div>Potential: '+show(potential,' %',1)+'</div></div>',unsafe_allow_html=True)
@@ -2544,10 +2552,10 @@ with four:
     if v.get('source'): st.caption('Källa: '+v['source'])
     if v.get('inputs'): st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in v['inputs'].items()]),hide_index=True,use_container_width=True)
     for method,value in v.get('models',{}).items(): st.metric(method,show(value,' '+str(v.get('currency') or ''),2))
-    st.metric('Motiverad aktiekurs',show(v.get('target'),' '+str(v.get('currency') or ''),2))
+    st.metric('Motiverad aktiekurs',show(None if v.get('audit') else v.get('target'),' '+str(v.get('currency') or ''),2))
     st.metric('Reverse DCF – inprisad tillväxt','Ej tillämpligt' if v.get('category')=='Bank / finansiella tjänster' else show(v.get('reverse_growth'),' %',1))
-    st.metric('Upp-/nedsida',show(v.get('upside'),' %',1))
-    st.metric('Högsta köpkurs – 20 % säkerhetsmarginal',show(v.get('buy_limit'),' '+str(v.get('currency') or ''),2))
+    st.metric('Upp-/nedsida',show(None if v.get('audit') else v.get('upside'),' %',1))
+    st.metric('Högsta köpkurs – 20 % säkerhetsmarginal',show(None if v.get('audit') else v.get('buy_limit'),' '+str(v.get('currency') or ''),2))
     if v.get('audit'):
         st.warning('Värderingen behöver granskas: '+'; '.join(v['audit']))
         st.metric('Preliminärt modellutfall före kontroll',show(v.get('unreviewed_target'),' '+str(v.get('currency') or ''),2))
