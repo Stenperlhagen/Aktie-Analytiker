@@ -3500,7 +3500,7 @@ with quality_tab:
                         continue
                     indexed=values/values.iloc[0]*100
                     dates=pd.to_datetime(chart_data['date'])
-                    fig.add_trace(go.Scatter(x=dates,y=indexed,name=label,mode='lines',line=dict(color=color,width=2.5),connectgaps=False))
+                    fig.add_trace(go.Scatter(x=dates,y=indexed,name=label,mode='lines',line=dict(color=color,width=2,shape='spline',smoothing=0.65),connectgaps=False))
                 fig.add_hline(y=100,line_dash='dot',line_color='#94a3b8')
                 fig.update_layout(template='plotly_white',height=420,margin=dict(l=15,r=15,t=20,b=30),hovermode='x unified',yaxis_title='Index',legend=dict(orientation='h',y=1.12))
                 fig.update_xaxes(tickformat='%Y',showgrid=False)
