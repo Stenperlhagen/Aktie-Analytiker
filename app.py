@@ -45,14 +45,14 @@ def roic_key():
     except Exception: return ''
 
 @st.cache_data(ttl=21600,show_spinner=False)
-def company_icon(website,company_name,cache_version='logo-v4'):
+def company_icon(website,company_name,cache_version='logo-v5',symbol=None):
     import base64
     from PIL import Image, ImageDraw
     try:
         import json
         from pathlib import Path
         library=json.loads(Path(__file__).with_name('company_logos.json').read_text())
-        symbol=ALL_COMPANIES.get(company_name)
+        symbol=symbol or ALL_COMPANIES.get(company_name)
         if symbol and symbol in library: return library[symbol]
     except Exception: pass
     raw=str(website or '').strip()
@@ -103,9 +103,9 @@ def company_icon(website,company_name,cache_version='logo-v4'):
     im.save(out,format='PNG')
     return 'data:image/png;base64,'+base64.b64encode(out.getvalue()).decode('ascii')
 
-def icon_bytes(website,company_name):
+def icon_bytes(website,company_name,symbol=None):
     import base64
-    return base64.b64decode(company_icon(website,company_name).split(',',1)[1])
+    return base64.b64decode(company_icon(website,company_name,symbol=symbol).split(',',1)[1])
 
 @st.cache_data(ttl=86400,show_spinner=False)
 def roic_company_data(ticker, api_key):
@@ -1872,7 +1872,7 @@ with st.sidebar:
                     if not entries: st.caption('Inga kvalificerade resultat ännu.')
                     for rank,(sym,potential) in enumerate(entries,1):
                         logo_col,button_col=st.columns([1,6],gap='small',vertical_alignment='center')
-                        logo_col.image(icon_bytes(results[sym].get('website'),screener_names[sym]),width=25)
+                        logo_col.image(icon_bytes(results[sym].get('website'),screener_names[sym],sym),width=25)
                         if button_col.button(f'{rank}. {screener_names[sym]} · {potential:+.1f} %',key='rank_'+sym,use_container_width=True):
                             open_ranked_company(screener_names[sym])
         unknown=sum(1 for sym,_ in valid if numeric(results[sym].get('market_cap_sek')) is None)
@@ -1896,7 +1896,7 @@ company=info.get('longName') or name or ticker
 company_col,target_col=st.columns([2,1],vertical_alignment='top')
 with company_col:
     logo_col,name_col=st.columns([1,7],vertical_alignment='center')
-    logo_col.image(icon_bytes(info.get('website'),company),width=64)
+    logo_col.image(icon_bytes(info.get('website'),company,ticker),width=64)
     name_col.subheader(company)
     company_type=valuation_category(ticker,info)
     if company_type=='Rörelsedrivande bolag':
@@ -3324,12 +3324,12 @@ with three:
         if not peers and valuation_result.get('profile'):
             peers=[(n,s,'Samma värderingsprofil – ej verifierad direkt konkurrent') for n,s in ALL_COMPANIES.items() if s!=ticker and operating_valuation_profile(s)==valuation_result.get('profile') and valuation_category(s)==valuation_result.get('category')][:4]
         if peers:
-            peer_rows=[{'Logotyp':company_icon(info.get('website'),company),'Bolag':company,'P/E':pe,'Rörelsemarginal (%)':margin*100 if margin is not None else None,
+            peer_rows=[{'Logotyp':company_icon(info.get('website'),company,symbol=ticker),'Bolag':company,'P/E':pe,'Rörelsemarginal (%)':margin*100 if margin is not None else None,
                         'Omsättningstillväxt (%)':sales_growth_pct,'Nettoskuld/EBITDA':netdebt_ebitda,
                         'Jämförbarhet':'Bolaget som analyseras'}]
             for peer_name,peer_ticker,peer_note in peers:
                 peer_data=peer_snapshot(peer_ticker)
-                peer_rows.append({'Logotyp':company_icon(peer_data.get('website'),peer_name),'Bolag':peer_name,'P/E':peer_data.get('pe'),
+                peer_rows.append({'Logotyp':company_icon(peer_data.get('website'),peer_name,symbol=peer_ticker),'Bolag':peer_name,'P/E':peer_data.get('pe'),
                     'Rörelsemarginal (%)':peer_data.get('margin'),
                     'Omsättningstillväxt (%)':peer_data.get('growth'),
                     'Nettoskuld/EBITDA':peer_data.get('leverage'),
