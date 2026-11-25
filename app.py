@@ -45,10 +45,15 @@ def roic_key():
     except Exception: return ''
 
 @st.cache_data(ttl=21600,show_spinner=False)
-def company_icon(website,company_name,cache_version='logo-v2'):
+def company_icon(website,company_name,cache_version='logo-v3'):
     import base64
     from PIL import Image, ImageDraw
     raw=str(website or '').strip()
+    # Yahoo may omit website when only quote data is returned.
+    known_domains={'investor':'investorab.com','industrivärden':'industrivarden.se','latour':'latour.se','kinnevik':'kinnevik.com','bure':'bure.se','lundbergföretagen':'lundbergforetagen.se','volvo':'volvogroup.com','atlas copco':'atlascopcogroup.com','addlife':'add.life','aak':'aak.com'}
+    if not raw:
+        normalized=str(company_name).lower().strip()
+        raw=next((domain for name,domain in known_domains.items() if normalized==name or normalized.startswith(name+' ')),'')
     host=urllib.parse.urlparse(raw if '://' in raw else 'https://'+raw).hostname if raw else None
     if host:
         domain=host.removeprefix('www.')
@@ -57,6 +62,17 @@ def company_icon(website,company_name,cache_version='logo-v2'):
             ('https://icons.duckduckgo.com/ip3/'+domain+'.ico',None),
             ('https://'+host+'/favicon.ico',None)
         ]
+        try:
+            from html.parser import HTMLParser
+            class IconParser(HTMLParser):
+                def handle_starttag(self,tag,attrs):
+                    attrs=dict(attrs)
+                    if tag=='link' and 'icon' in attrs.get('rel','').lower() and attrs.get('href'):
+                        url=urllib.parse.urljoin(page.url,attrs['href'])
+                        if urllib.parse.urlparse(url).scheme in ('http','https'): candidates.append((url,None))
+            page=requests.get('https://'+host,timeout=5,headers={'User-Agent':'Mozilla/5.0'})
+            if page.ok: IconParser().feed(page.text)
+        except Exception: pass
         for url,params in candidates:
             try:
                 response=requests.get(url,params=params,timeout=4,headers={'User-Agent':'Mozilla/5.0'})
@@ -74,7 +90,7 @@ def company_icon(website,company_name,cache_version='logo-v2'):
     draw=ImageDraw.Draw(im)
     from PIL import ImageFont
     try: font=ImageFont.truetype('DejaVuSans.ttf',32)
-    except OSError: font=ImageFont.load_default()
+    except OSError: font=ImageFont.load_default(size=30)
     draw.text((48,48),initials,fill='#334155',anchor='mm',font=font)
     out=io.BytesIO()
     im.save(out,format='PNG')
