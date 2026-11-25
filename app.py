@@ -3358,22 +3358,46 @@ with business_tab:
         with st.expander('Fullständigt kassaflödesunderlag och datakällor'):
             st.dataframe(allocation_frame,hide_index=True,use_container_width=True)
             st.dataframe(pd.DataFrame(provenance),hide_index=True,use_container_width=True)
-        st.markdown('#### Slutsats – kapitalallokering')
-        recent=allocation_frame.iloc[-1]
+        st.markdown('#### Slutsats – kapitalallokering '+recent['År'][:4])
         oc=numeric(recent[labels[0]])
-        inv=numeric(recent[labels[1]])
-        financing=numeric(recent[labels[2]])
-        st.write('Senaste jämförbara räkenskapsår: '+recent['År']+'. '+('Den löpande verksamheten genererade '+show(oc,' '+unit,1)+'.' if oc is not None and oc>0 else 'Operativt kassaflöde var '+show(oc,' '+unit,1)+'.' if oc is not None else 'Operativt kassaflöde saknas.'))
-        details=[label+': '+show(numeric(recent[label]),' '+unit,1) for label in labels[4:] if numeric(recent[label]) is not None]
-        if details: st.write('Rapporterad kapitalanvändning: '+'; '.join(details)+'.')
-        if any(numeric(recent[label]) is None for label in labels[4:]):
-            st.info('Detaljerad kapitalanvändning är ofullständig. Det går inte att avgöra hela fördelningen mellan investeringar, förvärv, utdelningar och återköp.')
-        st.caption('Beloppen är rapporterade kassaflöden med ursprungliga tecken. Negativa belopp är normalt utflöden. Kapitalallokeringens kvalitet kräver även analys av avkastning på investeringarna.')
+        short_names=['Investeringar (Capex)','Företagsförvärv (netto)','Utdelningar','Aktieåterköp (netto)']
+        items=[(name,numeric(recent[label])) for name,label in zip(short_names,labels[4:])]
+        known=[(name,v) for name,v in items if v is not None]
+        outflows=sorted([(name,-v) for name,v in known if v<0],key=lambda x:x[1],reverse=True)
+        total_out=sum(v for _,v in outflows)
+        missing=[name for name,v in items if v is None]
+        with st.container(border=True):
+            c1,c2=st.columns(2)
+            c1.metric('Operativt kassaflöde',show(oc,' '+unit,0) if oc is not None else 'Saknas')
+            c2.metric('Redovisade kapitalutflöden',show(total_out,' '+unit,0) if known else 'Saknas')
+            if oc is not None and oc>0 and outflows:
+                st.markdown('**Kapitalutflöden i relation till operativt kassaflöde**')
+                for name,v in outflows:
+                    ratio=100*v/oc
+                    st.markdown(f'<div style="display:flex;justify-content:space-between;margin-top:10px;font-size:14px"><span>{name}</span><b>{ratio:.1f} %</b></div><div style="height:9px;background:#e2e8f0;border-radius:5px;margin:5px 0 10px"><div style="width:{min(100,ratio):.2f}%;height:9px;background:#16836D;border-radius:5px"></div></div>',unsafe_allow_html=True)
+            st.markdown('**Ekonomisk bedömning**')
+            sentences=[]
+            if outflows:
+                sentences.append(outflows[0][0]+' utgör den största redovisade kapitalanvändningen under året.')
+            if oc is not None and known:
+                if oc>0 and total_out<=oc:
+                    sentences.append('Det operativa kassaflödet täcker de redovisade kapitalutflödena.')
+                elif oc>0:
+                    sentences.append('De redovisade kapitalutflödena överstiger det operativa kassaflödet. Analysera övriga inflöden, likvida medel och finansiering.')
+                else:
+                    sentences.append('Verksamheten genererar inget positivt operativt kassaflöde under året.')
+            if any(v>0 for _,v in known):
+                sentences.append('Vissa redovisade nettoposter är inflöden och ingår därför inte i kapitalutflödena.')
+            if outflows:
+                sentences.append('Bedöm kapitalallokeringens lönsamhet tillsammans med avkastningen på investerat kapital.')
+            st.write(' '.join(sentences) or 'Underlaget räcker inte för att bedöma kapitalanvändningen.')
+            if missing: st.caption('Uppgifter saknas: '+', '.join(missing)+'. Slutsatsen omfattar endast redovisade poster.')
     else:
-        st.info('Ingen jämförbar årlig kassaflödeshistorik med verifierad rapportvaluta hittades.')
-    st.caption('Källprioritet: Börsdata Pro+ → ROIC.ai → Yahoo Finance. Matchat rapportdatum och ursprunglig rapportvaluta krävs. Saknade poster är inte noll.')
-    if roic_error: st.caption('ROIC kassaflöde: '+roic_error)
-    if info.get('website'): st.markdown(f"[Kontrollera eventuellt saknade poster i bolagets årsredovisningar]({info['website']})")
+        st.info('Ingen jämförbar årlig kassaflödeshistorik hittades.')
+    with st.expander('Datakällor & metodik',expanded=False):
+        st.caption('Källprioritet: Börsdata Pro+ → ROIC.ai → Yahoo Finance. Matchat rapportdatum och ursprunglig rapportvaluta krävs. Saknade poster är inte noll. Nettoposter kan innehålla både inflöden och utflöden.')
+        if roic_error: st.caption('ROIC kassaflöde: '+roic_error)
+        if info.get('website'): st.markdown(f"[Bolagets webbplats – årsredovisningar]({info['website']})")
     st.markdown('#### Motståndskraft i svagare tider')
     crisis=[]
     for year in (2008,2020,2022):
