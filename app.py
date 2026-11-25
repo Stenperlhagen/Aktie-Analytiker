@@ -2743,6 +2743,11 @@ def investment_score(v, info, metrics=None):
         if leverage is not None and leverage>=0: add('Skuld / eget kapital',leverage,100,0,25,' %')
         if metrics.get('equity_growth') is not None: add('Tillväxt i bokfört eget kapital per aktie',metrics['equity_growth']*100,-10,15,25,' %')
     expected=95 if operating else 100 if category in ('Bank / finansiella tjänster','Fastigheter') else 100 if category=='Investmentbolag / kapitalförvaltning' else 25
+    if operating:
+        for item in items: item['Vikt']=item['Vikt']*80/95
+        expected=100
+        stability=metrics.get('stability')
+        if stability is not None: add('Historisk tillväxtstabilitet',stability,0,100,20,'/100')
     coverage=sum(x['Vikt'] for x in items)
     # Investment holdings use NAV valuation, ROE and leverage, not industrial ratios.
     eligible=operating or category in ('Bank / finansiella tjänster','Fastigheter','Investmentbolag / kapitalförvaltning')
@@ -3326,7 +3331,7 @@ with four:
         latest,prior=equity_per_share_history[:2]
         days=(latest[0]-prior[0]).days
         if 320<=days<=410: equity_growth=(latest[1]/prior[1])**(365.2425/days)-1
-    rating,components,coverage=investment_score(assessment,info,{'roe':roe_overview/100 if roe_overview is not None else None,'growth':sales_growth_pct/100 if sales_growth_pct is not None else None,'margin':margin,'equity_growth':equity_growth})
+    rating,components,coverage=investment_score(assessment,info,{'roe':roe_overview/100 if roe_overview is not None else None,'growth':sales_growth_pct/100 if sales_growth_pct is not None else None,'margin':margin,'equity_growth':equity_growth,'stability':growth_stability(fin)['score'] if assessment.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') else None})
     target_value=assessment.get('target')
     current_value=assessment.get('price')
     ccy=str(assessment.get('currency') or '')
@@ -3388,6 +3393,10 @@ with four:
                 values=chart_data[field]
                 if len(values.dropna()) and values.dropna().iloc[0]>0: indexed[label]=values/values.dropna().iloc[0]*100
             if len(indexed.columns)>1: st.plotly_chart(px.line(indexed,x='Datum',y=list(indexed.columns[1:]),labels={'value':'Index (start = 100)','variable':'Nyckeltal'},markers=True),use_container_width=True)
+        margins=pd.DataFrame([{'Datum':x['date'],'Marginal (%)':100*x[stability['label'].lower()]/x['revenue']} for x in stability['rows'] if x['revenue'] is not None and x['revenue']>0 and x[stability['label'].lower()] is not None])
+        if len(margins)>=2:
+            with st.expander(stability['label']+'-marginal över tid'):
+                st.plotly_chart(px.line(margins,x='Datum',y='Marginal (%)',markers=True),use_container_width=True)
         st.caption('Upp till tio års tillväxtintervall. EBIT visas uttryckligen när EBITA-historik saknas. Tillväxt från förlustår ingår inte i procentberäkningen. Stabilitet är inte ett bevis på prissättningskraft.')
     st.markdown('### Fördjupad bolagsanalys')
     with st.container(border=True):
