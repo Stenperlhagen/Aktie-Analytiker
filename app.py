@@ -231,37 +231,8 @@ def fetch(ticker):
         except Exception as exc:
             errors[label] = f'{type(exc).__name__}: {str(exc)[:250]}'
             return fallback
-    info = attempt('Bolagsprofil', lambda: obj.info, {})
-    history = attempt('Kurshistorik', lambda: obj.history(period='5y', auto_adjust=False), pd.DataFrame())
-    def annual_income_fallback():
-        annual_income=obj.income_stmt
-        return annual_income
-    fin = attempt('Resultaträkning', annual_income_fallback, pd.DataFrame())
-    cash = attempt('Kassaflöde', lambda: obj.cashflow, pd.DataFrame())
-    balance = attempt('Balansräkning', lambda: obj.balance_sheet, pd.DataFrame())
-    # Yahoo fast_info kan fungera även när den större bolagsprofilen blockeras.
-    quick = {}
-    for field in ('currency','last_price','market_cap','shares'):
-        value=attempt('Snabbkursdata '+field,lambda field=field: obj.fast_info[field],None)
-        if value is not None: quick[field]=value
-    info=dict(info or {})
-    if not info.get('currency') and quick.get('currency'): info['currency']=quick['currency']
-    if not info.get('currency') and ticker.endswith('.ST'): info['currency']='SEK'  # Stockholm trading currency, not reporting currency
-    if not info.get('financialCurrency') and not fin.empty:
-        # Recover reporting currency from the same Yahoo annual financial series, not the exchange.
-        try:
-            period=pd.Timestamp(max(fin.columns)).strftime('%Y-%m-%d')
-            url='https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/'+urllib.parse.quote(ticker,safe='')
-            payload=obj._data.get(url=url,params={'symbol':ticker,'type':'annualTotalRevenue,annualOperatingIncome','period1':int((pd.Timestamp(period)-pd.Timedelta(days=370)).timestamp()),'period2':int((pd.Timestamp(period)+pd.Timedelta(days=2)).timestamp())},timeout=12).json()
-            currencies={str(item.get('currencyCode')).upper() for series in payload.get('timeseries',{}).get('result',[]) for field in ('annualTotalRevenue','annualOperatingIncome') for item in series.get(field,[]) if item and item.get('asOfDate')==period and item.get('currencyCode')}
-            if len(currencies)==1:
-                info['financialCurrency']=currencies.pop()
-                info['_report_currency_source']='Yahoo annual financial series '+period
-            else: errors['Rapportvaluta']='Ingen entydig valuta i finansiell serie för '+period
-        except Exception as exc:
-            errors['Rapportvaluta']=type(exc).__name__+': '+str(exc)[:180]
-    for label,frame in [('Resultaträkning',fin),('Balansräkning',balance),('Kassaflöde',cash),('Kurshistorik',history)]:
-        if frame.empty: errors.setdefault(label,'Datakällan returnerade tom tabell.')
+    info, quick = {}, {}
+    history, fin, cash, balance = (pd.DataFrame() for _ in range(4))
     # Shared primary report and price adapter for every caller of fetch().
     if not borsapi_key(): errors['Börsdata anslutning']='BORSAPI_API_KEY saknas eller är tom i Streamlit Secrets.'
     if borsapi_key():
@@ -290,6 +261,52 @@ def fetch(ticker):
             else: errors['Börsdata kurs']=bd_error
         except Exception as exc:
             errors['Börsdata adapter']=type(exc).__name__
+    primary_info = dict(info)
+    info = dict(attempt('Bolagsprofil', lambda: obj.info, {}) or {})
+    yahoo_currency = info.get('financialCurrency')
+    info.update(primary_info)
+    if history.empty:
+        history = attempt('Kurshistorik', lambda: obj.history(period='5y', auto_adjust=False), pd.DataFrame())
+        if not history.empty: info['_price_source']='Yahoo Finance (reserv)'
+    def annual_income_fallback():
+        annual_income=obj.income_stmt
+        return annual_income
+    def fill_report(primary, label, getter):
+        if not primary.empty and yahoo_currency != info.get('financialCurrency'):
+            return primary
+        # Yahoo supplies statement fields not exposed by the current Börsdata adapter.
+        secondary = attempt(label, getter, pd.DataFrame())
+        if primary.empty:
+            if primary_info.get('financialCurrency') and yahoo_currency != primary_info['financialCurrency']:
+                return primary
+            return secondary
+        return primary.combine_first(secondary.reindex(columns=primary.columns))
+    fin = fill_report(fin, 'Resultaträkning', annual_income_fallback)
+    cash = fill_report(cash, 'Kassaflöde', lambda: obj.cashflow)
+    balance = fill_report(balance, 'Balansräkning', lambda: obj.balance_sheet)
+    # Yahoo fast_info kan fungera även när den större bolagsprofilen blockeras.
+    for field in ('currency','last_price','market_cap','shares'):
+        if quick.get(field) is not None or info.get({'currency':'currency','last_price':'currentPrice','market_cap':'marketCap','shares':'sharesOutstanding'}[field]) is not None: continue
+        value=attempt('Snabbkursdata '+field,lambda field=field: obj.fast_info[field],None)
+        if value is not None: quick[field]=value
+    info=dict(info or {})
+    if not info.get('currency') and quick.get('currency'): info['currency']=quick['currency']
+    if not info.get('currency') and ticker.endswith('.ST'): info['currency']='SEK'  # Stockholm trading currency, not reporting currency
+    if not info.get('financialCurrency') and not fin.empty:
+        # Recover reporting currency from the same Yahoo annual financial series, not the exchange.
+        try:
+            period=pd.Timestamp(max(fin.columns)).strftime('%Y-%m-%d')
+            url='https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/'+urllib.parse.quote(ticker,safe='')
+            payload=obj._data.get(url=url,params={'symbol':ticker,'type':'annualTotalRevenue,annualOperatingIncome','period1':int((pd.Timestamp(period)-pd.Timedelta(days=370)).timestamp()),'period2':int((pd.Timestamp(period)+pd.Timedelta(days=2)).timestamp())},timeout=12).json()
+            currencies={str(item.get('currencyCode')).upper() for series in payload.get('timeseries',{}).get('result',[]) for field in ('annualTotalRevenue','annualOperatingIncome') for item in series.get(field,[]) if item and item.get('asOfDate')==period and item.get('currencyCode')}
+            if len(currencies)==1:
+                info['financialCurrency']=currencies.pop()
+                info['_report_currency_source']='Yahoo annual financial series '+period
+            else: errors['Rapportvaluta']='Ingen entydig valuta i finansiell serie för '+period
+        except Exception as exc:
+            errors['Rapportvaluta']=type(exc).__name__+': '+str(exc)[:180]
+    for label,frame in [('Resultaträkning',fin),('Balansräkning',balance),('Kassaflöde',cash),('Kurshistorik',history)]:
+        if frame.empty: errors.setdefault(label,'Datakällan returnerade tom tabell.')
     return info or {}, history, fin, cash, balance, quick or {}, errors
 
 @st.cache_data(ttl=3600,show_spinner=False)
