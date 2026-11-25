@@ -690,8 +690,8 @@ def render_main_technical(ticker):
                 color='#07833D'
             else:
                 label='BEHÅLL'; color='#B8860B'; reason='Ingen aktuell bekräftad nivåsignal.'
-    st.markdown(f'<div style="display:flex;align-items:center;gap:16px;margin:12px 0;padding:12px;border:1px solid #cbd5e1;border-radius:10px"><span style="background:{color};color:white;padding:12px 16px;border-radius:8px;font-weight:800">{label}</span><div><b>Teknisk nivåsignal</b><br>{reason}</div></div>',unsafe_allow_html=True)
-    st.caption('Separat från fundamental riktkurs och fullständig trendpoäng. Se Bull & Bear för detaljer.')
+    st.markdown(f'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:4px 0;padding:6px 9px;border:1px solid #cbd5e1;border-radius:7px;font-size:12px"><span style="background:{color};color:white;padding:4px 8px;border-radius:5px;font-weight:700;font-size:11px">{label}</span><span><b>Teknisk nivåsignal:</b> {reason}</span></div>',unsafe_allow_html=True)
+
 
 def render_bull_bear(ticker):
     st.subheader('Bull & Bear – långsiktig trendanalys')
