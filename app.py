@@ -1796,6 +1796,7 @@ with company_col:
     st.caption(f'{ticker} · Valuta: {info.get("currency","okänd")} · Börsdata hämtad {dt.datetime.now().strftime("%Y-%m-%d %H:%M")} · Yahoo Finance')
 with target_col:
     target_slot=st.empty()
+technical_slot=st.empty()
 
 price=val(info,'currentPrice','regularMarketPrice','previousClose')
 if price is None: price=val(quick,'last_price','previous_close')
@@ -2488,7 +2489,8 @@ def investment_score(v, info):
     score=sum(x['Poäng']*x['Vikt'] for x in items)/coverage if eligible and coverage>=expected*.75 and len(items)>=4 and not v.get('audit') else None
     return score,items,coverage/expected*100
 
-render_main_technical(ticker)
+with technical_slot.container():
+    render_main_technical(ticker)
 one,two,three,four,five,six=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering','Kurspåverkande händelser','Bull & Bear'])
 with six:
     render_bull_bear(ticker)
