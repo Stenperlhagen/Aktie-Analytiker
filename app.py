@@ -958,6 +958,24 @@ def render_bull_bear(ticker):
 
     if not highs or not lows: st.info('För få bekräftade månadstoppar eller månadsbottnar i historiken.')
     st.plotly_chart(fig,use_container_width=True)
+    st.markdown('#### Teknisk slutsats')
+    if score is None:
+        st.info('Otillräckligt underlag för en teknisk köp- eller säljsignal. Saknade kursindikatorer behöver kompletteras.')
+    else:
+        positives=[name for name,sign,_ in scores[:5] if sign==1]
+        negatives=[name for name,sign,_ in scores[:5] if sign==-1]
+        explanation=f'Trendpoäng: {score:+d}/100. Marknadsstruktur: {trend.lower()}.'
+        if positives: explanation+=' Positiva indikatorer: '+', '.join(positives)+'.'
+        if negatives: explanation+=' Negativa indikatorer: '+', '.join(negatives)+'.'
+        if recommendation=='KÖP':
+            st.success('**KÖP – positiv teknisk signal.** Modellen talar för att överväga köp. '+explanation)
+        elif recommendation=='SÄLJ':
+            st.error('**SÄLJ – negativ teknisk signal.** Modellen talar för att överväga försäljning eller minskad exponering. '+explanation)
+        else:
+            st.warning('**BEHÅLL – neutral teknisk signal.** Modellen talar för att avvakta en tydligare trend. '+explanation)
+        if buy is not None and sell is not None:
+            st.write(f'Positiv brytpunkt: {buy:.2f}. Negativ brytpunkt: {sell:.2f}. Ett nivåbrott är en bevakningssignal, inte automatiskt en bekräftad trendvändning.')
+    st.caption('Slutsatsen bygger på teknisk kursanalys, inte fundamental värdering. Relativ totalavkastning ingår inte i delmodellen.')
     st.caption('Nedåtriktad triangel = topp. Uppåtriktad triangel = botten. Markörerna visar de faktiska intradagsnivåerna som används i trendberäkningen. Endast de tre senaste topparna och bottnarna får textetiketter.')
     st.dataframe(pd.DataFrame([{'Indikator':name,'Poäng':sign*weight if sign is not None else None,'Maxvikt':weight} for name,sign,weight in scores]),hide_index=True)
     st.caption('Toppar och bottnar bekräftas först två avslutade månader senare. Teknisk delmodell: fem kursindikatorer (70 ursprungliga viktpoäng) normaliseras till ±100. Relativ totalavkastning ingår inte; rekommendation kräver alla fem kursindikatorer.')
