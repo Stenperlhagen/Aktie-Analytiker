@@ -3174,7 +3174,7 @@ def investment_score(v, info, metrics=None):
 
 with technical_slot.container():
     render_main_technical(ticker)
-one,four,quality_tab,business_tab,three,six,five=st.tabs(['Kurs och historik','Bolagsvärdering','Tillväxt & stabilitet','Affärsmodell & bolagskvalitet','Kurspotential','Bull & Bear','Kurspåverkande händelser'])
+one,business_tab,quality_tab,four,three,six,five=st.tabs(['Kurs och historik','Affärsmodell & bolagskvalitet','Tillväxt & stabilitet','Bolagsvärdering','Kurspotential','Bull & Bear','Kurspåverkande händelser'])
 with six:
     render_bull_bear(ticker)
 with five:
