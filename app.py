@@ -232,6 +232,7 @@ def fetch(ticker):
     for label,frame in [('Resultaträkning',fin),('Balansräkning',balance),('Kassaflöde',cash),('Kurshistorik',history)]:
         if frame.empty: errors.setdefault(label,'Datakällan returnerade tom tabell.')
     # Shared primary report and price adapter for every caller of fetch().
+    if not borsapi_key(): errors['Börsdata anslutning']='BORSAPI_API_KEY saknas eller är tom i Streamlit Secrets.'
     if borsapi_key():
         try:
             bundle,bd_error=borsapi_annual_frames(ticker,borsapi_key())
@@ -244,6 +245,7 @@ def fetch(ticker):
                     cash=bdc.combine_first(cash.reindex(columns=bdf.columns)) if same else bdc
                     info['financialCurrency']=bd_ccy
                     info['_report_source']='Börsdata Pro+ (årsrapporter; komplettering vid matchad period)'
+                else: errors['Börsdata rapport']='Årsrapporter mottagna men inga tolkbara resultatfält.'
             else: errors['Börsdata rapport']=bd_error
             bd_hist,bd_error=borsapi_history(ticker,borsapi_key())
             if not bd_hist.empty:
@@ -1857,7 +1859,13 @@ with company_col:
     if company_type=='Rörelsedrivande bolag':
         company_type=operating_valuation_profile(ticker,info) or KNOWN_GROUP_BY_TICKER.get(ticker) or 'Rörelsedrivande bolag'
     st.markdown('<div style="font-size:0.92rem;color:#64748b;margin-top:-8px;margin-bottom:10px;">'+company_type+'</div>',unsafe_allow_html=True)
-    st.caption(f'{ticker} · Valuta: {info.get("currency","okänd")} · Börsdata hämtad {dt.datetime.now().strftime("%Y-%m-%d %H:%M")} · Kurs: {info.get("_price_source","Yahoo Finance")} · Rapporter: {info.get("_report_source","Yahoo Finance")}')
+    st.caption(f'{ticker} · Valuta: {info.get("currency","okänd")} · Data kontrollerad {dt.datetime.now().strftime("%Y-%m-%d %H:%M")} · Kurs: {info.get("_price_source","Yahoo Finance")} · Rapporter: {info.get("_report_source","Yahoo Finance")}')
+    if not info.get('_price_source') or not info.get('_report_source'):
+        with st.expander('Börsdata Pro+ – anslutningsstatus'):
+            st.write('API-nyckel: '+('Finns i Streamlit Secrets' if borsapi_key() else 'Saknas'))
+            for k,v in fetch_errors.items():
+                if k.startswith('Börsdata'): st.write(k+': '+str(v))
+            st.caption('Reservkälla används när Börsdata inte levererar användbara uppgifter.')
     technical_slot=st.empty()
 with target_col:
     target_slot=st.empty()
