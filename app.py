@@ -1773,6 +1773,41 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
         out['status']='Preliminär värdering – kontroll krävs'
     return out
 
+def growth_stability(fin):
+    def get(period,labels):
+        for label in labels:
+            if label in fin.index:
+                x=numeric(fin.loc[label,period])
+                if x is not None: return x
+        return None
+    rows=[]
+    for p in sorted(fin.columns)[-11:]:
+        rev=get(p,['Total Revenue','Operating Revenue'])
+        ebit=get(p,['Operating Income','EBIT'])
+        ebita=get(p,['EBITA'])
+        amort=get(p,['Amortization Of Intangibles','Amortization Of Intangible Assets'])
+        if ebita is None and ebit is not None and amort is not None: ebita=ebit+abs(amort)
+        rows.append({'date':str(p)[:10],'revenue':rev,'ebita':ebita,'ebit':ebit})
+    def stats(key):
+        pairs=[(pd.Timestamp(x['date']),x[key]) for x in rows if x[key] is not None]
+        changes=[]
+        for (d0,v0),(d1,v1) in zip(pairs,pairs[1:]):
+            if 320<=(d1-d0).days<=410 and v0>0:
+                changes.append((v1/v0-1)*100)
+        if not changes: return None
+        years=(pairs[-1][0]-pairs[0][0]).days/365.2425
+        cagr=((pairs[-1][1]/pairs[0][1])**(1/years)-1)*100 if years>0 and min(v for _,v in pairs)>0 else None
+        return {'cagr':cagr,'volatility':float(pd.Series(changes).std(ddof=0)),'positive':sum(x>0 for x in changes),'n':len(changes),'worst':min(changes)}
+    revenue=stats('revenue')
+    earnings=stats('ebita')
+    label='EBITA'
+    if not earnings or earnings['n']<3:
+        earnings=stats('ebit');label='EBIT'
+    score=None
+    if revenue and earnings and min(revenue['n'],earnings['n'])>=5 and revenue['cagr'] is not None and earnings['cagr'] is not None and revenue['cagr']>0 and earnings['cagr']>0:
+        score=100*(revenue['positive']/revenue['n']+earnings['positive']/earnings['n'])/2/(1+(revenue['volatility']+earnings['volatility'])/40)
+    return {'rows':rows,'revenue':revenue,'earnings':earnings,'label':label,'score':score}
+
 @st.cache_data(ttl=21600,show_spinner=False)
 def screener_snapshot(symbol):
     try:
@@ -1788,6 +1823,8 @@ def screener_snapshot(symbol):
                 fallback['missing'].append('ROIC-underlag gav ingen riktkurs; Yahoo-reservmodell används.')
                 result=fallback
         result['website']=info.get('website')
+        if result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
+            result['stability']=growth_stability(fin)
         result['fetch_errors']=errors
         cap=val(info,'marketCap') or val(quick,'market_cap')
         cap_currency=info.get('currency') or quick.get('currency')
@@ -1797,10 +1834,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v42':
+if st.session_state.get('screener_model_version')!='unified-v43':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v42'
+    st.session_state['screener_model_version']='unified-v43'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -1875,6 +1912,14 @@ with st.sidebar:
                         logo_col.image(icon_bytes(results[sym].get('website'),screener_names[sym],sym),width=25)
                         if button_col.button(f'{rank}. {screener_names[sym]} · {potential:+.1f} %',key='rank_'+sym,use_container_width=True):
                             open_ranked_company(screener_names[sym])
+        st.markdown('### Bolag med stabilast lönsam tillväxt')
+        stable=sorted([(sym,r['stability']['score']) for sym,r in results.items() if sym in screener_names and r.get('stability',{}).get('score') is not None],key=lambda x:-x[1])[:10]
+        for sym,score in stable:
+            lc,bc=st.columns([1,8])
+            lc.image(icon_bytes(results[sym].get('website'),screener_names[sym],sym),width=25)
+            if bc.button(f'{screener_names[sym]} · {score:.0f}/100',key='stable_'+sym,use_container_width=True): open_ranked_company(screener_names[sym])
+        if not stable: st.caption('Minst fem jämförbara årsändringar och positiv långsiktig tillväxt krävs. Kör bolagsskanningen.')
+        st.caption('Stabilitetsindex: positiva tillväxtår och låg variation i omsättning och EBITA (EBIT om EBITA saknas). Inte ett värderingsbetyg.')
         unknown=sum(1 for sym,_ in valid if numeric(results[sym].get('market_cap_sek')) is None)
         if unknown: st.caption(f'{unknown} bolag saknar verifierat börsvärde i SEK och visas inte i storleksrankingen.')
         st.caption('Modellpotential, inte prognos. Resultat med granskningsvarningar utesluts.')
@@ -3322,6 +3367,28 @@ with four:
     if assessment.get('audit'): st.caption('Datakontroll: '+'; '.join(assessment['audit']))
     st.caption('Automatisk regelbaserad bedömning, inte en verifierad prognos eller personlig investeringsrekommendation.')
 
+    if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
+        st.markdown('### Historisk tillväxt och resultatstabilitet')
+        stability=growth_stability(fin)
+        for col,label,key in zip(st.columns(2),['Omsättning',stability['label']],['revenue','earnings']):
+            data=stability[key]
+            with col:
+                with st.container(border=True):
+                    st.markdown('**'+label+'**')
+                    if data:
+                        st.metric('Årlig tillväxt (CAGR)',show(data['cagr'],' %',1))
+                        st.write(f"Positiva år: **{data['positive']} av {data['n']}**")
+                        st.caption('Variation: '+show(data['volatility'],' procentenheter',1)+' · Svagaste år: '+show(data['worst'],' %',1))
+                    else: st.caption('Jämförbar historik saknas.')
+        chart_data=pd.DataFrame(stability['rows'])
+        if not chart_data.empty:
+            key=stability['label'].lower()
+            indexed=pd.DataFrame({'Datum':chart_data['date']})
+            for field,label in [('revenue','Omsättning'),(key,stability['label'])]:
+                values=chart_data[field]
+                if len(values.dropna()) and values.dropna().iloc[0]>0: indexed[label]=values/values.dropna().iloc[0]*100
+            if len(indexed.columns)>1: st.plotly_chart(px.line(indexed,x='Datum',y=list(indexed.columns[1:]),labels={'value':'Index (start = 100)','variable':'Nyckeltal'},markers=True),use_container_width=True)
+        st.caption('Upp till tio års tillväxtintervall. EBIT visas uttryckligen när EBITA-historik saknas. Tillväxt från förlustår ingår inte i procentberäkningen. Stabilitet är inte ett bevis på prissättningskraft.')
     st.markdown('### Fördjupad bolagsanalys')
     with st.container(border=True):
         left,right=st.columns(2)
