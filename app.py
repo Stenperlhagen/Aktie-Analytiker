@@ -3718,6 +3718,32 @@ with business_tab:
     if allocations and outflows:
         add_quality('Kapitalallokering','Redovisad prioritering',outflows[0][0]+' är största redovisade kapitalutflödet senaste året. Avkastningen på kapitalanvändningen är inte verifierad.','Kapitalallokering – källor per post')
     else: add_quality('Kapitalallokering','Underlag saknas','Tillräckliga detaljer om kapitalanvändningen saknas.','–')
+    if category=='Investmentbolag / kapitalförvaltning':
+        replacements={}
+        equity_series=[]
+        for p in sorted(periods):
+            eq=quality_value(balance,['Stockholders Equity'],p)
+            shares=quality_value(balance,['Ordinary Shares Number'],p)
+            if eq is not None and shares is not None and shares>0 and eq>0:
+                equity_series.append((pd.Timestamp(p),eq/shares))
+        if len(equity_series)>=2:
+            d0,v0=equity_series[0]; d1,v1=equity_series[-1]
+            years=(d1-d0).days/365.2425
+            if years>=0.85:
+                g=100*((v1/v0)**(1/years)-1)
+                replacements['Historisk affärsutveckling']=('Bokfört kapital per aktie','Positiv historik' if g>0 else 'Negativ historik' if g<0 else 'Blandad historik',f'Bokfört eget kapital per aktie har förändrats {g:+.1f} % årligen under {years:.1f} år. Detta är inte substansvärdestillväxt eller totalavkastning.',report_source)
+        equity=quality_value(balance,['Stockholders Equity'],latest)
+        assets=quality_value(balance,['Total Assets'],latest)
+        if equity is not None and assets is not None and assets>0:
+            ratio=100*equity/assets
+            replacements['Skuldsättning']=('Finansiell risk','Rapporterat balansmått',f'Koncernens soliditet är {ratio:.1f} %. Moderbolagets belåningsgrad och portföljrisk behöver bedömas separat.',report_source)
+        if ocf is not None:
+            replacements['Kassaflödeskvalitet']=('Kassaflöde','Rapporterat kassaflöde',f'Operativt kassaflöde senaste helåret: {show(ocf/1e6," M"+str(report_ccy or ""),1)}. Värdeförändringar i innehav gör kassaflöde/nettovinst mindre relevant.',report_source)
+        for i,(label,status,reason,source) in enumerate(assessments):
+            if label in replacements: assessments[i]=replacements[label]
+            elif label in ('Historisk affärsutveckling','Motståndskraft i kriser','Skuldsättning','Kassaflödeskvalitet','Kapitalallokering') and status=='Underlag saknas':
+                explanations={'Historisk affärsutveckling':'Rapporterad substansvärdeshistorik krävs för att mäta portföljens utveckling.','Motståndskraft i kriser':'Jämför substansvärde eller utdelningsjusterad aktieavkastning under krisåren, inte koncernens EBIT.','Skuldsättning':'Moderbolagets rapporterade nettoskuld i relation till portföljvärdet krävs.','Kassaflödeskvalitet':'Analysera mottagna utdelningar och moderbolagets kassaflöde snarare än koncernens redovisade nettovinst.','Kapitalallokering':'Analysera investeringar i innehav, avyttringar och utdelningar på moderbolagsnivå.'}
+                assessments[i]=(label,'Sektorspecifikt underlag krävs',explanations[label],source)
     import html
     colors={'Positiv historik':'#15803D','Låg nettoskuld':'#15803D','Positiv kassakonvertering':'#15803D','Negativ historik':'#DC2626','Hög nettoskuld':'#DC2626','Svag kassakonvertering':'#DC2626','Blandad historik':'#B8860B','Måttlig nettoskuld':'#B8860B','Måttlig kassakonvertering':'#B8860B'}
     for label,status,reason,source in assessments:
