@@ -4038,15 +4038,30 @@ with four:
     if ticker=='WBGR-B.ST' and not valuation_result.get('emission'):
         valuation_result['emission']={'Tidigare antal aktier':51744264,'Nya aktier inklusive garantiemission':124244124,'Totalt antal aktier':175988388,'Utspädning (%)':124244124/175988388*100,'Emissionsbelopp (rapporterat)':191e6,'Emissionskostnader':27e6,'Nettoskuld efter emission':72e6}
         valuation_result['emission_source']='https://storage.mfn.se/483f4127-3e38-4f38-8898-fd6d6f348c61/delarsrapport-q3-2026-sv.pdf'
-    st.markdown('#### Nyemissioner och kapitalstruktur')
+    st.markdown('### Nyemissioner och kapitalstruktur')
     if ticker=='WBGR-B.ST': st.caption('Historiska emissionsuppgifter enligt Q3 2026; inte en bekräftelse på dagens aktieantal.')
     if not valuation_result.get('emission') and not valuation_result.get('capital_change'):
         st.caption('Inga verifierade emissionsuppgifter tillgängliga. Detta betyder inte att bolaget saknar nyemissioner.')
     if valuation_result.get('capital_change'):
         st.markdown('#### Förändrad kapitalstruktur')
-        st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in valuation_result['capital_change'].items()]),hide_index=True,use_container_width=True)
+        st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(numeric(x)/1e6,' M',1) if numeric(x) is not None and k in ('Emissionsbelopp (rapporterat)','Emissionskostnader','Nettoskuld efter emission') else show(x,'',0) if 'antal aktier' in k.lower() else show(x,'',2)} for k,x in valuation_result['capital_change'].items()]),hide_index=True,use_container_width=True)
         st.caption(valuation_result['capital_change_period']+' · '+valuation_result['capital_change_note'])
     if valuation_result.get('emission'):
+        emission=valuation_result['emission']
+        prior=numeric(emission.get('Tidigare antal aktier'))
+        total=numeric(emission.get('Totalt antal aktier'))
+        dilution=numeric(emission.get('Utspädning (%)'))
+        if prior is not None and total is not None and total>0 and 0<=prior<=total:
+            for col,label,value in zip(st.columns(3),['Tidigare aktier','Nya aktier','Totalt antal'],[prior,total-prior,total]):
+                with col: valuation_tile(label,show(value/1e6,' miljoner',1))
+            import plotly.graph_objects as go
+            cap_fig=go.Figure()
+            cap_fig.add_bar(y=['Aktiefördelning'],x=[100*prior/total],name='Tidigare aktier',orientation='h',marker_color='#376baf')
+            cap_fig.add_bar(y=['Aktiefördelning'],x=[100*(total-prior)/total],name='Nya aktier',orientation='h',marker_color='#d99a62')
+            cap_fig.update_layout(barmode='stack',template='plotly_white',height=170,xaxis=dict(range=[0,100],ticksuffix='%'),margin=dict(l=10,r=10,t=10,b=10),legend=dict(orientation='h'))
+            st.plotly_chart(cap_fig,use_container_width=True)
+        if dilution is not None:
+            valuation_tile('Utspädning',show(dilution,' %',1),'#fae9e9','#991b1b')
         st.markdown('#### Emissionsjustering')
         if valuation_result.get('emission_note'): st.caption(valuation_result['emission_note'])
         st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in valuation_result['emission'].items() if x is not None]),hide_index=True,use_container_width=True)
