@@ -3155,7 +3155,47 @@ with three:
                 years=(pd.Timestamp(base['date'])-pd.Timestamp(older['date'])).days/365.2425
                 growths[n]=(base['revenue']/older['revenue'])**(1/years)-1
     if valuation_result.get('category') not in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
-        st.info('Denna rörelseresultatbaserade prognos passar inte bolagets affärsmodell. En sektorspecifik femårsmodell krävs.')
+        category=valuation_result.get('category')
+        # Book equity per share is a distinct proxy, never labelled NAV.
+        eligible=category in ('Fastigheter','Investmentbolag / kapitalförvaltning','Bank / finansiella tjänster','Försäkring')
+        series={}
+        if eligible:
+            for period in sorted(balance.columns):
+                eq=_annual_balance_value(balance,['Common Stock Equity','Stockholders Equity'],period)
+                count=_annual_balance_value(balance,['Ordinary Shares Number','Share Issued'],period)
+                if eq is not None and eq>0 and count is not None and count>0:
+                    series[pd.Timestamp(period).normalize()]=eq/count
+        growth_parts={}
+        if series:
+            last_date=max(series)
+            for n in (1,3,5):
+                target_date=last_date-pd.DateOffset(years=n)
+                older=next((d for d in series if abs((d-target_date).days)<=45),None)
+                if older is not None:
+                    growth_parts[n]=(series[last_date]/series[older])**(365.2425/(last_date-older).days)-1
+        current=numeric(valuation_result.get('price'))
+        if eligible and growth_parts and current and current>0 and not valuation_result.get('audit'):
+            weights={1:.4,3:.35,5:.25}
+            g=sum(weights[n]*v for n,v in growth_parts.items())/sum(weights[n] for n in growth_parts)
+            today=pd.Timestamp.today().normalize()
+            points=pd.DataFrame({'Datum':[today+pd.DateOffset(years=n) for n in range(6)],'Aktiekurs':[current*(1+g)**n for n in range(6)],'Typ':'Prognos'})
+            future=float(points['Aktiekurs'].iloc[-1])
+            color='#16A34A' if future>current else '#DC2626' if future<current else '#64748B'
+            history_points=pd.DataFrame(columns=['Datum','Aktiekurs','Typ'])
+            if isinstance(hist,pd.DataFrame) and not hist.empty and 'Close' in hist:
+                h=hist.Close.dropna()
+                history_points=pd.DataFrame({'Datum':pd.DatetimeIndex(h.index).tz_localize(None),'Aktiekurs':h.to_numpy(),'Typ':'Historik'})
+            chart=px.line(pd.concat([history_points,points],ignore_index=True),x='Datum',y='Aktiekurs',color='Typ',line_dash='Typ',color_discrete_map={'Historik':'#64748B','Prognos':color},line_dash_map={'Historik':'solid','Prognos':'dash'})
+            chart.update_traces(mode='lines+markers',selector=dict(name='Prognos'))
+            for n,p in points.iterrows():
+                chart.add_annotation(x=p['Datum'],y=p['Aktiekurs'],text=show(p['Aktiekurs'],' '+str(quote_ccy),1),showarrow=False,yshift=-22 if n==0 else 20,font=dict(size=12,color=color))
+            st.metric('Prognostiserad aktiekurs om fem år',show(future,' '+str(quote_ccy),2))
+            st.write(f'Årlig kursavkastning: {g*100:+.1f} %')
+            st.plotly_chart(chart,use_container_width=True)
+            st.caption('Preliminär prognos baserad på historisk tillväxt i bokfört eget kapital per aktie, med oförändrad P/B-nivå. Inte en NAV-prognos. Utdelning ingår inte. Historiskt aktieantal måste vara jämförbart efter splittar.')
+            can_value=True
+        else:
+            st.info('Sektorspecifikt prognosunderlag saknas: '+('jämförbar historik för eget kapital per aktie eller godkänd datakontroll.' if eligible else 'verifierade framtida projekt-, royalty- eller verksamhetskassaflöden.'))
     elif not growths:
         st.info('Ingen jämförbar omsättningshistorik hittades. Kontrollera Börsdata-anslutningen och rapportperioderna.')
     else:
