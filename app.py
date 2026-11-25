@@ -2227,7 +2227,7 @@ if bd_overview and ticker!='WBGR-B.ST':
     bd_equity=bd_field(record,'total_Equity')
     bd_div=bd_field(record,'dividend')
     if bd_currency and bd_currency==report_ccy:
-        if bd_revenue is not None: revenue=bd_revenue*1e6
+        if bd_revenue is not None and bd_revenue>0: revenue=bd_revenue*1e6
         if bd_cf is not None: opcf=bd_cf*1e6
         if bd_revenue and bd_revenue>0 and bd_ebit is not None: margin=bd_ebit/bd_revenue
         prior=next((r for r in bd_overview[1:] if str(r.get('currency') or '').upper()==bd_currency and abs((pd.Timestamp(bd_overview_period)-pd.Timestamp(r.get('report_End_Date') or r.get('reportEndDate'))).days-365)<=20),None)
@@ -2245,8 +2245,8 @@ st.caption('Börsdata R12 prioriteras för jämförbara uppgifter; årsbaserade 
 if report_fallback:
     st.caption('Rapporterad EBITA R12, SEK, '+report_fallback[0]+' – [Delårsrapport]('+report_fallback[1]+')')
 
-if valuation_result.get('category')!='Bank / finansiella tjänster' and ebita is None: st.caption('EBITA saknas: separat rapporterad EBITA eller immateriell avskrivning har inte hittats.')
-elif valuation_result.get('category')!='Bank / finansiella tjänster' and ev_ebita is None: st.caption('EV/EBITA saknas: positiv EBITA, jämförbar nettoskuld, börsvärde eller valuta saknas.')
+if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') and ebita is None: st.caption('EBITA saknas: separat rapporterad EBITA eller immateriell avskrivning har inte hittats.')
+elif valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') and ev_ebita is None: st.caption('EV/EBITA saknas: positiv EBITA, jämförbar nettoskuld, börsvärde eller valuta saknas.')
 
 # Only label a ratio R12 when its actual input period is known.
 pe_period_label=valuation_result.get('pe_period') if pe_source=='Värderingsmotor' else ('R12' if pe_source in ('Yahoo Finance trailingPE','Börsdata R12','Beräknat från Yahoo EPS (samma valuta)') else str(eps_report_period)[:4] if eps_report_period else None)
@@ -2261,18 +2261,51 @@ elif ev_ebita is not None and ev_ebita_source.startswith('Yahoo årsrapport '):
 ev_ebita_label='EV/EBITA'+(' ('+ebita_period_label+')' if ebita_period_label else '')
 overview_items = [
     ('Börsvärde',show(market_cap/1e9,' mdkr',2) if market_cap is not None and quote_ccy=='SEK' else (show(market_cap/1e9,' md '+(quote_ccy or ''),2) if market_cap is not None else 'Saknas')),
-    ('Aktiekurs',show(valuation_price,' '+(valuation_result.get('currency') or ''),2)),
-    ('Omsättning (LTM/helår)',show(revenue/1e6,' M',0) if revenue is not None else 'Saknas'),
+    ('Aktiekurs ('+str(quote_ccy or '–')+')',show(valuation_price,'',2)),
+    ('Omsättning (LTM/helår)',show(revenue/1e6,' M',0) if revenue is not None and revenue!=0 else 'Saknas'),
     ('Omsättningstillväxt',show(sales_growth_pct,' %/år',1) if sales_growth_pct is not None else 'Saknas'),
     ('Rörelsemarginal',show(margin*100,' %') if margin is not None else 'Saknas'),
     ('EBITA (rapportperiod)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas'),
-    ('Avkastning på eget kapital (ROE)',show(roe_overview,' %',1) if roe_overview is not None else 'Saknas'),
+    ('ROE',show(roe_overview,' %',1) if roe_overview is not None else 'Saknas'),
     ('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),
     (pe_label,('Ej definierat (nollvinst)' if r12_eps==0 else 'Ej meningsfullt (förlust)') if pe_source=='Börsdata R12' and r12_eps<=0 else show(pe,'×') if pe is not None and pe>0 else 'Ej meningsfullt (förlust)' if pe is not None and pe<0 else 'Ej definierat (nollvinst)' if valuation_result.get('pe_zero') else 'Saknas'),
     (ev_ebita_label,show(ev_ebita,'×',1) if ev_ebita is not None else 'Saknas'),
     ('Nettoskuld/EBITDA',show(netdebt_ebitda,'×',2) if netdebt_ebitda is not None else 'Saknas'),
     ('Direktavkastning (12 mån)',show(dividend_yield,' %',1) if dividend_yield is not None else 'Saknas')
 ]
+# Sector-aware overview: do not present operating metrics as applicable to investment holdings.
+if valuation_result.get('category') in ('Investmentbolag / kapitalförvaltning','Kapitalförvaltare'):
+    cap=market_cap
+    equity=None
+    profit=None
+    equity_period=None
+    if bd_overview:
+        rr=bd_overview[0]
+        if str(rr.get('currency') or '').upper()==report_ccy:
+            eq=bd_field(rr,'total_Equity')
+            pr=bd_field(rr,'profit_To_Equity_Holders')
+            equity=eq*1e6 if eq is not None else None
+            profit=pr*1e6 if pr is not None else None
+            equity_period=bd_overview_period
+    if equity is None:
+        for period in sorted(balance.columns,reverse=True):
+            equity=_annual_balance_value(balance,['Stockholders Equity','Common Stock Equity'],period)
+            if equity is not None:
+                equity_period=str(period)[:10]
+                profit=_annual_balance_value(fin,['Net Income Common Stockholders','Net Income'],period)
+                break
+    equity_fx=fx_rate(report_ccy,quote_ccy)
+    pb=cap/(equity*equity_fx) if cap and equity and equity>0 and equity_fx and equity_fx>0 else None
+    nav_record=REPORTED_NAV.get(ticker)
+    nav=numeric(nav_record.get('nav')) if nav_record and quote_ccy=='SEK' and 0<=(pd.Timestamp.today().normalize()-pd.Timestamp(nav_record['date'])).days<=180 else None
+    overview_items=[overview_items[0],overview_items[1],
+        ('Eget kapital (M)',show(equity/1e6,'',0) if equity is not None else 'Saknas'),
+        ('Nettoresultat (M)',show(profit/1e6,'',0) if profit is not None else 'Saknas'),
+        ('ROE',show(roe_overview,' %',1)),('P/B',show(pb,'×',2)),
+        ('Substansvärde per aktie',show(nav,' kr',1)),('Substansrabatt',show((1-valuation_price/nav)*100,' %',1) if nav and valuation_price else 'Saknas'),
+        overview_items[8],overview_items[11]]
+    if equity_period: st.caption('Eget kapital: '+equity_period+' · '+str(report_ccy))
+    if nav: st.caption('Rapporterat substansvärde: '+nav_record['date']+' · [Källa]('+nav_record['source']+')')
 if valuation_result.get('category')=='Bank / finansiella tjänster':
     bank_periods=sorted(fin.columns,reverse=True)
     bp=bank_periods[0] if bank_periods else None
