@@ -2616,7 +2616,8 @@ with target_slot.container():
         st.caption('Orsak: '+ ' · '.join(valuation_result.get('missing',[]) or ['Ingen modell gav ett värde']))
         with st.expander('Tekniska fel från datakällan'):
             st.json({'Datakällans fel':fetch_errors or valuation_result.get('fetch_errors') or {},'Handelsvaluta':valuation_result.get('currency'),'Rapportvaluta':valuation_result.get('report_currency'),'Modellunderlag':valuation_result.get('inputs',{}),'Aktiekurs':valuation_result.get('price'),'Rapportperiod':valuation_result.get('period'),'Resultatperioder':[str(p) for p in fin.columns],'Balansperioder':[str(p) for p in balance.columns],'Yahoo financialCurrency':info.get('financialCurrency'),'Yahoo sharesOutstanding':info.get('sharesOutstanding')})
-def investment_score(v, info):
+def investment_score(v, info, metrics=None):
+    metrics=metrics or {}
     # Explicit heuristic, not a probability or investment recommendation.
     category=v.get('category')
     operating=category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag')
@@ -2628,16 +2629,19 @@ def investment_score(v, info):
         items.append({'Område':name,'Nyckeltal':show(x,unit,1),'Poäng':round(points,1),'Vikt':weight})
     if not v.get('audit') and v.get('target') is not None:
         add('Värdering',v.get('upside'),-30,40,25,' %')
-    roe=v.get('roe')
+    roe=metrics.get('roe') if metrics.get('roe') is not None else v.get('roe')
     if operating or category=='Bank / finansiella tjänster':
         if roe is not None: add('Lönsamhet (ROE)',roe*100,0,20,20,' %')
     if operating:
-        growth=val(info,'revenueGrowth')
+        growth=metrics.get('growth')
+        if growth is None: growth=val(info,'revenueGrowth')
         if growth is not None: add('Omsättningstillväxt',growth*100,-10,15,20,' %')
         debt=v.get('inputs',{}).get('Nettoskuld')
         earnings=v.get('inputs',{}).get('EBITA')
+        if earnings is None: earnings=v.get('inputs',{}).get('EBITA (beräknad)')
         if earnings is not None and earnings>0 and debt is not None:
             add('Nettoskuld / EBITA',debt/earnings,5,0,15,'×')
+        if metrics.get('margin') is not None: add('Rörelsemarginal',metrics['margin']*100,0,20,15,' %')
         ocf=val(info,'operatingCashflow')
         sales=val(info,'totalRevenue')
         if ocf is not None and sales and sales>0:
@@ -2665,7 +2669,7 @@ def investment_score(v, info):
     coverage=sum(x['Vikt'] for x in items)
     # Investment companies and research firms require more specific data before a composite score.
     eligible=operating or category in ('Bank / finansiella tjänster','Fastigheter')
-    score=sum(x['Poäng']*x['Vikt'] for x in items)/coverage if eligible and coverage>=expected*.75 and len(items)>=4 and not v.get('audit') else None
+    score=sum(x['Poäng']*x['Vikt'] for x in items)/coverage if eligible and coverage>=expected*.5 and len(items)>=3 and not v.get('audit') else None
     return score,items,coverage/expected*100
 
 with technical_slot.container():
@@ -3005,7 +3009,7 @@ with three:
     st.markdown('### Investeringsöversikt')
 
     assessment=valuation_result
-    rating,components,coverage=investment_score(assessment,info)
+    rating,components,coverage=investment_score(assessment,info,{'roe':roe_overview/100 if roe_overview is not None else None,'growth':sales_growth_pct/100 if sales_growth_pct is not None else None,'margin':margin})
     target_value=assessment.get('target')
     current_value=assessment.get('price')
     ccy=str(assessment.get('currency') or '')
@@ -3024,7 +3028,7 @@ with three:
             paragraphs.append('Slutsats: värderingen är preliminär på grund av datakontroller som inte passerat. Ingen köpindikator ges.')
         elif rating is None:
             paragraphs.append('Slutsats: värderingsindikationen kan användas för vidare analys, men bolagskvaliteten är inte tillräckligt bedömd.')
-        elif current_value<=target_value*.8 and rating>=75:
+        elif current_value<=target_value*.8 and rating>=75 and coverage>=75:
             paragraphs.append('Slutsats: attraktiv kandidat för fördjupad investeringsanalys enligt modellen, med både säkerhetsmarginal och starkt indikatorbetyg.')
         elif current_value>target_value:
             paragraphs.append('Slutsats: aktien handlas över modellvärdet och framstår inte som attraktiv till aktuell kurs enligt modellen.')
@@ -3035,10 +3039,12 @@ with three:
     with st.container(border=True):
         st.markdown('**Samlad bedömning**')
         k1,k2,k3=st.columns(3)
-        k1.metric('Modellbetyg',show(rating,'/100',0))
+        k1.metric('Modellbetyg' if coverage>=75 else 'Preliminärt modellbetyg',show(rating,'/100',0))
         k2.metric('Kurspotential',show(assessment.get('upside'),' %',1))
         k3.metric('Datatäckning',show(coverage,' %',0))
         st.write(' '.join(paragraphs))
+        if rating is None: st.caption('Betyg kräver minst tre indikatorer, 50 % datatäckning, en stödd sektormodell och godkända datakontroller.')
+        elif coverage<75: st.caption('Preliminärt betyg med begränsat underlag; ingen positiv köpindikator baseras på detta.')
     if assessment.get('audit'): st.caption('Datakontroll: '+'; '.join(assessment['audit']))
     st.caption('Automatisk regelbaserad bedömning, inte en verifierad prognos eller personlig investeringsrekommendation.')
 
