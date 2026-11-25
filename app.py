@@ -716,15 +716,28 @@ def render_price_events(history,company,ticker):
 @st.cache_data(ttl=21600,show_spinner=False)
 def long_history(symbol):
     try:
-        return yf.Ticker(symbol).history(period='10y',auto_adjust=False)
+        key=borsapi_key()
+        if key:
+            frame,_=borsapi_history(symbol,key)
+            if not frame.empty and {'Close','High','Low'}.issubset(frame.columns):
+                frame=frame.copy()
+                frame.attrs['source']='Börsdata Pro+'
+                return frame
+    except Exception:
+        pass
+    try:
+        frame=yf.Ticker(symbol).history(period='10y',auto_adjust=False)
+        frame.attrs['source']='Yahoo Finance (reserv)'
+        return frame
     except Exception:
         return pd.DataFrame()
 
 def bull_structure(ticker):
     h=long_history(ticker)
-    if h.empty or 'Adj Close' not in h:
+    if h.empty or not {'Close','High','Low'}.issubset(h.columns):
         return None
-    p=pd.to_numeric(h['Adj Close'],errors='coerce').dropna().sort_index()
+    adjusted='Adj Close' in h and h['Adj Close'].notna().any()
+    p=pd.to_numeric(h['Adj Close' if adjusted else 'Close'],errors='coerce').dropna().sort_index()
     p=p[p>0]
     if p.empty: return None
     p.index=pd.DatetimeIndex(p.index).tz_localize(None)
@@ -734,6 +747,7 @@ def bull_structure(ticker):
     if p.empty: return None
     # Monthly adjusted highs/lows, using the same adjustment factor as adjusted close.
     raw=h.copy()
+    raw.attrs['trend_basis']='Justerad kurs' if adjusted else 'Kurs (utdelningsjustering ej verifierad)'
     raw.index=pd.DatetimeIndex(raw.index).tz_localize(None)
     raw=raw[~raw.index.duplicated(keep='last')].reindex(p.index)
     factor=p/pd.to_numeric(raw['Close'],errors='coerce').where(lambda x:x>0)
@@ -774,7 +788,7 @@ def render_bull_bear(ticker):
     st.caption('Dow Theory · 3–10 års placeringshorisont. Teknisk analys, separat från fundamental riktkurs.')
     data=bull_structure(ticker)
     if data is None:
-        st.info('Justerad kurshistorik saknas.')
+        st.info('Användbar kurshistorik med stängningskurs, högsta och lägsta kurs saknas.')
         return
     p,raw,factor,monthly,highs,lows=data
     def compare(a,b):
@@ -790,8 +804,9 @@ def render_bull_bear(ticker):
     m200,m400=numeric(ma[200].iloc[-1]),numeric(ma[400].iloc[-1])
     # No price-only index substituted for total-return benchmark.
     scores=[('Månadstoppar',hh,20),('Månadsbottnar',hl,20),('Kurs / MA200',ma_signal(200),10),('Kurs / MA400',ma_signal(400),10),('MA200 / MA400',compare(m200,m400) if m200 is not None and m400 is not None else None,10),('Relativ totalavkastning 3 år',None,15),('Relativ totalavkastning 5 år',None,15)]
-    complete=all(sign is not None for _,sign,_ in scores)
-    score=sum(sign*weight for _,sign,weight in scores) if complete else None
+    core=scores[:5]
+    complete=all(sign is not None for _,sign,_ in core)
+    score=round(100*sum(sign*weight for _,sign,weight in core)/sum(weight for _,_,weight in core)) if complete else None
     if score is None:
         recommendation='Otillräckligt underlag'
         color='#64748B'
@@ -811,12 +826,12 @@ def render_bull_bear(ticker):
     reasons=[]
     if positive: reasons.append('Positiva signaler: '+', '.join(positive)+'.')
     if negative: reasons.append('Negativa signaler: '+', '.join(negative)+'.')
-    if missing: reasons.append('Rekommendation kan inte beräknas. Saknas: '+', '.join(missing)+'.')
+    if missing: reasons.append(('Delmodell utan indexjämförelse. Saknas: ' if complete else 'Rekommendation kan inte beräknas. Saknas: ')+', '.join(missing)+'.')
     st.write(' '.join(reasons) or 'Indikatorerna är neutrala.')
     st.caption('Teknisk trendsignal, inte fundamental värdering eller individuell investeringsrådgivning.')
     a,b=st.columns(2)
     a.metric('Långsiktig trend',trend)
-    b.metric('Trendpoäng',f'{score:+d} / 100' if score is not None else 'Saknas – otillräckligt underlag')
+    b.metric('Trendpoäng (teknisk delmodell)',f'{score:+d} / 100' if score is not None else 'Saknas – otillräckligt underlag')
     st.write('Marknadsstruktur: '+('HH' if hh==1 else 'LH' if hh==-1 else 'Neutral / saknas')+' + '+('HL' if hl==1 else 'LL' if hl==-1 else 'Neutral / saknas'))
     metrics=st.columns(4)
     for col,n in zip(metrics,(1,3,5,10)):
@@ -826,10 +841,10 @@ def render_bull_bear(ticker):
         if not prior.empty and (cutoff-prior.index[-1]).days<=7:
             years=(p.index[-1]-prior.index[-1]).days/365.2425
             value=(last/prior.iloc[-1])**(1/years)-1
-        col.metric(f'CAGR {n} år',f'{value*100:.1f} %' if value is not None else 'Saknas')
+        col.metric(f'Kurs-CAGR {n} år',f'{value*100:.1f} %' if value is not None else 'Saknas')
     dd=(p/p.cummax()-1).min()*100
     st.metric('Maximal historisk nedgång',f'{dd:.1f} %')
-    st.caption(f'Justerad kursserie {p.index[0].date()} – {p.index[-1].date()}.')
+    st.caption(f"{raw.attrs.get('source','Okänd källa')} · {raw.attrs.get('trend_basis','Kurs')} · {p.index[0].date()} – {p.index[-1].date()}.")
     # Signals use only completed months and pivots confirmed two months later.
     signals=[]
     state=0
@@ -876,8 +891,9 @@ def render_bull_bear(ticker):
     st.caption('Säljbevakning är inte en automatisk stop-loss eller fundamental riktkurs. Ett brott under nivån behöver även en lägre bekräftad topp.')
     st.markdown('#### Marknadsstruktur – toppar och bottnar')
     st.caption('Grönt = högre topp eller botten. Rött = lägre topp eller botten. Grått = första eller oförändrade nivån.')
-    frame=pd.DataFrame({'Datum':p.index,'Justerad kurs':p.values})
-    fig=px.line(frame,x='Datum',y='Justerad kurs')
+    basis=raw.attrs.get('trend_basis','Kurs')
+    frame=pd.DataFrame({'Datum':p.index,basis:p.values})
+    fig=px.line(frame,x='Datum',y=basis)
     fig.update_traces(line=dict(color='#64748B',width=1.5),name='Aktiekurs',showlegend=True)
     selected=st.multiselect('Visa glidande medelvärden',[50,200,400,1000],default=[],format_func=lambda n:f'MA{n}',key='bull_ma_v2_'+ticker)
     show_labels=st.checkbox('Visa text vid toppar och bottnar',value=True,key='bull_labels_'+ticker)
@@ -900,7 +916,7 @@ def render_bull_bear(ticker):
             tag=('Högre ' if sign>0 else 'Lägre ' if sign<0 else '')+label.lower()
             xs.append(day); ys.append(float(p.loc[day])); labels.append(tag)
             colors.append('#008A42' if sign>0 else '#D32F2F' if sign<0 else '#64748B')
-            hover.append(f'{tag.capitalize()}: {value:.2f} (justerad intradagkurs)')
+            hover.append(f'{tag.capitalize()}: {value:.2f} (intradagsnivå)')
             previous=value
         if xs:
             fig.add_scatter(x=xs,y=ys,mode='markers+text' if show_labels else 'markers',text=labels,textposition='top center' if up else 'bottom center',textfont=dict(color=colors,size=11),name=label,marker=dict(color=colors,size=10,symbol='triangle-down' if up else 'triangle-up',line=dict(color='white',width=1)),customdata=hover,hovertemplate='%{x|%Y-%m-%d}<br>%{customdata}<extra></extra>')
@@ -912,13 +928,13 @@ def render_bull_bear(ticker):
             rows=[(m,v) for m,v,s in signals if s==signal]
             xs=[p.index[p.index.to_period('M')==m][-1] for m,v in rows]
             if rows: fig.add_scatter(x=xs,y=[v for m,v in rows],mode='markers+text',text=[signal]*len(rows),textposition='bottom center' if signal=='KÖP' else 'top center',name=signal,marker=dict(color=color,size=13,symbol='diamond'),textfont=dict(color=color,size=12))
-    fig.update_layout(height=520,legend=dict(orientation='h',y=-0.20),margin=dict(t=40,b=100),xaxis_title=None,yaxis_title='Justerad kurs',hovermode='closest')
+    fig.update_layout(height=520,legend=dict(orientation='h',y=-0.20),margin=dict(t=40,b=100),xaxis_title=None,yaxis_title=basis,hovermode='closest')
     fig.update_xaxes(rangeselector=dict(buttons=[dict(count=1,label='1 år',step='year',stepmode='backward'),dict(count=3,label='3 år',step='year',stepmode='backward'),dict(count=5,label='5 år',step='year',stepmode='backward'),dict(step='all',label='All historik')]))
     if not highs or not lows: st.info('För få bekräftade månadstoppar eller månadsbottnar i historiken.')
     st.plotly_chart(fig,use_container_width=True)
-    st.caption('Nedåtriktad triangel = topp. Uppåtriktad triangel = botten. Markörerna visas på stängningskursen på extremdagen; trendberäkningen använder justerade intradagsnivåer.')
+    st.caption('Nedåtriktad triangel = topp. Uppåtriktad triangel = botten. Markörerna visas på stängningskursen på extremdagen; trendberäkningen använder intradagsnivåer på samma kursbasis.')
     st.dataframe(pd.DataFrame([{'Indikator':name,'Poäng':sign*weight if sign is not None else None,'Maxvikt':weight} for name,sign,weight in scores]),hide_index=True)
-    st.caption('Toppar och bottnar bekräftas först två avslutade månader senare. Full trendpoäng visas inte utan jämförbart totalavkastningsindex. Teknisk rekommendation visas endast med komplett underlag.')
+    st.caption('Toppar och bottnar bekräftas först två avslutade månader senare. Teknisk delmodell: fem kursindikatorer (70 ursprungliga viktpoäng) normaliseras till ±100. Relativ totalavkastning ingår inte; rekommendation kräver alla fem kursindikatorer.')
 
 def parse_file(upload):
     raw=upload.getvalue(); name=upload.name.lower()
