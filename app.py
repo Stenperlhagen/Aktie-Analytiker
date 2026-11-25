@@ -3010,18 +3010,18 @@ with three:
         st.caption('Investeringshorisonten är modellens, inte ett personligt råd.')
     with st.container(border=True):
         st.markdown('**02 · Bolagets kvalitet**')
-        q1,q2,q3=st.columns(3)
-        q1.metric('Omsättningstillväxt',show(sales_growth_pct,' %/år',1) if sales_growth_pct is not None else 'Saknas')
-        q2.metric('Rörelsemarginal',show(margin*100,' %',1) if margin is not None else 'Saknas')
-        q3.metric('Nettoskuld / EBITDA',show(netdebt_ebitda,'×',2) if netdebt_ebitda is not None else 'Saknas')
-        st.caption('Tillväxt, lönsamhet och skuldsättning är separata observationer. Ett enskilt nyckeltal avgör inte om bolaget är en bra investering.')
-        if opcf is not None:
-            st.write('Operativt kassaflöde: **'+show(opcf/1e6,' M',1)+'** (kontrollera rapportperiod under Finansiella rapporter).')
-        else:
-            st.write('Operativt kassaflöde saknas i hämtat underlag.')
+        quality_items=[(label,value) for label,value in overview_items if not label.startswith(('Börsvärde','Aktiekurs'))]
+        available_quality=[(label,value) for label,value in quality_items if value!='Saknas']
+        st.caption(f'{len(available_quality)} av {len(quality_items)} sektoranpassade nyckeltal tillgängliga.')
+        for start in range(0,len(available_quality),3):
+            for col,(label,value) in zip(st.columns(3),available_quality[start:start+3]):
+                col.metric(label,value)
+        missing_quality=[label for label,value in quality_items if value=='Saknas']
+        if missing_quality: st.caption('Underlag saknas för: '+', '.join(missing_quality))
+        st.caption('Nyckeltalen hämtas från samma finansiella översikt som huvudsidan. Rapportperioder kan skilja sig.')
     with st.container(border=True):
         st.markdown('**03 · Affärsmodell och konkurrens**')
-        st.write('Bransch: **'+str(info.get('industry') or 'Ej klassificerad')+'** · Sektor: **'+str(info.get('sector') or 'Ej klassificerad')+'**')
+        st.write('Bransch: **'+str(info.get('industry') or valuation_result.get('profile') or valuation_result.get('category') or 'Ej klassificerad')+'** · Sektor: **'+str(info.get('sector') or 'Ej klassificerad')+'**')
         description=str(info.get('longBusinessSummary') or '').strip()
         if description:
             st.write(description[:650]+('…' if len(description)>650 else ''))
@@ -3029,6 +3029,8 @@ with three:
             st.caption('Bolagsbeskrivning saknas från datakällan.')
         st.markdown('**Jämförelse med börsnoterade konkurrenter**')
         peers=PEER_UNIVERSE.get(ticker,[])
+        if not peers and valuation_result.get('profile'):
+            peers=[(n,s,'Samma värderingsprofil – ej verifierad direkt konkurrent') for n,s in ALL_COMPANIES.items() if s!=ticker and operating_valuation_profile(s)==valuation_result.get('profile') and valuation_category(s)==valuation_result.get('category')][:4]
         if peers:
             peer_rows=[{'Logotyp':company_icon(info.get('website'),company),'Bolag':company,'P/E':pe,'Rörelsemarginal (%)':margin*100 if margin is not None else None,
                         'Omsättningstillväxt (%)':sales_growth_pct,'Nettoskuld/EBITDA':netdebt_ebitda,
@@ -3052,7 +3054,7 @@ with three:
                 st.write('Bolagets P/E: **'+show(pe,'×',1)+'** · Jämförelsebolagens median-P/E: **'+show(peer_median,'×',1)+'**.')
             else:
                 st.caption('För få jämförbara P/E-observationer för en meningsfull median.')
-            st.caption('Urvalet är manuellt granskat för branschlikhet men inte identiska affärsmodeller. Yahoo-uppgifterna kan avse olika rapportperioder, redovisningsprinciper och valutor. Jämförelsen är vägledande, inte en automatisk riktkurs eller investeringssignal.')
+            st.caption('Urvalet bygger på manuella jämförelser eller gemensam värderingsprofil; bolagen behöver inte vara direkta konkurrenter. Yahoo-uppgifterna kan avse olika rapportperioder, redovisningsprinciper och valutor. Jämförelsen är vägledande, inte en automatisk riktkurs eller investeringssignal.')
         else:
             st.caption('Inga kvalitetssäkrade börsnoterade jämförelsebolag har valts för detta bolag ännu. Vi visar inte godtyckliga konkurrenter.')
         st.caption('Marknadsandelar och konkurrensfördelar kräver fortfarande separata branschkällor.')
