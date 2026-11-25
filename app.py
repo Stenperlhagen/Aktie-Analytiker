@@ -3174,7 +3174,7 @@ def investment_score(v, info, metrics=None):
 
 with technical_slot.container():
     render_main_technical(ticker)
-one,four,quality_tab,business_tab,three,six,five=st.tabs(['Kurs och historik','Bolagsvärdering','Tillväxt & stabilitet','Affärsmodell & bolagskvalitet','Kurspotential','Bull & Bear','Kurspåverkande händelser'])
+one,four,quality_tab,three,six,five=st.tabs(['Kurs och historik','Bolagsvärdering','Tillväxt & stabilitet','Kurspotential','Bull & Bear','Kurspåverkande händelser'])
 with six:
     render_bull_bear(ticker)
 with five:
@@ -3213,323 +3213,6 @@ with one:
         chart_five_years.update_layout(xaxis_title='Datum',yaxis_title='Aktiekurs')
         st.plotly_chart(mark_high_low(chart_five_years,h),use_container_width=True)
     else:st.warning('Kursserie saknas.')
-    st.markdown('#### Bolagsbeskrivning')
-    verified = VERIFIED_COMPANY_DESCRIPTIONS.get(ticker)
-    description = (info.get('longBusinessSummary') or '').strip()
-    if verified:
-        st.write(verified[0])
-        st.markdown(f'[Källa: Bolagets officiella webbplats]({verified[1]})')
-    elif description:
-        st.write(description)
-        st.caption('Källa: Yahoo Finance – bolagsprofil.')
-    else:
-        description, description_url, description_source = company_description_fallback(name or company)
-        if description:
-            st.write(description)
-            st.caption('Källa: '+description_source+' – uppslagsverkstext, kontrollera mot bolagets egen webbplats.')
-            if description_url: st.markdown(f'[Läs originalbeskrivningen]({description_url})')
-        else:
-            st.info('Ingen verifierad bolagsbeskrivning kunde hämtas automatiskt från Yahoo Finance eller Wikipedia för detta bolag. Vi visar inte en påhittad beskrivning.')
-    if info.get('website'):
-        st.markdown(f"[Bolagets webbplats]({info['website']})")
-with three:
-    st.subheader(f'Kurspotential – {company}')
-    with st.container(border=True):
-        p1,p2,p3=st.columns(3)
-        p1.metric('Aktuell aktiekurs',show(valuation_result.get('price'),' '+str(valuation_result.get('currency') or ''),2))
-        p2.metric('Motiverad aktiekurs',show(valuation_result.get('target'),' '+str(valuation_result.get('currency') or ''),2))
-        p3.metric('Kurspotential',show(valuation_result.get('upside'),' %',1))
-        if valuation_result.get('audit'): st.caption('Preliminär värdering: '+'; '.join(valuation_result['audit']))
-    st.markdown('### Vad kan aktien vara värd om fem år?')
-    st.caption('Historikbaserad modellprognos – kontrollera antagandena nedan.')
-    def scenario_field(record, keys):
-        for key in keys:
-            result = numeric(record.get(key))
-            if result is not None:
-                return result
-        return None
-    can_value=False
-    annual=[]
-    forecast_source=''
-    bd_reason=''
-    try:
-        bd,bd_reason=borsapi_reports(ticker,borsapi_key())
-        for record in bd.get('periods',[]):
-            if str(record.get('period'))!='5': continue
-            date=record.get('report_End_Date') or record.get('reportEndDate')
-            currency=record.get('currency')
-            rev=numeric(record.get('revenues'))
-            # EBIT is not EBITA; use consistently labelled EBIT when EBITA unavailable.
-            ebit=numeric(record.get('operating_Income'))
-            debt=numeric(record.get('net_Debt'))
-            shares=numeric(record.get('number_Of_Shares'))
-            if date and currency and rev is not None and rev>0 and ebit is not None:
-                annual.append(dict(date=str(date)[:10],currency=str(currency).upper(),revenue=rev*1e6,ebit=ebit*1e6,debt=debt*1e6 if debt is not None else None,shares=shares*1e6 if shares is not None else None))
-        if annual: forecast_source='Börsdata Pro+'
-        elif not bd_reason: bd_reason='Årsrapporter mottagna men jämförbar omsättning, EBIT, datum eller valuta saknas'
-    except Exception as exc:
-        annual=[]
-        bd_reason=type(exc).__name__
-    if not annual:
-        st.caption('Börsdata: '+(bd_reason or 'Inget användbart rapportunderlag')+'. Reservkälla används om tillgänglig.')
-    if not annual and report_ccy:
-        for period in sorted(fin.columns,reverse=True):
-            rev=_annual_balance_value(fin,['Total Revenue','Operating Revenue'],period)
-            ebit=_annual_balance_value(fin,['Operating Income','EBIT'],period)
-            debt=_annual_balance_value(balance,['Net Debt'],period)
-            shares=_annual_balance_value(balance,['Ordinary Shares Number','Share Issued'],period)
-            if rev is not None and rev>0 and ebit is not None:
-                annual.append(dict(date=str(period)[:10],currency=report_ccy,revenue=rev,ebit=ebit,debt=debt,shares=shares))
-        if annual: forecast_source='Yahoo Finance'
-    annual=sorted({x['date']:x for x in annual}.values(),key=lambda x:x['date'],reverse=True)
-    if annual: annual=[x for x in annual if x['currency']==annual[0]['currency']]
-    growths={}
-    if annual:
-        base=annual[0]
-        for n in (1,3,5):
-            target=pd.Timestamp(base['date'])-pd.DateOffset(years=n)
-            older=next((x for x in annual[1:] if abs((pd.Timestamp(x['date'])-target).days)<=45),None)
-            if older:
-                years=(pd.Timestamp(base['date'])-pd.Timestamp(older['date'])).days/365.2425
-                growths[n]=(base['revenue']/older['revenue'])**(1/years)-1
-    if valuation_result.get('category') not in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
-        category=valuation_result.get('category')
-        # Book equity per share is a distinct proxy, never labelled NAV.
-        eligible=category in ('Fastigheter','Investmentbolag / kapitalförvaltning','Bank / finansiella tjänster','Försäkring')
-        series={}
-        if eligible:
-            for period in sorted(balance.columns):
-                eq=_annual_balance_value(balance,['Common Stock Equity','Stockholders Equity'],period)
-                count=_annual_balance_value(balance,['Ordinary Shares Number','Share Issued'],period)
-                if eq is not None and eq>0 and count is not None and count>0:
-                    series[pd.Timestamp(period).normalize()]=eq/count
-        growth_parts={}
-        if series:
-            last_date=max(series)
-            for n in (1,3,5):
-                target_date=last_date-pd.DateOffset(years=n)
-                older=next((d for d in series if abs((d-target_date).days)<=45),None)
-                if older is not None:
-                    growth_parts[n]=(series[last_date]/series[older])**(365.2425/(last_date-older).days)-1
-        current=numeric(valuation_result.get('price'))
-        if eligible and growth_parts and current and current>0 and not valuation_result.get('audit'):
-            weights={1:.4,3:.35,5:.25}
-            g=sum(weights[n]*v for n,v in growth_parts.items())/sum(weights[n] for n in growth_parts)
-            today=pd.Timestamp.today().normalize()
-            points=pd.DataFrame({'Datum':[today+pd.DateOffset(years=n) for n in range(6)],'Aktiekurs':[current*(1+g)**n for n in range(6)],'Typ':'Prognos'})
-            future=float(points['Aktiekurs'].iloc[-1])
-            color='#16A34A' if future>current else '#DC2626' if future<current else '#64748B'
-            history_points=pd.DataFrame(columns=['Datum','Aktiekurs','Typ'])
-            if isinstance(hist,pd.DataFrame) and not hist.empty and 'Close' in hist:
-                h=hist.Close.dropna()
-                history_points=pd.DataFrame({'Datum':pd.DatetimeIndex(h.index).tz_localize(None),'Aktiekurs':h.to_numpy(),'Typ':'Historik'})
-            chart=px.line(pd.concat([history_points,points],ignore_index=True),x='Datum',y='Aktiekurs',color='Typ',line_dash='Typ',color_discrete_map={'Historik':'#64748B','Prognos':color},line_dash_map={'Historik':'solid','Prognos':'dash'})
-            chart.update_traces(mode='lines+markers',selector=dict(name='Prognos'))
-            for n,p in points.iterrows():
-                chart.add_annotation(x=p['Datum'],y=p['Aktiekurs'],text=show(p['Aktiekurs'],' '+str(quote_ccy),1),showarrow=False,yshift=-22 if n==0 else 20,font=dict(size=12,color=color))
-            st.metric('Prognostiserad aktiekurs om fem år',show(future,' '+str(quote_ccy),2))
-            st.write(f'Årlig kursavkastning: {g*100:+.1f} %')
-            st.plotly_chart(chart,use_container_width=True)
-            st.caption('Preliminär prognos baserad på historisk tillväxt i bokfört eget kapital per aktie, med oförändrad P/B-nivå. Inte en NAV-prognos. Utdelning ingår inte. Historiskt aktieantal måste vara jämförbart efter splittar.')
-            can_value=True
-        else:
-            st.info('Sektorspecifikt prognosunderlag saknas: '+('jämförbar historik för eget kapital per aktie eller godkänd datakontroll.' if eligible else 'verifierade framtida projekt-, royalty- eller verksamhetskassaflöden.'))
-    elif not growths:
-        st.info('Ingen jämförbar omsättningshistorik hittades. Kontrollera Börsdata-anslutningen och rapportperioderna.')
-    else:
-        base=annual[0]
-        forecast_history=[x for x in annual if (pd.Timestamp(base['date'])-pd.Timestamp(x['date'])).days<=1830]
-        weights={1:.4,3:.35,5:.25}
-        total_weight=sum(weights[n] for n in growths)
-        growth=sum(weights[n]*v for n,v in growths.items())/total_weight
-        if len(growths)<3: st.warning('Begränsat historiskt underlag: '+', '.join(str(n)+' år' for n in sorted(growths))+'. Vikterna har omfördelats. Prognosen är mer osäker.')
-        margins=pd.Series([x['ebit']/x['revenue'] for x in forecast_history])
-        gm=pd.Series(list(growths.values()))
-        st.caption(f"Källa: {forecast_source} · {base['date']} · {base['currency']}. Prognosen använder EBIT (inte EBITA).")
-        cols=st.columns(4)
-        for col,n in zip(cols,(1,3,5)): col.metric(f'Tillväxt {n} år',f'{growths[n]*100:+.1f} %/år' if n in growths else 'Saknas')
-        cols[3].metric('Viktad tillväxt',f'{growth*100:+.1f} %/år')
-        settings=[('Prognos',growth,float(margins.median()))]
-        # Historical EV/EBIT from actual year-end prices, matching debt, shares and currency.
-        multiples=[]
-        try:
-            prices=long_history(ticker)
-            close=prices['Close'].copy()
-            close.index=pd.DatetimeIndex(close.index).tz_localize(None)
-            if quote_ccy==base['currency']:
-                for x in forecast_history:
-                    cutoff=pd.Timestamp(x['date'])
-                    prior=close.loc[close.index<=cutoff]
-                    if prior.empty or (cutoff-prior.index[-1]).days>7: continue
-                    if x['shares'] is None or x['shares']<=0 or x['debt'] is None or x['ebit']<=0: continue
-                    multiple=(float(prior.iloc[-1])*x['shares']+x['debt'])/x['ebit']
-                    if math.isfinite(multiple) and multiple>0: multiples.append(multiple)
-        except Exception:
-            multiples=[]
-        mult=pd.Series(multiples,dtype=float)
-        price=numeric(valuation_result.get('price'))
-        shares=numeric(valuation_shares)
-        fx=numeric(fx_rate(base['currency'],quote_ccy))
-        forecast_debt=base['debt']
-        if forecast_debt is None and str(valuation_result.get('period'))[:10]==base['date'] and valuation_result.get('report_currency')==base['currency']:
-            forecast_debt=numeric(valuation_debt)
-        multiple=float(mult.median()) if len(mult)>=2 else None
-        multiple_source=f'Historisk median ({len(mult)} år)'
-        if multiple is None and all(x is not None for x in (price,shares,fx,forecast_debt)) and price>0 and shares>0 and fx>0 and base['ebit']>0:
-            candidate=(price*shares/fx+forecast_debt)/base['ebit']
-            if candidate>0 and math.isfinite(candidate):
-                multiple=candidate
-                multiple_source='Aktuell EV/EBIT baserad på senaste årsrapport; oförändrad värderingsnivå antas'
-        can_value=multiple is not None and forecast_debt is not None and shares is not None and shares>0 and price is not None and price>0 and fx is not None and fx>0 and not valuation_result.get('audit')
-        if can_value: st.caption('Värderingsmultipel: '+multiple_source)
-        else:
-            missing=[]
-            if multiple is None: missing.append('EV/EBIT')
-            if forecast_debt is None: missing.append('nettoskuld')
-            if shares is None or shares<=0: missing.append('aktieantal')
-            if price is None or price<=0: missing.append('aktiekurs')
-            if fx is None or fx<=0: missing.append('valuta')
-            if valuation_result.get('audit'): missing.append('datakontroll: '+ '; '.join(valuation_result['audit']))
-            st.warning('Aktiekursprognos saknar godkänt underlag: '+', '.join(missing))
-        rows=[]; outcomes=[]
-        for idx,(name,g,m) in enumerate(settings):
-            for year in range(1,6):
-                sales=base['revenue']*(1+g)**year
-                ebit=sales*m
-                future=max(0,ebit*multiple-forecast_debt)*fx/shares if can_value else None
-                rows.append({'År':pd.Timestamp(base['date']).year+year,'Scenario':name,'Omsättning (M)':sales/1e6,'EBIT (M)':ebit/1e6,'Aktiekurs':future})
-            outcomes.append((name,g,m,multiple,future))
-        cols=st.columns(1)
-        for col,(name,g,m,multiple,future) in zip(cols,outcomes):
-            col.metric('Prognostiserad aktiekurs om fem år',show(future,' '+str(quote_ccy),2) if future is not None else 'Saknas')
-            if future is not None:
-                col.write(f'Kurspotential: {(future/price-1)*100:+.1f} %')
-                col.write(f'Årlig kursavkastning: {((future/price)**.2-1)*100:+.1f} %')
-        frame=pd.DataFrame(rows)
-        if can_value:
-            today=pd.Timestamp.today().normalize()
-            forecast_points=pd.DataFrame({'Datum':[today]+[today+pd.DateOffset(years=n) for n in range(1,6)],'Aktiekurs':[price]+frame['Aktiekurs'].tolist(),'Typ':'Prognos'})
-            historical_points=pd.DataFrame(columns=['Datum','Aktiekurs','Typ'])
-            if isinstance(hist,pd.DataFrame) and not hist.empty and 'Close' in hist:
-                close_series=hist['Close'].dropna()
-                dates=pd.DatetimeIndex(close_series.index).tz_localize(None)
-                historical_points=pd.DataFrame({'Datum':dates,'Aktiekurs':close_series.to_numpy(),'Typ':'Historik'})
-                historical_points=historical_points[historical_points['Datum']>=today-pd.DateOffset(years=5)]
-                historical_points=pd.concat([historical_points,pd.DataFrame({'Datum':[today],'Aktiekurs':[price],'Typ':['Historik']})],ignore_index=True)
-            chart=px.line(pd.concat([historical_points,forecast_points],ignore_index=True),x='Datum',y='Aktiekurs',color='Typ',line_dash='Typ',color_discrete_map={'Historik':'#64748B','Prognos':('#16A34A' if future>price else '#DC2626' if future<price else '#64748B')},line_dash_map={'Historik':'solid','Prognos':'dash'},title='Aktiekurs – historik och femårsprognos')
-            forecast_color='#16A34A' if future>price else '#DC2626' if future<price else '#64748B'
-            chart.update_traces(line=dict(width=1.6),selector=dict(name='Historik'))
-            chart.update_traces(mode='lines+markers',marker=dict(size=7),line=dict(width=2.2,dash='dash'),selector=dict(name='Prognos'))
-            for n,point in forecast_points.iterrows():
-                chart.add_annotation(x=point['Datum'],y=point['Aktiekurs'],text=('Idag · ' if n==0 else '')+show(point['Aktiekurs'],' kr' if quote_ccy=='SEK' else ' '+str(quote_ccy),1),showarrow=False,xshift=0,yshift=-22 if n==0 else 20,font=dict(size=12,color='#64748B' if n==0 else forecast_color),bgcolor='rgba(255,255,255,0)',borderpad=0)
-            chart.add_vline(x=today.timestamp()*1000,line_width=1,line_dash='dot',line_color='#94A3B8')
-            chart.update_layout(height=420,yaxis_title=None,xaxis_title=None,legend_title_text=None,legend=dict(orientation='h',y=-0.16),margin=dict(t=65,r=85,b=70,l=45),hovermode='x unified')
-            first_date=historical_points['Datum'].min() if not historical_points.empty else today
-            historical_ticks=[today-pd.DateOffset(years=n) for n in range(5,0,-1) if today-pd.DateOffset(years=n)>=first_date]
-            chart.update_xaxes(tickvals=historical_ticks+forecast_points['Datum'].tolist(),ticktext=[str(d.year) for d in historical_ticks]+['Idag']+[str((today+pd.DateOffset(years=n)).year) for n in range(1,6)],range=[first_date-pd.Timedelta(days=20),today+pd.DateOffset(years=5,months=4)],showgrid=False)
-            chart.update_yaxes(automargin=True,gridcolor='rgba(148,163,184,0.18)')
-            st.plotly_chart(chart,use_container_width=True)
-            with st.expander('Visa beräkningsantaganden'):
-                st.dataframe(forecast_points.rename(columns={'Aktiekurs':'Prognostiserad aktiekurs'}).drop(columns='Typ'),hide_index=True,use_container_width=True)
-                st.write('Tillväxt: grundvikter 40/35/25, omfördelade proportionellt vid saknad historik. Marginal och värderingsmultipel baseras på historisk median.')
-                st.write('Historiska EV/EBIT-multiplar: '+', '.join(f'{v:.1f}×' for v in multiples))
-        else:
-            st.info('Aktiekurskurvan visas när värderingsunderlaget är tillräckligt.')
-        st.caption('Historikbaserad modellprognos, inte bolagets egen prognos. Oförändrad nettoskuld, aktieantal och valuta antas. Utdelning ingår inte; historiska multiplar kräver även kontroll av splittar och aktieslag. Fundamentala riktkursen påverkas inte.')
-    if not can_value and isinstance(hist,pd.DataFrame) and not hist.empty and 'Close' in hist:
-        historical_close=hist['Close'].dropna()
-        historical_chart=px.line(x=historical_close.index,y=historical_close.to_numpy(),labels={'x':'Datum','y':'Aktiekurs ('+str(quote_ccy)+')'},title='Aktiekurs – historik (prognosunderlag saknas)')
-        st.plotly_chart(historical_chart,use_container_width=True)
-    st.divider()
-    with st.expander('Historisk kursutveckling och risk',expanded=False):
-        if not hist.empty and 'Close' in hist:
-            prices = pd.to_numeric(hist['Close'], errors='coerce').dropna()
-            if len(prices) >= 60:
-                returns = prices.pct_change().dropna()
-                yearly = (prices.iloc[-1]/prices.iloc[0])**(252/max(len(prices)-1,1))-1 if prices.iloc[0]>0 else None
-                volatility = returns.std() * (252**0.5)
-                drawdown = (prices/prices.cummax()-1).min()
-                x,y,z = st.columns(3)
-                x.metric('Genomsnittlig årlig kursutveckling', show(yearly*100,' %') if yearly is not None else 'Saknas')
-                y.metric('Historisk volatilitet', show(volatility*100,' %'))
-                z.metric('Största historiska nedgång', show(drawdown*100,' %'))
-                st.caption('Beräknat på tillgängliga handelsdagar. Kursförändringen exkluderar utdelningar när ej justerad kurs används. Historisk utveckling är ingen prognos.')
-            else:
-                st.info('För kort kurshistorik för riskmåtten.')
-        else:
-            st.info('Kurshistorik saknas.')
-
-
-
-with quality_tab:
-    st.subheader('Tillväxt & stabilitet – '+company)
-    if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
-        st.markdown('### Historisk tillväxt och resultatstabilitet')
-        stability=growth_stability(fin)
-        for col,label,key in zip(st.columns(2),['Omsättning',stability['label']],['revenue','earnings']):
-            data=stability[key]
-            with col:
-                with st.container(border=True):
-                    st.markdown('**'+label+'**')
-                    if data:
-                        st.metric('Årlig tillväxt (CAGR)',show(data['cagr'],' %',1))
-                        st.write(f"Positiva år: **{data['positive']} av {data['n']}**")
-                        st.caption('Variation: '+show(data['volatility'],' procentenheter',1)+' · Svagaste år: '+show(data['worst'],' %',1))
-                    else: st.caption('Jämförbar historik saknas.')
-        chart_data=pd.DataFrame(stability['rows'])
-        if not chart_data.empty:
-            key=stability['label'].lower()
-            indexed=pd.DataFrame({'Datum':chart_data['date']})
-            for field,label in [('revenue','Omsättning'),(key,stability['label'])]:
-                values=chart_data[field]
-                if len(values.dropna()) and values.dropna().iloc[0]>0: indexed[label]=values/values.dropna().iloc[0]*100
-            if len(indexed.columns)>1: st.plotly_chart(px.line(indexed,x='Datum',y=list(indexed.columns[1:]),labels={'value':'Index (start = 100)','variable':'Nyckeltal'},markers=True),use_container_width=True)
-        margins=pd.DataFrame([{'Datum':x['date'],'Marginal (%)':100*x[stability['label'].lower()]/x['revenue']} for x in stability['rows'] if x['revenue'] is not None and x['revenue']>0 and x[stability['label'].lower()] is not None])
-        if len(margins)>=2:
-            with st.expander(stability['label']+'-marginal över tid'):
-                st.plotly_chart(px.line(margins,x='Datum',y='Marginal (%)',markers=True),use_container_width=True)
-        st.caption('Upp till tio års tillväxtintervall. EBIT visas uttryckligen när EBITA-historik saknas. Tillväxt från förlustår ingår inte i procentberäkningen. Stabilitet är inte ett bevis på prissättningskraft.')
-        st.markdown('#### Årsvis utveckling')
-        changes=[]
-        for prev,cur in zip(stability['rows'],stability['rows'][1:]):
-            if not 320<=(pd.Timestamp(cur['date'])-pd.Timestamp(prev['date'])).days<=410: continue
-            item={'År':cur['date']}
-            for field,label in [('revenue','Omsättning'),(stability['label'].lower(),stability['label'])]:
-                p,v=prev[field],cur[field]
-                item[label+' (M)']=v/1e6 if v is not None else None
-                item[label+' tillväxt (%)']=(v/p-1)*100 if p is not None and p>0 and v is not None else None
-            changes.append(item)
-        if changes:
-            annual_changes=pd.DataFrame(changes)
-            st.plotly_chart(px.bar(annual_changes,x='År',y=['Omsättning tillväxt (%)',stability['label']+' tillväxt (%)'],barmode='group',labels={'value':'Årsförändring (%)','variable':'Nyckeltal'}),use_container_width=True)
-            st.dataframe(annual_changes,hide_index=True,use_container_width=True)
-        st.metric('Stabilitetsindex',show(stability['score'],'/100',0))
-        st.caption('Indexet kräver minst fem jämförbara årsintervall för både omsättning och resultat samt positiv långsiktig tillväxt.')
-    else:
-        st.caption('Sektorspecifik historik – industrins EBITA-index används inte för denna bolagstyp.')
-        category=valuation_result.get('category')
-        series=[]
-        if category in ('Investmentbolag / kapitalförvaltning','Fastigheter','Bank / finansiella tjänster','Försäkring'):
-            for p in sorted(balance.columns)[-11:]:
-                eq=_annual_balance_value(balance,['Common Stock Equity','Stockholders Equity'],p)
-                shares=_annual_balance_value(balance,['Ordinary Shares Number','Share Issued'],p)
-                if eq is not None and shares is not None and shares>0:
-                    series.append({'År':str(p)[:10],'Bokfört eget kapital per aktie':eq/shares})
-            label='Bokfört eget kapital per aktie'
-            st.caption('Bokfört eget kapital är inte substansvärde. Kontrollera historiskt aktieantal och splittar.')
-        else:
-            label='Operativt kassaflöde (M)'
-            for p in sorted(cash.columns)[-11:]:
-                v=_annual_balance_value(cash,['Operating Cash Flow'],p)
-                if v is not None: series.append({'År':str(p)[:10],label:v/1e6})
-        if series:
-            st.plotly_chart(px.line(pd.DataFrame(series),x='År',y=label,markers=True),use_container_width=True)
-            st.dataframe(pd.DataFrame(series),hide_index=True,use_container_width=True)
-        else: st.info('Jämförbar sektorshistorik saknas.')
-        st.caption('Separat kalibrerat stabilitetsindex för denna sektor saknas ännu.')
-
-
-with business_tab:
     st.subheader('Affärsmodell & bolagskvalitet – '+company)
     st.caption('Långsiktigt ägande · finansiell kvalitet och kvalitativ due diligence, separat från riktkursen.')
     verified=VERIFIED_COMPANY_DESCRIPTIONS.get(ticker)
@@ -3933,6 +3616,305 @@ with business_tab:
     if measured:
         st.write('Rapporterade indikatorer: '+ '; '.join(label+' – '+status.lower() for label,status in measured)+'.')
     st.caption('En fullständig kvalitativ bedömning av 15+ års konkurrenskraft kräver bolagsspecifika källor. Inga saknade kvalitativa uppgifter omvandlas till kvalitetspoäng.')
+
+
+
+with three:
+    st.subheader(f'Kurspotential – {company}')
+    with st.container(border=True):
+        p1,p2,p3=st.columns(3)
+        p1.metric('Aktuell aktiekurs',show(valuation_result.get('price'),' '+str(valuation_result.get('currency') or ''),2))
+        p2.metric('Motiverad aktiekurs',show(valuation_result.get('target'),' '+str(valuation_result.get('currency') or ''),2))
+        p3.metric('Kurspotential',show(valuation_result.get('upside'),' %',1))
+        if valuation_result.get('audit'): st.caption('Preliminär värdering: '+'; '.join(valuation_result['audit']))
+    st.markdown('### Vad kan aktien vara värd om fem år?')
+    st.caption('Historikbaserad modellprognos – kontrollera antagandena nedan.')
+    def scenario_field(record, keys):
+        for key in keys:
+            result = numeric(record.get(key))
+            if result is not None:
+                return result
+        return None
+    can_value=False
+    annual=[]
+    forecast_source=''
+    bd_reason=''
+    try:
+        bd,bd_reason=borsapi_reports(ticker,borsapi_key())
+        for record in bd.get('periods',[]):
+            if str(record.get('period'))!='5': continue
+            date=record.get('report_End_Date') or record.get('reportEndDate')
+            currency=record.get('currency')
+            rev=numeric(record.get('revenues'))
+            # EBIT is not EBITA; use consistently labelled EBIT when EBITA unavailable.
+            ebit=numeric(record.get('operating_Income'))
+            debt=numeric(record.get('net_Debt'))
+            shares=numeric(record.get('number_Of_Shares'))
+            if date and currency and rev is not None and rev>0 and ebit is not None:
+                annual.append(dict(date=str(date)[:10],currency=str(currency).upper(),revenue=rev*1e6,ebit=ebit*1e6,debt=debt*1e6 if debt is not None else None,shares=shares*1e6 if shares is not None else None))
+        if annual: forecast_source='Börsdata Pro+'
+        elif not bd_reason: bd_reason='Årsrapporter mottagna men jämförbar omsättning, EBIT, datum eller valuta saknas'
+    except Exception as exc:
+        annual=[]
+        bd_reason=type(exc).__name__
+    if not annual:
+        st.caption('Börsdata: '+(bd_reason or 'Inget användbart rapportunderlag')+'. Reservkälla används om tillgänglig.')
+    if not annual and report_ccy:
+        for period in sorted(fin.columns,reverse=True):
+            rev=_annual_balance_value(fin,['Total Revenue','Operating Revenue'],period)
+            ebit=_annual_balance_value(fin,['Operating Income','EBIT'],period)
+            debt=_annual_balance_value(balance,['Net Debt'],period)
+            shares=_annual_balance_value(balance,['Ordinary Shares Number','Share Issued'],period)
+            if rev is not None and rev>0 and ebit is not None:
+                annual.append(dict(date=str(period)[:10],currency=report_ccy,revenue=rev,ebit=ebit,debt=debt,shares=shares))
+        if annual: forecast_source='Yahoo Finance'
+    annual=sorted({x['date']:x for x in annual}.values(),key=lambda x:x['date'],reverse=True)
+    if annual: annual=[x for x in annual if x['currency']==annual[0]['currency']]
+    growths={}
+    if annual:
+        base=annual[0]
+        for n in (1,3,5):
+            target=pd.Timestamp(base['date'])-pd.DateOffset(years=n)
+            older=next((x for x in annual[1:] if abs((pd.Timestamp(x['date'])-target).days)<=45),None)
+            if older:
+                years=(pd.Timestamp(base['date'])-pd.Timestamp(older['date'])).days/365.2425
+                growths[n]=(base['revenue']/older['revenue'])**(1/years)-1
+    if valuation_result.get('category') not in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
+        category=valuation_result.get('category')
+        # Book equity per share is a distinct proxy, never labelled NAV.
+        eligible=category in ('Fastigheter','Investmentbolag / kapitalförvaltning','Bank / finansiella tjänster','Försäkring')
+        series={}
+        if eligible:
+            for period in sorted(balance.columns):
+                eq=_annual_balance_value(balance,['Common Stock Equity','Stockholders Equity'],period)
+                count=_annual_balance_value(balance,['Ordinary Shares Number','Share Issued'],period)
+                if eq is not None and eq>0 and count is not None and count>0:
+                    series[pd.Timestamp(period).normalize()]=eq/count
+        growth_parts={}
+        if series:
+            last_date=max(series)
+            for n in (1,3,5):
+                target_date=last_date-pd.DateOffset(years=n)
+                older=next((d for d in series if abs((d-target_date).days)<=45),None)
+                if older is not None:
+                    growth_parts[n]=(series[last_date]/series[older])**(365.2425/(last_date-older).days)-1
+        current=numeric(valuation_result.get('price'))
+        if eligible and growth_parts and current and current>0 and not valuation_result.get('audit'):
+            weights={1:.4,3:.35,5:.25}
+            g=sum(weights[n]*v for n,v in growth_parts.items())/sum(weights[n] for n in growth_parts)
+            today=pd.Timestamp.today().normalize()
+            points=pd.DataFrame({'Datum':[today+pd.DateOffset(years=n) for n in range(6)],'Aktiekurs':[current*(1+g)**n for n in range(6)],'Typ':'Prognos'})
+            future=float(points['Aktiekurs'].iloc[-1])
+            color='#16A34A' if future>current else '#DC2626' if future<current else '#64748B'
+            history_points=pd.DataFrame(columns=['Datum','Aktiekurs','Typ'])
+            if isinstance(hist,pd.DataFrame) and not hist.empty and 'Close' in hist:
+                h=hist.Close.dropna()
+                history_points=pd.DataFrame({'Datum':pd.DatetimeIndex(h.index).tz_localize(None),'Aktiekurs':h.to_numpy(),'Typ':'Historik'})
+            chart=px.line(pd.concat([history_points,points],ignore_index=True),x='Datum',y='Aktiekurs',color='Typ',line_dash='Typ',color_discrete_map={'Historik':'#64748B','Prognos':color},line_dash_map={'Historik':'solid','Prognos':'dash'})
+            chart.update_traces(mode='lines+markers',selector=dict(name='Prognos'))
+            for n,p in points.iterrows():
+                chart.add_annotation(x=p['Datum'],y=p['Aktiekurs'],text=show(p['Aktiekurs'],' '+str(quote_ccy),1),showarrow=False,yshift=-22 if n==0 else 20,font=dict(size=12,color=color))
+            st.metric('Prognostiserad aktiekurs om fem år',show(future,' '+str(quote_ccy),2))
+            st.write(f'Årlig kursavkastning: {g*100:+.1f} %')
+            st.plotly_chart(chart,use_container_width=True)
+            st.caption('Preliminär prognos baserad på historisk tillväxt i bokfört eget kapital per aktie, med oförändrad P/B-nivå. Inte en NAV-prognos. Utdelning ingår inte. Historiskt aktieantal måste vara jämförbart efter splittar.')
+            can_value=True
+        else:
+            st.info('Sektorspecifikt prognosunderlag saknas: '+('jämförbar historik för eget kapital per aktie eller godkänd datakontroll.' if eligible else 'verifierade framtida projekt-, royalty- eller verksamhetskassaflöden.'))
+    elif not growths:
+        st.info('Ingen jämförbar omsättningshistorik hittades. Kontrollera Börsdata-anslutningen och rapportperioderna.')
+    else:
+        base=annual[0]
+        forecast_history=[x for x in annual if (pd.Timestamp(base['date'])-pd.Timestamp(x['date'])).days<=1830]
+        weights={1:.4,3:.35,5:.25}
+        total_weight=sum(weights[n] for n in growths)
+        growth=sum(weights[n]*v for n,v in growths.items())/total_weight
+        if len(growths)<3: st.warning('Begränsat historiskt underlag: '+', '.join(str(n)+' år' for n in sorted(growths))+'. Vikterna har omfördelats. Prognosen är mer osäker.')
+        margins=pd.Series([x['ebit']/x['revenue'] for x in forecast_history])
+        gm=pd.Series(list(growths.values()))
+        st.caption(f"Källa: {forecast_source} · {base['date']} · {base['currency']}. Prognosen använder EBIT (inte EBITA).")
+        cols=st.columns(4)
+        for col,n in zip(cols,(1,3,5)): col.metric(f'Tillväxt {n} år',f'{growths[n]*100:+.1f} %/år' if n in growths else 'Saknas')
+        cols[3].metric('Viktad tillväxt',f'{growth*100:+.1f} %/år')
+        settings=[('Prognos',growth,float(margins.median()))]
+        # Historical EV/EBIT from actual year-end prices, matching debt, shares and currency.
+        multiples=[]
+        try:
+            prices=long_history(ticker)
+            close=prices['Close'].copy()
+            close.index=pd.DatetimeIndex(close.index).tz_localize(None)
+            if quote_ccy==base['currency']:
+                for x in forecast_history:
+                    cutoff=pd.Timestamp(x['date'])
+                    prior=close.loc[close.index<=cutoff]
+                    if prior.empty or (cutoff-prior.index[-1]).days>7: continue
+                    if x['shares'] is None or x['shares']<=0 or x['debt'] is None or x['ebit']<=0: continue
+                    multiple=(float(prior.iloc[-1])*x['shares']+x['debt'])/x['ebit']
+                    if math.isfinite(multiple) and multiple>0: multiples.append(multiple)
+        except Exception:
+            multiples=[]
+        mult=pd.Series(multiples,dtype=float)
+        price=numeric(valuation_result.get('price'))
+        shares=numeric(valuation_shares)
+        fx=numeric(fx_rate(base['currency'],quote_ccy))
+        forecast_debt=base['debt']
+        if forecast_debt is None and str(valuation_result.get('period'))[:10]==base['date'] and valuation_result.get('report_currency')==base['currency']:
+            forecast_debt=numeric(valuation_debt)
+        multiple=float(mult.median()) if len(mult)>=2 else None
+        multiple_source=f'Historisk median ({len(mult)} år)'
+        if multiple is None and all(x is not None for x in (price,shares,fx,forecast_debt)) and price>0 and shares>0 and fx>0 and base['ebit']>0:
+            candidate=(price*shares/fx+forecast_debt)/base['ebit']
+            if candidate>0 and math.isfinite(candidate):
+                multiple=candidate
+                multiple_source='Aktuell EV/EBIT baserad på senaste årsrapport; oförändrad värderingsnivå antas'
+        can_value=multiple is not None and forecast_debt is not None and shares is not None and shares>0 and price is not None and price>0 and fx is not None and fx>0 and not valuation_result.get('audit')
+        if can_value: st.caption('Värderingsmultipel: '+multiple_source)
+        else:
+            missing=[]
+            if multiple is None: missing.append('EV/EBIT')
+            if forecast_debt is None: missing.append('nettoskuld')
+            if shares is None or shares<=0: missing.append('aktieantal')
+            if price is None or price<=0: missing.append('aktiekurs')
+            if fx is None or fx<=0: missing.append('valuta')
+            if valuation_result.get('audit'): missing.append('datakontroll: '+ '; '.join(valuation_result['audit']))
+            st.warning('Aktiekursprognos saknar godkänt underlag: '+', '.join(missing))
+        rows=[]; outcomes=[]
+        for idx,(name,g,m) in enumerate(settings):
+            for year in range(1,6):
+                sales=base['revenue']*(1+g)**year
+                ebit=sales*m
+                future=max(0,ebit*multiple-forecast_debt)*fx/shares if can_value else None
+                rows.append({'År':pd.Timestamp(base['date']).year+year,'Scenario':name,'Omsättning (M)':sales/1e6,'EBIT (M)':ebit/1e6,'Aktiekurs':future})
+            outcomes.append((name,g,m,multiple,future))
+        cols=st.columns(1)
+        for col,(name,g,m,multiple,future) in zip(cols,outcomes):
+            col.metric('Prognostiserad aktiekurs om fem år',show(future,' '+str(quote_ccy),2) if future is not None else 'Saknas')
+            if future is not None:
+                col.write(f'Kurspotential: {(future/price-1)*100:+.1f} %')
+                col.write(f'Årlig kursavkastning: {((future/price)**.2-1)*100:+.1f} %')
+        frame=pd.DataFrame(rows)
+        if can_value:
+            today=pd.Timestamp.today().normalize()
+            forecast_points=pd.DataFrame({'Datum':[today]+[today+pd.DateOffset(years=n) for n in range(1,6)],'Aktiekurs':[price]+frame['Aktiekurs'].tolist(),'Typ':'Prognos'})
+            historical_points=pd.DataFrame(columns=['Datum','Aktiekurs','Typ'])
+            if isinstance(hist,pd.DataFrame) and not hist.empty and 'Close' in hist:
+                close_series=hist['Close'].dropna()
+                dates=pd.DatetimeIndex(close_series.index).tz_localize(None)
+                historical_points=pd.DataFrame({'Datum':dates,'Aktiekurs':close_series.to_numpy(),'Typ':'Historik'})
+                historical_points=historical_points[historical_points['Datum']>=today-pd.DateOffset(years=5)]
+                historical_points=pd.concat([historical_points,pd.DataFrame({'Datum':[today],'Aktiekurs':[price],'Typ':['Historik']})],ignore_index=True)
+            chart=px.line(pd.concat([historical_points,forecast_points],ignore_index=True),x='Datum',y='Aktiekurs',color='Typ',line_dash='Typ',color_discrete_map={'Historik':'#64748B','Prognos':('#16A34A' if future>price else '#DC2626' if future<price else '#64748B')},line_dash_map={'Historik':'solid','Prognos':'dash'},title='Aktiekurs – historik och femårsprognos')
+            forecast_color='#16A34A' if future>price else '#DC2626' if future<price else '#64748B'
+            chart.update_traces(line=dict(width=1.6),selector=dict(name='Historik'))
+            chart.update_traces(mode='lines+markers',marker=dict(size=7),line=dict(width=2.2,dash='dash'),selector=dict(name='Prognos'))
+            for n,point in forecast_points.iterrows():
+                chart.add_annotation(x=point['Datum'],y=point['Aktiekurs'],text=('Idag · ' if n==0 else '')+show(point['Aktiekurs'],' kr' if quote_ccy=='SEK' else ' '+str(quote_ccy),1),showarrow=False,xshift=0,yshift=-22 if n==0 else 20,font=dict(size=12,color='#64748B' if n==0 else forecast_color),bgcolor='rgba(255,255,255,0)',borderpad=0)
+            chart.add_vline(x=today.timestamp()*1000,line_width=1,line_dash='dot',line_color='#94A3B8')
+            chart.update_layout(height=420,yaxis_title=None,xaxis_title=None,legend_title_text=None,legend=dict(orientation='h',y=-0.16),margin=dict(t=65,r=85,b=70,l=45),hovermode='x unified')
+            first_date=historical_points['Datum'].min() if not historical_points.empty else today
+            historical_ticks=[today-pd.DateOffset(years=n) for n in range(5,0,-1) if today-pd.DateOffset(years=n)>=first_date]
+            chart.update_xaxes(tickvals=historical_ticks+forecast_points['Datum'].tolist(),ticktext=[str(d.year) for d in historical_ticks]+['Idag']+[str((today+pd.DateOffset(years=n)).year) for n in range(1,6)],range=[first_date-pd.Timedelta(days=20),today+pd.DateOffset(years=5,months=4)],showgrid=False)
+            chart.update_yaxes(automargin=True,gridcolor='rgba(148,163,184,0.18)')
+            st.plotly_chart(chart,use_container_width=True)
+            with st.expander('Visa beräkningsantaganden'):
+                st.dataframe(forecast_points.rename(columns={'Aktiekurs':'Prognostiserad aktiekurs'}).drop(columns='Typ'),hide_index=True,use_container_width=True)
+                st.write('Tillväxt: grundvikter 40/35/25, omfördelade proportionellt vid saknad historik. Marginal och värderingsmultipel baseras på historisk median.')
+                st.write('Historiska EV/EBIT-multiplar: '+', '.join(f'{v:.1f}×' for v in multiples))
+        else:
+            st.info('Aktiekurskurvan visas när värderingsunderlaget är tillräckligt.')
+        st.caption('Historikbaserad modellprognos, inte bolagets egen prognos. Oförändrad nettoskuld, aktieantal och valuta antas. Utdelning ingår inte; historiska multiplar kräver även kontroll av splittar och aktieslag. Fundamentala riktkursen påverkas inte.')
+    if not can_value and isinstance(hist,pd.DataFrame) and not hist.empty and 'Close' in hist:
+        historical_close=hist['Close'].dropna()
+        historical_chart=px.line(x=historical_close.index,y=historical_close.to_numpy(),labels={'x':'Datum','y':'Aktiekurs ('+str(quote_ccy)+')'},title='Aktiekurs – historik (prognosunderlag saknas)')
+        st.plotly_chart(historical_chart,use_container_width=True)
+    st.divider()
+    with st.expander('Historisk kursutveckling och risk',expanded=False):
+        if not hist.empty and 'Close' in hist:
+            prices = pd.to_numeric(hist['Close'], errors='coerce').dropna()
+            if len(prices) >= 60:
+                returns = prices.pct_change().dropna()
+                yearly = (prices.iloc[-1]/prices.iloc[0])**(252/max(len(prices)-1,1))-1 if prices.iloc[0]>0 else None
+                volatility = returns.std() * (252**0.5)
+                drawdown = (prices/prices.cummax()-1).min()
+                x,y,z = st.columns(3)
+                x.metric('Genomsnittlig årlig kursutveckling', show(yearly*100,' %') if yearly is not None else 'Saknas')
+                y.metric('Historisk volatilitet', show(volatility*100,' %'))
+                z.metric('Största historiska nedgång', show(drawdown*100,' %'))
+                st.caption('Beräknat på tillgängliga handelsdagar. Kursförändringen exkluderar utdelningar när ej justerad kurs används. Historisk utveckling är ingen prognos.')
+            else:
+                st.info('För kort kurshistorik för riskmåtten.')
+        else:
+            st.info('Kurshistorik saknas.')
+
+
+
+with quality_tab:
+    st.subheader('Tillväxt & stabilitet – '+company)
+    if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
+        st.markdown('### Historisk tillväxt och resultatstabilitet')
+        stability=growth_stability(fin)
+        for col,label,key in zip(st.columns(2),['Omsättning',stability['label']],['revenue','earnings']):
+            data=stability[key]
+            with col:
+                with st.container(border=True):
+                    st.markdown('**'+label+'**')
+                    if data:
+                        st.metric('Årlig tillväxt (CAGR)',show(data['cagr'],' %',1))
+                        st.write(f"Positiva år: **{data['positive']} av {data['n']}**")
+                        st.caption('Variation: '+show(data['volatility'],' procentenheter',1)+' · Svagaste år: '+show(data['worst'],' %',1))
+                    else: st.caption('Jämförbar historik saknas.')
+        chart_data=pd.DataFrame(stability['rows'])
+        if not chart_data.empty:
+            key=stability['label'].lower()
+            indexed=pd.DataFrame({'Datum':chart_data['date']})
+            for field,label in [('revenue','Omsättning'),(key,stability['label'])]:
+                values=chart_data[field]
+                if len(values.dropna()) and values.dropna().iloc[0]>0: indexed[label]=values/values.dropna().iloc[0]*100
+            if len(indexed.columns)>1: st.plotly_chart(px.line(indexed,x='Datum',y=list(indexed.columns[1:]),labels={'value':'Index (start = 100)','variable':'Nyckeltal'},markers=True),use_container_width=True)
+        margins=pd.DataFrame([{'Datum':x['date'],'Marginal (%)':100*x[stability['label'].lower()]/x['revenue']} for x in stability['rows'] if x['revenue'] is not None and x['revenue']>0 and x[stability['label'].lower()] is not None])
+        if len(margins)>=2:
+            with st.expander(stability['label']+'-marginal över tid'):
+                st.plotly_chart(px.line(margins,x='Datum',y='Marginal (%)',markers=True),use_container_width=True)
+        st.caption('Upp till tio års tillväxtintervall. EBIT visas uttryckligen när EBITA-historik saknas. Tillväxt från förlustår ingår inte i procentberäkningen. Stabilitet är inte ett bevis på prissättningskraft.')
+        st.markdown('#### Årsvis utveckling')
+        changes=[]
+        for prev,cur in zip(stability['rows'],stability['rows'][1:]):
+            if not 320<=(pd.Timestamp(cur['date'])-pd.Timestamp(prev['date'])).days<=410: continue
+            item={'År':cur['date']}
+            for field,label in [('revenue','Omsättning'),(stability['label'].lower(),stability['label'])]:
+                p,v=prev[field],cur[field]
+                item[label+' (M)']=v/1e6 if v is not None else None
+                item[label+' tillväxt (%)']=(v/p-1)*100 if p is not None and p>0 and v is not None else None
+            changes.append(item)
+        if changes:
+            annual_changes=pd.DataFrame(changes)
+            st.plotly_chart(px.bar(annual_changes,x='År',y=['Omsättning tillväxt (%)',stability['label']+' tillväxt (%)'],barmode='group',labels={'value':'Årsförändring (%)','variable':'Nyckeltal'}),use_container_width=True)
+            st.dataframe(annual_changes,hide_index=True,use_container_width=True)
+        st.metric('Stabilitetsindex',show(stability['score'],'/100',0))
+        st.caption('Indexet kräver minst fem jämförbara årsintervall för både omsättning och resultat samt positiv långsiktig tillväxt.')
+    else:
+        st.caption('Sektorspecifik historik – industrins EBITA-index används inte för denna bolagstyp.')
+        category=valuation_result.get('category')
+        series=[]
+        if category in ('Investmentbolag / kapitalförvaltning','Fastigheter','Bank / finansiella tjänster','Försäkring'):
+            for p in sorted(balance.columns)[-11:]:
+                eq=_annual_balance_value(balance,['Common Stock Equity','Stockholders Equity'],p)
+                shares=_annual_balance_value(balance,['Ordinary Shares Number','Share Issued'],p)
+                if eq is not None and shares is not None and shares>0:
+                    series.append({'År':str(p)[:10],'Bokfört eget kapital per aktie':eq/shares})
+            label='Bokfört eget kapital per aktie'
+            st.caption('Bokfört eget kapital är inte substansvärde. Kontrollera historiskt aktieantal och splittar.')
+        else:
+            label='Operativt kassaflöde (M)'
+            for p in sorted(cash.columns)[-11:]:
+                v=_annual_balance_value(cash,['Operating Cash Flow'],p)
+                if v is not None: series.append({'År':str(p)[:10],label:v/1e6})
+        if series:
+            st.plotly_chart(px.line(pd.DataFrame(series),x='År',y=label,markers=True),use_container_width=True)
+            st.dataframe(pd.DataFrame(series),hide_index=True,use_container_width=True)
+        else: st.info('Jämförbar sektorshistorik saknas.')
+        st.caption('Separat kalibrerat stabilitetsindex för denna sektor saknas ännu.')
+
 
 
 with four:
