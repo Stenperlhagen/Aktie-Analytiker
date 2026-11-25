@@ -2756,7 +2756,7 @@ def investment_score(v, info, metrics=None):
 
 with technical_slot.container():
     render_main_technical(ticker)
-one,two,three,four,five,six=st.tabs(['Kurs och historik','Finansiella rapporter','Kurspotential','Bolagsvärdering','Kurspåverkande händelser','Bull & Bear'])
+one,two,three,four,quality_tab,five,six=st.tabs(['Kurs och historik','Finansiella rapporter','Kurspotential','Bolagsvärdering','Tillväxt & stabilitet','Kurspåverkande händelser','Bull & Bear'])
 with six:
     render_bull_bear(ticker)
 with five:
@@ -3315,6 +3315,74 @@ with three:
 
 
 
+with quality_tab:
+    st.subheader('Tillväxt & stabilitet – '+company)
+    if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
+        st.markdown('### Historisk tillväxt och resultatstabilitet')
+        stability=growth_stability(fin)
+        for col,label,key in zip(st.columns(2),['Omsättning',stability['label']],['revenue','earnings']):
+            data=stability[key]
+            with col:
+                with st.container(border=True):
+                    st.markdown('**'+label+'**')
+                    if data:
+                        st.metric('Årlig tillväxt (CAGR)',show(data['cagr'],' %',1))
+                        st.write(f"Positiva år: **{data['positive']} av {data['n']}**")
+                        st.caption('Variation: '+show(data['volatility'],' procentenheter',1)+' · Svagaste år: '+show(data['worst'],' %',1))
+                    else: st.caption('Jämförbar historik saknas.')
+        chart_data=pd.DataFrame(stability['rows'])
+        if not chart_data.empty:
+            key=stability['label'].lower()
+            indexed=pd.DataFrame({'Datum':chart_data['date']})
+            for field,label in [('revenue','Omsättning'),(key,stability['label'])]:
+                values=chart_data[field]
+                if len(values.dropna()) and values.dropna().iloc[0]>0: indexed[label]=values/values.dropna().iloc[0]*100
+            if len(indexed.columns)>1: st.plotly_chart(px.line(indexed,x='Datum',y=list(indexed.columns[1:]),labels={'value':'Index (start = 100)','variable':'Nyckeltal'},markers=True),use_container_width=True)
+        margins=pd.DataFrame([{'Datum':x['date'],'Marginal (%)':100*x[stability['label'].lower()]/x['revenue']} for x in stability['rows'] if x['revenue'] is not None and x['revenue']>0 and x[stability['label'].lower()] is not None])
+        if len(margins)>=2:
+            with st.expander(stability['label']+'-marginal över tid'):
+                st.plotly_chart(px.line(margins,x='Datum',y='Marginal (%)',markers=True),use_container_width=True)
+        st.caption('Upp till tio års tillväxtintervall. EBIT visas uttryckligen när EBITA-historik saknas. Tillväxt från förlustår ingår inte i procentberäkningen. Stabilitet är inte ett bevis på prissättningskraft.')
+        st.markdown('#### Årsvis utveckling')
+        changes=[]
+        for prev,cur in zip(stability['rows'],stability['rows'][1:]):
+            if not 320<=(pd.Timestamp(cur['date'])-pd.Timestamp(prev['date'])).days<=410: continue
+            item={'År':cur['date']}
+            for field,label in [('revenue','Omsättning'),(stability['label'].lower(),stability['label'])]:
+                p,v=prev[field],cur[field]
+                item[label+' (M)']=v/1e6 if v is not None else None
+                item[label+' tillväxt (%)']=(v/p-1)*100 if p is not None and p>0 and v is not None else None
+            changes.append(item)
+        if changes:
+            annual_changes=pd.DataFrame(changes)
+            st.plotly_chart(px.bar(annual_changes,x='År',y=['Omsättning tillväxt (%)',stability['label']+' tillväxt (%)'],barmode='group',labels={'value':'Årsförändring (%)','variable':'Nyckeltal'}),use_container_width=True)
+            st.dataframe(annual_changes,hide_index=True,use_container_width=True)
+        st.metric('Stabilitetsindex',show(stability['score'],'/100',0))
+        st.caption('Indexet kräver minst fem jämförbara årsintervall för både omsättning och resultat samt positiv långsiktig tillväxt.')
+    else:
+        st.caption('Sektorspecifik historik – industrins EBITA-index används inte för denna bolagstyp.')
+        category=valuation_result.get('category')
+        series=[]
+        if category in ('Investmentbolag / kapitalförvaltning','Fastigheter','Bank / finansiella tjänster','Försäkring'):
+            for p in sorted(balance.columns)[-11:]:
+                eq=_annual_balance_value(balance,['Common Stock Equity','Stockholders Equity'],p)
+                shares=_annual_balance_value(balance,['Ordinary Shares Number','Share Issued'],p)
+                if eq is not None and shares is not None and shares>0:
+                    series.append({'År':str(p)[:10],'Bokfört eget kapital per aktie':eq/shares})
+            label='Bokfört eget kapital per aktie'
+            st.caption('Bokfört eget kapital är inte substansvärde. Kontrollera historiskt aktieantal och splittar.')
+        else:
+            label='Operativt kassaflöde (M)'
+            for p in sorted(cash.columns)[-11:]:
+                v=_annual_balance_value(cash,['Operating Cash Flow'],p)
+                if v is not None: series.append({'År':str(p)[:10],label:v/1e6})
+        if series:
+            st.plotly_chart(px.line(pd.DataFrame(series),x='År',y=label,markers=True),use_container_width=True)
+            st.dataframe(pd.DataFrame(series),hide_index=True,use_container_width=True)
+        else: st.info('Jämförbar sektorshistorik saknas.')
+        st.caption('Separat kalibrerat stabilitetsindex för denna sektor saknas ännu.')
+
+
 with four:
     st.subheader('Bolagsvärdering – '+company)
     st.markdown('### Investeringsöversikt')
@@ -3372,32 +3440,6 @@ with four:
     if assessment.get('audit'): st.caption('Datakontroll: '+'; '.join(assessment['audit']))
     st.caption('Automatisk regelbaserad bedömning, inte en verifierad prognos eller personlig investeringsrekommendation.')
 
-    if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
-        st.markdown('### Historisk tillväxt och resultatstabilitet')
-        stability=growth_stability(fin)
-        for col,label,key in zip(st.columns(2),['Omsättning',stability['label']],['revenue','earnings']):
-            data=stability[key]
-            with col:
-                with st.container(border=True):
-                    st.markdown('**'+label+'**')
-                    if data:
-                        st.metric('Årlig tillväxt (CAGR)',show(data['cagr'],' %',1))
-                        st.write(f"Positiva år: **{data['positive']} av {data['n']}**")
-                        st.caption('Variation: '+show(data['volatility'],' procentenheter',1)+' · Svagaste år: '+show(data['worst'],' %',1))
-                    else: st.caption('Jämförbar historik saknas.')
-        chart_data=pd.DataFrame(stability['rows'])
-        if not chart_data.empty:
-            key=stability['label'].lower()
-            indexed=pd.DataFrame({'Datum':chart_data['date']})
-            for field,label in [('revenue','Omsättning'),(key,stability['label'])]:
-                values=chart_data[field]
-                if len(values.dropna()) and values.dropna().iloc[0]>0: indexed[label]=values/values.dropna().iloc[0]*100
-            if len(indexed.columns)>1: st.plotly_chart(px.line(indexed,x='Datum',y=list(indexed.columns[1:]),labels={'value':'Index (start = 100)','variable':'Nyckeltal'},markers=True),use_container_width=True)
-        margins=pd.DataFrame([{'Datum':x['date'],'Marginal (%)':100*x[stability['label'].lower()]/x['revenue']} for x in stability['rows'] if x['revenue'] is not None and x['revenue']>0 and x[stability['label'].lower()] is not None])
-        if len(margins)>=2:
-            with st.expander(stability['label']+'-marginal över tid'):
-                st.plotly_chart(px.line(margins,x='Datum',y='Marginal (%)',markers=True),use_container_width=True)
-        st.caption('Upp till tio års tillväxtintervall. EBIT visas uttryckligen när EBITA-historik saknas. Tillväxt från förlustår ingår inte i procentberäkningen. Stabilitet är inte ett bevis på prissättningskraft.')
     st.markdown('### Fördjupad bolagsanalys')
     with st.container(border=True):
         left,right=st.columns(2)
