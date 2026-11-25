@@ -2599,6 +2599,35 @@ if bd_overview and ticker!='WBGR-B.ST':
         rate=fx_rate(bd_currency,quote_ccy)
         if rate and rate>0: dividend_yield=100*bd_div*rate/valuation_price
     st.caption('Börsdata R12: '+bd_overview_period+' · tillgängliga jämförbara nyckeltal prioriteras.')
+# Shared matched-year fallback for every operating company; never substitute EBIT for EBITA.
+if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') and report_ccy:
+    for period in sorted(fin.columns,reverse=True):
+        d=_annual_balance_value(balance,['Net Debt'],period)
+        if d is None:
+            gross=_annual_balance_value(balance,['Total Debt'],period)
+            liquid=_annual_balance_value(balance,['Cash And Cash Equivalents'],period)
+            if gross is not None and liquid is not None: d=gross-liquid
+        e=_annual_balance_value(fin,['Operating Income','EBIT'],period)
+        da=_annual_balance_value(cash,['Depreciation And Amortization'],period)
+        ed=_annual_balance_value(fin,['EBITDA'],period)
+        if ed is None and e is not None and da is not None: ed=e+abs(da)
+        ea=_annual_balance_value(fin,['EBITA'],period)
+        am=_annual_balance_value(fin,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+        if am is None: am=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+        if ea is None and e is not None and am is not None: ea=e+abs(am)
+        if netdebt_ebitda is None and d is not None and ed is not None and ed>0:
+            netdebt_ebitda=d/ed
+            st.caption('Nettoskuld/EBITDA: matchad årsperiod '+str(period)[:10]+' · '+report_ccy)
+        if ebita is None and ea is not None:
+            ebita=ea
+            st.caption('EBITA: matchad årsperiod '+str(period)[:10]+' · '+report_ccy)
+        if ev_ebita is None and ea is not None and ea>0 and d is not None and market_cap is not None and quote_ccy:
+            rate=fx_rate(quote_ccy,report_ccy)
+            if rate is not None and rate>0:
+                ev_ebita=(market_cap*rate+d)/ea
+                ebita=ea
+                ev_ebita_source='Yahoo årsrapport '+str(period)[:10]+'; '+report_ccy
+        if ebita is not None and ev_ebita is not None and netdebt_ebitda is not None: break
 st.markdown('### Finansiell översikt')
 st.caption('Börsdata R12 prioriteras för jämförbara uppgifter; årsbaserade reservvärden beräknas från matchade rapportdatum. R12 och kursbaserade värden har separata definitioner; leverantörsuppgifter är inte oberoende verifierade.')
 if report_fallback:
@@ -2621,12 +2650,12 @@ ev_ebita_label='EV/EBITA'+(' ('+ebita_period_label+')' if ebita_period_label els
 overview_items = [
     ('Börsvärde',show(market_cap/1e9,' mdkr',2) if market_cap is not None and quote_ccy=='SEK' else (show(market_cap/1e9,' md '+(quote_ccy or ''),2) if market_cap is not None else 'Saknas')),
     ('Aktiekurs ('+str(quote_ccy or '–')+')',show(valuation_price,'',2)),
-    ('Omsättning (LTM/helår)',show(revenue/1e6,' M',0) if revenue is not None and revenue!=0 else 'Saknas'),
+    ('Omsättning (LTM/helår)',show(revenue/1e6,' M'+str(report_ccy or ' (valuta okänd)'),0) if revenue is not None and revenue!=0 else 'Saknas'),
     ('Omsättningstillväxt',show(sales_growth_pct,' %/år',1) if sales_growth_pct is not None else 'Saknas'),
     ('Rörelsemarginal',show(margin*100,' %') if margin is not None else 'Saknas'),
-    ('EBITA (rapportperiod)',show(ebita/1e6,' M',0) if ebita is not None else 'Saknas'),
+    ('EBITA (rapportperiod)',show(ebita/1e6,' M'+str(report_ccy or ' (valuta okänd)'),0) if ebita is not None else 'Saknas'),
     ('ROE',show(roe_overview,' %',1) if roe_overview is not None else 'Saknas'),
-    ('Operativt kassaflöde',show(opcf/1e6,' M',0) if opcf is not None else 'Saknas'),
+    ('Operativt kassaflöde',show(opcf/1e6,' M'+str(report_ccy or ' (valuta okänd)'),0) if opcf is not None else 'Saknas'),
     (pe_label,('Ej definierat (nollvinst)' if r12_eps==0 else 'Ej meningsfullt (förlust)') if pe_source=='Börsdata R12' and r12_eps<=0 else show(pe,'×') if pe is not None and pe>0 else 'Ej meningsfullt (förlust)' if pe is not None and pe<0 else 'Ej definierat (nollvinst)' if valuation_result.get('pe_zero') else 'Saknas'),
     (ev_ebita_label,show(ev_ebita,'×',1) if ev_ebita is not None else 'Saknas'),
     ('Nettoskuld/EBITDA',show(netdebt_ebitda,'×',2) if netdebt_ebitda is not None else 'Saknas'),
