@@ -2404,10 +2404,45 @@ if valuation_result.get('category')=='Bank / finansiella tjänster':
         'Operativt kassaflöde':('Kreditförlustnivå',show(credit_loss,' %',2)),
         'Rörelsemarginal':(ki_label,show(ki,' %',1))
     }
-    overview_items=[replacements.get(label,(label,value)) for label,value in overview_items]
+    overview_items=[replacements.get('EV/EBITA' if label.startswith('EV/EBITA') else label,(label,value)) for label,value in overview_items]
     if cet1_source:
         st.caption('CET1: '+(show(cet1_capital/1e6,' M',1)+' / '+show(cet1_rwa/1e6,' M',1)+' × 100. ' if cet1_capital is not None and cet1_rwa is not None else '')+'Källa: '+cet1_source)
     st.caption('Bankspecifika nyckeltal. CET1 och kreditförlustnivå kräver kompletterande bankrapporter när underlag saknas. K/I beräknas endast från identifierade kostnader och intäkter i samma årsperiod.')
+
+# Explicit metric sets by business model, using only available reported inputs.
+overview_category=valuation_result.get('category')
+if overview_category in ('Fastigheter','Försäkring','Forskningsbolag','Läkemedel – royalty och pipeline','Kapitalförvaltare','Energi – prospektering och produktion'):
+    def sector_metric(frame,labels):
+        for period in sorted(frame.columns,reverse=True):
+            value=_annual_balance_value(frame,labels,period)
+            if value is not None: return value
+        return None
+    def money_metric(label,value):
+        return (label+' (M)',show(value/1e6,'',0) if value is not None else 'Saknas')
+    def ratio_metric(label,value,suffix=' %'):
+        return (label,show(value,suffix,1))
+    eq=sector_metric(balance,['Common Stock Equity','Stockholders Equity'])
+    net_income=sector_metric(fin,['Net Income Common Stockholders','Net Income'])
+    liquid=sector_metric(balance,['Cash And Cash Equivalents'])
+    common=[overview_items[0],overview_items[1]]
+    if overview_category=='Fastigheter':
+        rental=sector_metric(fin,['Rental Revenue','Rental Income'])
+        noi=sector_metric(fin,['Net Operating Income','Property Net Operating Income'])
+        property_value=sector_metric(balance,['Investment Properties','Investment Property'])
+        debt=sector_metric(balance,['Net Debt'])
+        overview_items=common+[money_metric('Hyresintäkter',rental),money_metric('Driftnetto',noi),money_metric('Fastighetsvärde',property_value),money_metric('Nettoskuld',debt),ratio_metric('Nettobelåningsgrad',100*debt/property_value if debt is not None and property_value and property_value>0 else None),money_metric('Förvaltningsresultat',sector_metric(fin,['Income From Property Management','Property Management Income'])),money_metric('Eget kapital',eq),overview_items[-1]]
+    elif overview_category=='Försäkring':
+        overview_items=common+[money_metric('Premieintäkter',sector_metric(fin,['Net Premiums Earned','Insurance Revenue'])),money_metric('Försäkringsresultat',sector_metric(fin,['Insurance Service Result','Underwriting Income'])),ratio_metric('Totalkostnadsprocent',val(info,'combinedRatio')*100 if val(info,'combinedRatio') is not None and 0<val(info,'combinedRatio')<2 else None),money_metric('Nettoresultat',net_income),money_metric('Eget kapital',eq),ratio_metric('ROE',roe_overview),overview_items[8],overview_items[-1]]
+    elif overview_category in ('Forskningsbolag','Läkemedel – royalty och pipeline'):
+        research=sector_metric(fin,['Research And Development','Research And Development Expense'])
+        overview_items=common+[money_metric('Kassa',liquid),money_metric('Nettoskuld',sector_metric(balance,['Net Debt'])),money_metric('FoU-kostnader',research),money_metric('Operativt kassaflöde',opcf),money_metric('Nettoresultat',net_income),money_metric('Eget kapital',eq)]
+        if overview_category=='Läkemedel – royalty och pipeline':
+            overview_items.extend([money_metric('Royaltyintäkter',sector_metric(fin,['Royalty Revenue','Royalty Income'])),money_metric('Omsättning',revenue)])
+    elif overview_category=='Kapitalförvaltare':
+        overview_items=common+[money_metric('Förvaltat kapital (AUM)',sector_metric(balance,['Assets Under Management'])),money_metric('Förvaltningsavgifter',sector_metric(fin,['Management Fee Revenue','Management Fees'])),money_metric('Nettoresultat',net_income),money_metric('Eget kapital',eq),ratio_metric('ROE',roe_overview),overview_items[-1]]
+    else:
+        overview_items=common+[money_metric('Omsättning',revenue),money_metric('Operativt kassaflöde',opcf),money_metric('Investeringar',sector_metric(cash,['Capital Expenditure'])),money_metric('Nettoskuld',sector_metric(balance,['Net Debt'])),money_metric('Nettoresultat',net_income),money_metric('Kassa',liquid),overview_items[-1]]
+    st.caption('Sektoranpassade nyckeltal. Specialiserade rapportfält visas endast när de finns; belopp kan avse olika rapportperioder.')
 
 for start in range(0,len(overview_items),4):
     cols=st.columns(4)
