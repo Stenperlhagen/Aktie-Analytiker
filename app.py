@@ -3229,7 +3229,7 @@ with business_tab:
     cols[2].metric('Räntetäckning (EBIT/ränta)',show(ebit/abs(interest),'×',1) if operating and ebit is not None and interest is not None and interest!=0 else 'Saknas / ej relevant')
     st.caption('Senaste årsperiod: '+str(latest or 'saknas')[:10]+'. Kassaflödeskvoten kan påverkas av rörelsekapital och engångsposter. Sektorer som banker kräver andra mått.')
     st.markdown('#### Kapitalallokering')
-    st.caption('Kassaflöden per avslutat räkenskapsår. Övergripande kassaflöden och detaljer visas separat för att undvika dubbelräkning.')
+    st.caption('Kassagenerering och kapitalanvändning per avslutat räkenskapsår. Fritt kassaflöde visas separat för att undvika dubbelräkning.')
     allocation_fields=[
         ('Operativt kassaflöde',['Operating Cash Flow'],'cash_Flow_From_Operating_Activities'),
         ('Investeringsverksamhet',['Investing Cash Flow'],'cash_Flow_From_Investing_Activities'),
@@ -3283,22 +3283,27 @@ with business_tab:
         available=int(allocation_frame[labels].notna().sum().sum())
         total=len(allocation_frame)*len(labels)
         unit='M'+str(report_ccy or '')
+        recent=allocation_frame.iloc[-1]
         cols=st.columns(3)
-        cols[0].metric('Datatäckning',f'{available}/{total} poster')
-        cols[1].metric('Räkenskapsår',len(allocation_frame))
-        cols[2].metric('Rapportvaluta',unit)
-        palette=['#2563EB','#64748B','#9333EA','#059669','#0891B2','#D97706','#DB2777','#475569']
-        for title,group in [('Kassaflödesöversikt',labels[:4]),('Detaljerad kapitalanvändning',labels[4:])]:
-            st.markdown('**'+title+'**')
-            fields=[c for c in group if allocation_frame[c].notna().any()]
-            if fields:
-                fig=px.bar(allocation_frame,x='År',y=fields,barmode='group',labels={'value':unit,'variable':'Kassaflödespost'},color_discrete_map=dict(zip(labels,palette)))
-                fig.update_layout(height=380,legend=dict(orientation='h',y=-.22),margin=dict(t=20,b=90),xaxis_title=None)
-                fig.update_xaxes(type='category',tickangle=-35)
-                st.plotly_chart(fig,use_container_width=True)
-            else: st.info('Rapporterade uppgifter saknas för dessa poster.')
-        st.dataframe(allocation_frame,hide_index=True,use_container_width=True)
-        with st.expander('Datakällor och saknade uppgifter per år'):
+        for col,label in zip(cols,[labels[0],labels[3],labels[4]]):
+            v=numeric(recent[label])
+            col.metric(label,show(v,' '+unit,1) if v is not None else 'Saknas')
+        st.caption('Senaste räkenskapsår: '+recent['År']+' · '+unit)
+        chart_fields=[labels[0]]+labels[4:]
+        fields=[c for c in chart_fields if allocation_frame[c].notna().any()]
+        if fields:
+            palette=dict(zip(chart_fields,['#334155','#2563EB','#0D9488','#D4A017','#94A3B8']))
+            fig=px.bar(allocation_frame,x='År',y=fields,barmode='relative',labels={'value':unit,'variable':'Kapitalflöde'},color_discrete_map=palette)
+            fig.update_layout(height=460,legend=dict(orientation='h',y=-.19,title=None),margin=dict(t=20,b=85,l=15,r=15),xaxis_title=None,bargap=.35,hovermode='x unified')
+            fig.update_xaxes(type='category',tickangle=0,tickvals=allocation_frame['År'].tolist(),ticktext=[d[:4] for d in allocation_frame['År']])
+            fig.update_yaxes(zeroline=True,zerolinewidth=1.5,zerolinecolor='#94A3B8',gridcolor='rgba(148,163,184,.18)')
+            st.plotly_chart(fig,use_container_width=True)
+        st.caption('Positiva belopp är inflöden, negativa belopp är utflöden. Staplarna visar endast rapporterade poster, inte en fullständig avstämning av förändringen i kassan.')
+        missing_count=int(allocation_frame[chart_fields].isna().sum().sum())
+        if missing_count:
+            st.caption(f'Datatäckning: {len(allocation_frame)*len(chart_fields)-missing_count} av {len(allocation_frame)*len(chart_fields)} diagramvärden. Saknade poster ingår inte i staplarna.')
+        with st.expander('Fullständigt kassaflödesunderlag och datakällor'):
+            st.dataframe(allocation_frame,hide_index=True,use_container_width=True)
             st.dataframe(pd.DataFrame(provenance),hide_index=True,use_container_width=True)
         st.markdown('#### Slutsats – kapitalallokering')
         recent=allocation_frame.iloc[-1]
