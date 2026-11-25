@@ -2246,7 +2246,7 @@ with st.sidebar:
     def open_ranked_company(company_name):
         st.session_state['ranked_company_pending']=company_name
         st.rerun(scope='app')
-    scan_enabled=st.toggle('Automatisk aktieskanning',value=False,key='scan_enabled',help='Aktivera vid behov. Skanningen pausas annars för att minska serverbelastningen.')
+    scan_enabled=st.toggle('Automatisk aktieskanning',value=True,key='ranking_auto_v2',help='Aktivera vid behov. Skanningen pausas annars för att minska serverbelastningen.')
     @st.fragment(run_every=60 if scan_enabled else None)
     def ranked_companies():
         import time
@@ -2265,6 +2265,8 @@ with st.sidebar:
             if sym in screener_names and potential is not None and abs(potential)!=float('inf') and v.get('target') is not None and not v.get('audit'):
                 valid.append((sym,potential))
         st.caption(f'Automatisk ranking · {len(results)} av {len(universe)} genomsökta · {len(valid)} utan granskningsvarning')
+        st.progress(len(results.keys() & set(universe))/max(1,len(universe)))
+        if results and not valid: st.caption('Inga värderingar har ännu passerat datakontrollen. Rankingen fylls på när godkända resultat finns.')
         if pending and scan_enabled: st.caption('Listan uppdateras successivt, högst ett bolag per minut.')
         elif pending: st.caption('Skanningen är pausad. Befintliga resultat visas.')
         size_groups=[('10 mdkr och över',10e9,float('inf')),('2–10 mdkr',2e9,10e9),('Under 2 mdkr',0,2e9)]
