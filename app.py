@@ -1999,22 +1999,44 @@ def qualitative_research(symbol, company, website, profile, report_date, model, 
             output=output.split('\n',1)[-1]
             if output.rstrip().endswith(chr(96)*3):
                 output=output.rstrip()[:-3].strip()
-        decoded=json.loads(output)
-        if isinstance(decoded,list): rows=decoded
-        elif isinstance(decoded,dict): rows=decoded.get('items',[])
-        else: return {},'Groq returnerade oväntat JSON-format.'
-        if isinstance(rows,dict): rows=list(rows.values())
-        if not isinstance(rows,list): return {},'Groq returnerade ingen lista med bedömningar.'
         valid={}
-        for row in rows:
-            if not isinstance(row,dict): continue
-            label=row.get('label'); url=str(row.get('url',''))
-            if label not in labels or url not in urls : continue
-            if row.get('status') not in ('Stark','Blandad','Svag','Låg risk','Måttlig risk','Hög risk','Otillräckligt underlag'): continue
-            if row.get('confidence') not in ('Hög','Medel','Låg') or not isinstance(row.get('reason'),str) or not row['reason'].strip(): continue
-            if row['status']=='Otillräckligt underlag': row['confidence']='Låg'
-            valid[label]=row
-        return valid,'' if len(valid)==len(labels) else 'Vissa bedömningar saknar tillgängligt källunderlag.'
+        rejected={}
+        def parse_rows(raw, allowed):
+            decoded=json.loads(raw)
+            rows=decoded if isinstance(decoded,list) else decoded.get('items',[]) if isinstance(decoded,dict) else []
+            if isinstance(rows,dict):
+                rows=[dict(v,label=k) if isinstance(v,dict) and not v.get('label') else v for k,v in rows.items()]
+            if not isinstance(rows,list): return
+            for row in rows:
+                if not isinstance(row,dict): continue
+                label=next((x for x in allowed if x.casefold()==str(row.get('label','')).strip().casefold()),None)
+                if label is None: continue
+                url=str(row.get('url','')).strip()
+                source=next((k for k in evidence if k.rstrip('/')==url.rstrip('/')),None)
+                status=next((x for x in ('Stark','Blandad','Svag','Låg risk','Måttlig risk','Hög risk','Otillräckligt underlag') if x.casefold()==str(row.get('status','')).strip().casefold()),None)
+                confidence=next((x for x in ('Hög','Medel','Låg') if x.casefold()==str(row.get('confidence','')).strip().casefold()),None)
+                reason=row.get('reason')
+                if not source or not status or not confidence or not isinstance(reason,str) or not reason.strip():
+                    rejected[label]='ogiltig källa eller svarsformat'
+                    continue
+                valid[label]={'label':label,'url':source,'status':status,'reason':reason.strip(),'confidence':'Låg' if status=='Otillräckligt underlag' else confidence}
+        parse_rows(output,labels)
+        missing=[x for x in labels if x not in valid]
+        if missing:
+            # Retry only missing categories, with compact evidence and explicit source identifiers.
+            import time
+            remaining=response.headers.get('x-ratelimit-remaining-tokens')
+            try: can_retry=remaining is not None and int(remaining)>=3500
+            except (ValueError,TypeError): can_retry=False
+            if can_retry:
+                small={k:v[:500] for k,v in evidence.items()}
+                retry_prompt='Analysera '+company+' på svenska. Källmaterial: '+json.dumps(small,ensure_ascii=False)+'. Bedöm endast '+', '.join(missing)+'. Returnera JSON {"items":[{"label":"exakt kategori","status":"Stark eller Blandad eller Svag eller Låg risk eller Måttlig risk eller Hög risk eller Otillräckligt underlag","reason":"kort konkret motivering","confidence":"Hög eller Medel eller Låg","url":"exakt källnyckel"}]}. Skilj inferens från fakta. Hitta inte på källor.'
+                retry=requests.post('https://api.groq.com/openai/v1/chat/completions',headers=headers,json={'model':candidate,'messages':[{'role':'user','content':retry_prompt}],'max_completion_tokens':1200,'response_format':{'type':'json_object'}},timeout=90)
+                if retry.ok:
+                    try: parse_rows(retry.json()['choices'][0]['message']['content'],missing)
+                    except (ValueError,TypeError,KeyError,IndexError): pass
+        missing=[x for x in labels if x not in valid]
+        return valid,'' if not missing else f'{len(valid)}/{len(labels)} bedömningar godkända. Saknas: '+', '.join(x+' ('+rejected.get(x,'ej returnerad')+')' for x in missing)
     except Exception as exc:
         import traceback
         frames=traceback.extract_tb(exc.__traceback__)
