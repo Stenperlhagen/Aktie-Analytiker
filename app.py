@@ -761,35 +761,7 @@ def bull_structure(ticker):
         if row.Low==window.Low.min() and (window.Low==row.Low).sum()==1: lows.append((monthly.index[i],row.Low))
     return p,raw,factor,monthly,highs,lows
 
-def render_main_technical(ticker):
-    data=bull_structure(ticker)
-    label='OTILLRÄCKLIGT UNDERLAG'; color='#64748B'; reason='Bekräftade toppar och bottnar saknas.'
-    if data is not None:
-        p,raw,factor,monthly,highs,lows=data
-        if len(highs)>=2 and len(lows)>=2 and not monthly.empty:
-            last=float(p.iloc[-1]); close=float(monthly.Close.iloc[-1])
-            top=highs[-1][1]; bottom=lows[-1][1]
-            higher=lows[-1][1]>lows[-2][1]; lower=highs[-1][1]<highs[-2][1]
-            if last<bottom:
-                if lower and close<bottom: label='SÄLJ'; reason='Lägre topp och avslutad månad under stödnivån.'
-                else: label='SÄLJVARNING'; reason='Aktien har brutit under en viktig stödnivå.'
-                color='#D32F2F'
-            elif last>top:
-                if higher and close>top: label='KÖP'; reason='Högre botten och avslutad månad över motståndsnivån.'
-                else: label='KÖPLÄGE BEVAKAS'; reason='Aktien har brutit över en tidigare topp.'
-                color='#07833D'
-            else:
-                label='BEHÅLL'; color='#B8860B'; reason='Ingen aktuell bekräftad nivåsignal.'
-    st.markdown(f'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:4px 0;padding:6px 9px;border:1px solid #cbd5e1;border-radius:7px;font-size:12px"><span style="background:{color};color:white;padding:4px 8px;border-radius:5px;font-weight:700;font-size:11px">{label}</span><span><b>Teknisk nivåsignal:</b> {reason}</span></div>',unsafe_allow_html=True)
-
-
-def render_bull_bear(ticker):
-    st.subheader('Bull & Bear – långsiktig trendanalys')
-    st.caption('Dow Theory · 3–10 års placeringshorisont. Teknisk analys, separat från fundamental riktkurs.')
-    data=bull_structure(ticker)
-    if data is None:
-        st.info('Användbar kurshistorik med stängningskurs, högsta och lägsta kurs saknas.')
-        return
+def technical_trend_model(data):
     p,raw,factor,monthly,highs,lows=data
     def compare(a,b):
         return 1 if a>b else -1 if a<b else 0
@@ -819,6 +791,27 @@ def render_bull_bear(ticker):
     else:
         recommendation='BEHÅLL'
         color='#B8860B'
+    return compare,hh,hl,trend,ma,last,scores,complete,score,recommendation,color
+
+def render_main_technical(ticker):
+    data=bull_structure(ticker)
+    label='OTILLRÄCKLIGT UNDERLAG'; color='#64748B'; reason='Tillräcklig kurshistorik eller bekräftade toppar och bottnar saknas.'
+    if data is not None:
+        _,_,_,trend,_,_,_,_,score,recommendation,color=technical_trend_model(data)
+        label=recommendation.upper()
+        if score is not None:
+            reason=f'{trend} marknadsstruktur · trendpoäng {score:+d}/100.'
+    st.markdown(f'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:4px 0;padding:6px 9px;border:1px solid #cbd5e1;border-radius:7px;font-size:12px"><span style="background:{color};color:white;padding:4px 8px;border-radius:5px;font-weight:700;font-size:11px">{label}</span><span><b>Teknisk trendsignal:</b> {reason}</span></div>',unsafe_allow_html=True)
+
+def render_bull_bear(ticker):
+    st.subheader('Bull & Bear – långsiktig trendanalys')
+    st.caption('Dow Theory · 3–10 års placeringshorisont. Teknisk analys, separat från fundamental riktkurs.')
+    data=bull_structure(ticker)
+    if data is None:
+        st.info('Användbar kurshistorik med stängningskurs, högsta och lägsta kurs saknas.')
+        return
+    p,raw,factor,monthly,highs,lows=data
+    compare,hh,hl,trend,ma,last,scores,complete,score,recommendation,color=technical_trend_model(data)
     st.markdown(f'<div style="background:{color};color:white;padding:18px;border-radius:10px;text-align:center"><div style="font-size:14px">Teknisk rekommendation</div><div style="font-size:30px;font-weight:700">{recommendation}</div></div>',unsafe_allow_html=True)
     positive=[name for name,sign,_ in scores if sign==1]
     negative=[name for name,sign,_ in scores if sign==-1]
