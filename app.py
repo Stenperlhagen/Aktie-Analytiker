@@ -3479,20 +3479,41 @@ with quality_tab:
                         st.write(f"Positiva år: **{data['positive']} av {data['n']}**")
                         st.caption('Variation: '+show(data['volatility'],' procentenheter',1)+' · Svagaste år: '+show(data['worst'],' %',1))
                     else: st.caption('Jämförbar historik saknas.')
+        st.markdown('#### Årsvis utveckling – index 100')
         chart_data=pd.DataFrame(stability['rows'])
         if not chart_data.empty:
+            import plotly.graph_objects as go
             key=stability['label'].lower()
-            indexed=pd.DataFrame({'Datum':chart_data['date']})
-            for field,label in [('revenue','Omsättning'),(key,stability['label'])]:
-                values=chart_data[field]
-                if len(values.dropna()) and values.dropna().iloc[0]>0: indexed[label]=values/values.dropna().iloc[0]*100
-            if len(indexed.columns)>1: st.plotly_chart(px.line(indexed,x='Datum',y=list(indexed.columns[1:]),labels={'value':'Index (start = 100)','variable':'Nyckeltal'},markers=True),use_container_width=True)
+            chart_data['eps']=[_annual_balance_value(fin,['Basic EPS'],p) for p in chart_data['date']]
+            chart_data['fcf']=[_annual_balance_value(cash,['Free Cash Flow'],p) for p in chart_data['date']]
+            specs=[('revenue','Omsättning','#2563eb'),(key,stability['label'],'#16a34a'),('eps','Vinst per aktie','#9333ea'),('fcf','Fritt kassaflöde','#ea580c')]
+            base_candidates=chart_data.index[(chart_data['revenue']>0)&(chart_data[key]>0)]
+            if len(base_candidates):
+                base=base_candidates[0]
+                chart_data=chart_data.loc[base:].copy()
+                fig=go.Figure()
+                omitted=[]
+                for field,label,color in specs:
+                    values=pd.to_numeric(chart_data[field],errors='coerce')
+                    if pd.isna(values.iloc[0]) or values.iloc[0]<=0 or values.notna().sum()<2:
+                        omitted.append(label)
+                        continue
+                    indexed=values/values.iloc[0]*100
+                    dates=pd.to_datetime(chart_data['date'])
+                    fig.add_trace(go.Scatter(x=dates,y=indexed,name=label,mode='lines',line=dict(color=color,width=2.5),connectgaps=False))
+                fig.add_hline(y=100,line_dash='dot',line_color='#94a3b8')
+                fig.update_layout(template='plotly_white',height=420,margin=dict(l=15,r=15,t=20,b=30),hovermode='x unified',yaxis_title='Index',legend=dict(orientation='h',y=1.12))
+                fig.update_xaxes(tickformat='%Y',showgrid=False)
+                if len(fig.data): st.plotly_chart(fig,use_container_width=True)
+                st.caption('Gemensamt basår: '+str(chart_data['date'].iloc[0])[:10]+' = 100. EPS avser rapporterad grundläggande vinst per aktie; kontrollera historiska splittar.')
+                if omitted: st.caption('Visas inte på grund av saknad eller icke-positiv startbas: '+', '.join(omitted))
+            else: st.caption('Jämförbar positiv startbas saknas.')
         margins=pd.DataFrame([{'Datum':x['date'],'Marginal (%)':100*x[stability['label'].lower()]/x['revenue']} for x in stability['rows'] if x['revenue'] is not None and x['revenue']>0 and x[stability['label'].lower()] is not None])
         if len(margins)>=2:
             with st.expander(stability['label']+'-marginal över tid'):
                 st.plotly_chart(px.line(margins,x='Datum',y='Marginal (%)',markers=True),use_container_width=True)
         st.caption('Upp till tio års tillväxtintervall. EBIT visas uttryckligen när EBITA-historik saknas. Tillväxt från förlustår ingår inte i procentberäkningen. Stabilitet är inte ett bevis på prissättningskraft.')
-        st.markdown('#### Årsvis utveckling')
+        st.markdown('#### Årsvisa förändringar')
         changes=[]
         for prev,cur in zip(stability['rows'],stability['rows'][1:]):
             if not 320<=(pd.Timestamp(cur['date'])-pd.Timestamp(prev['date'])).days<=410: continue
@@ -3504,8 +3525,8 @@ with quality_tab:
             changes.append(item)
         if changes:
             annual_changes=pd.DataFrame(changes)
-            st.plotly_chart(px.bar(annual_changes,x='År',y=['Omsättning tillväxt (%)',stability['label']+' tillväxt (%)'],barmode='group',labels={'value':'Årsförändring (%)','variable':'Nyckeltal'}),use_container_width=True)
-            st.dataframe(annual_changes,hide_index=True,use_container_width=True)
+            with st.expander('Visa årsvisa förändringar'):
+                st.dataframe(annual_changes,hide_index=True,use_container_width=True)
         st.metric('Stabilitetsindex',show(stability['score'],'/100',0))
         st.caption('Indexet kräver minst fem jämförbara årsintervall för både omsättning och resultat samt positiv långsiktig tillväxt.')
     else:
