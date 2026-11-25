@@ -23,7 +23,7 @@ jobs:
           from pathlib import Path
           source = Path('app.py').read_text(encoding='utf-8')
           checks = {
-              'six tabs': "one,two,three,four,five,six=st.tabs(" in source and "'Kurspåverkande händelser'" in source and "'Bull & Bear'" in source,
+              'six tabs': "one,four,quality_tab,three,six,five=st.tabs(['Kurs och historik','Bolagsvärdering','Tillväxt & stabilitet','Kurspotential','Bull & Bear','Kurspåverkande händelser'])" in source,
               'bull bear section': "with six:" in source and "render_bull_bear(ticker)" in source,
               'price event section': "with five:" in source and "render_price_events(hist,company,ticker)" in source,
               'news tab removed': "'Nyheter – 6 månader'" not in source,
