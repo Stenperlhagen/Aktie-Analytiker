@@ -3289,16 +3289,33 @@ with business_tab:
             v=numeric(recent[label])
             col.metric(label,show(v,' '+unit,1) if v is not None else 'Saknas')
         st.caption('Senaste räkenskapsår: '+recent['År']+' · '+unit)
-        chart_fields=[labels[0]]+labels[4:]
-        fields=[c for c in chart_fields if allocation_frame[c].notna().any()]
-        if fields:
-            palette=dict(zip(chart_fields,['#334155','#2563EB','#0D9488','#D4A017','#94A3B8']))
-            fig=px.bar(allocation_frame,x='År',y=fields,barmode='relative',labels={'value':unit,'variable':'Kapitalflöde'},color_discrete_map=palette)
-            fig.update_layout(height=460,legend=dict(orientation='h',y=-.19,title=None),margin=dict(t=20,b=85,l=15,r=15),xaxis_title=None,bargap=.35,hovermode='x unified')
-            fig.update_xaxes(type='category',tickangle=0,tickvals=allocation_frame['År'].tolist(),ticktext=[d[:4] for d in allocation_frame['År']])
-            fig.update_yaxes(zeroline=True,zerolinewidth=1.5,zerolinecolor='#94A3B8',gridcolor='rgba(148,163,184,.18)')
-            st.plotly_chart(fig,use_container_width=True)
-        st.caption('Positiva belopp är inflöden, negativa belopp är utflöden. Staplarna visar endast rapporterade poster, inte en fullständig avstämning av förändringen i kassan.')
+        chart_fields=[labels[0],labels[3]]+labels[4:]
+        period_choice=st.radio('Historiskt intervall',['5 år','10 år'],horizontal=True,key='allocation_range_'+ticker)
+        window=allocation_frame.tail(int(period_choice.split()[0]))
+        import plotly.graph_objects as go
+        fig=go.Figure()
+        for i,label in enumerate(chart_fields):
+            values=pd.to_numeric(window[label],errors='coerce').dropna()
+            if values.empty: continue
+            # Keep signed net flows: divestments and other inflows must not become expenditure.
+            lo,hi=float(values.min()),float(values.max())
+            color='#16836D' if i<2 else '#64748B'
+            fig.add_trace(go.Scatter(x=[lo,hi],y=[label,label],mode='lines+markers',line=dict(color=color,width=5),marker=dict(size=11,color=color,line=dict(color='#FFFFFF',width=1.5)),showlegend=False,customdata=[window.loc[values.idxmin(),'År'],window.loc[values.idxmax(),'År']],hovertemplate='%{y}<br>%{x:,.1f} '+unit+'<br>%{customdata}<extra></extra>'))
+            if lo!=hi:
+                for v,anchor in [(lo,'right'),(hi,'left')]:
+                    fig.add_annotation(x=v,y=label,text=f'{v:,.0f}',showarrow=False,xanchor=anchor,yshift=15,font=dict(size=11,color=color))
+            else:
+                fig.add_annotation(x=lo,y=label,text=f'{lo:,.0f}',showarrow=False,yshift=15,font=dict(size=11,color=color))
+            latest=numeric(window.iloc[-1][label])
+            if latest is not None:
+                fig.add_trace(go.Scatter(x=[latest],y=[label],mode='markers',marker=dict(symbol='diamond',size=13,color='#D97706',line=dict(color='white',width=1)),name='Senaste räkenskapsår',showlegend=not any(tr.name=='Senaste räkenskapsår' for tr in fig.data),hovertemplate='%{y}<br>Senaste år: %{x:,.1f} '+unit+'<extra></extra>'))
+        fig.update_layout(height=430,margin=dict(t=35,b=65,l=15,r=35),xaxis_title=unit,yaxis_title=None,legend=dict(orientation='h',y=-.22),hovermode='closest')
+        fig.update_yaxes(categoryorder='array',categoryarray=chart_fields[::-1],showgrid=True,gridcolor='rgba(148,163,184,.10)')
+        fig.update_xaxes(zeroline=True,zerolinecolor='#94A3B8',gridcolor='rgba(148,163,184,.18)')
+        if fig.data: st.plotly_chart(fig,use_container_width=True)
+        else: st.info('Inga jämförbara rapporterade belopp.')
+        st.caption('Linjen visar lägsta och högsta rapporterade årsbelopp. Gul diamant visar senaste räkenskapsåret när uppgiften finns. Negativa värden är normalt utflöden. Ett enda rapporterat år visas som en punkt, inte som ett historiskt intervall.')
+        st.caption('Täckning i vald period: '+ ' · '.join(label+': '+str(int(window[label].notna().sum()))+'/'+str(len(window)) for label in chart_fields))
         missing_count=int(allocation_frame[chart_fields].isna().sum().sum())
         if missing_count:
             st.caption(f'Datatäckning: {len(allocation_frame)*len(chart_fields)-missing_count} av {len(allocation_frame)*len(chart_fields)} diagramvärden. Saknade poster ingår inte i staplarna.')
