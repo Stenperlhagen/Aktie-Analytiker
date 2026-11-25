@@ -1029,28 +1029,35 @@ def borsapi_annual_frames(symbol,api_key):
         for dest,mapping in zip(frames,maps):
             dest[date]={}
             for label,key in mapping.items():
-                v=numeric(record.get(key))
+                v=bd_field(record,key)
                 if v is not None: dest[date][label]=v if label=='Basic EPS' else v*1e6
     return (currency,*[pd.DataFrame(f).dropna(how='all') for f in frames]),''
 
+def bd_field(record,key):
+    norm=lambda s: re.sub(r'[^a-z0-9]','',str(s).lower())
+    fields={norm(k):v for k,v in record.items()}
+    return numeric(fields.get(norm(key)))
+
 @st.cache_data(ttl=21600,show_spinner=False)
-def borsapi_r12_eps(symbol,api_key,quote_currency):
-    if not api_key or not quote_currency: return None
+def borsapi_r12_records(symbol,api_key):
+    if not api_key: return []
     data,error=borsapi_reports(symbol,api_key)
-    instrument_id=data.get('instrument_id')
-    if not instrument_id: return None
+    iid=data.get('instrument_id')
+    if not iid: return []
     try:
-        instruments,_=borsapi_instruments(api_key)
-        inst=next((x for x in instruments if str(x.get('insId') or x.get('insID') or x.get('instrumentId'))==str(instrument_id)),{})
-        if str(inst.get('stockPriceCurrency') or '').upper()!=str(quote_currency).upper(): return None
-        response=requests.get('https://apiservice.borsdata.se/v1/instruments/'+instrument_id+'/reports/r12',params={'authKey':api_key,'maxcount':5,'original':0},timeout=20)
+        response=requests.get('https://apiservice.borsdata.se/v1/instruments/'+iid+'/reports/r12',params={'authKey':api_key,'maxcount':8,'original':1},timeout=20)
         response.raise_for_status()
-        reports=response.json().get('reports',[])
-        if not reports: return None
-        latest=max(reports,key=lambda x:(int(x.get('year') or 0),int(x.get('period') or 0)))
-        return numeric(latest.get('earnings_Per_Share',latest.get('earningsPerShare')))
-    except Exception:
-        return None
+        records=response.json().get('reports',[])
+        return sorted([r for r in records if isinstance(r,dict) and (r.get('report_End_Date') or r.get('reportEndDate'))],key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
+    except Exception: return []
+
+def borsapi_r12_eps(symbol,api_key,quote_currency):
+    records=borsapi_r12_records(symbol,api_key)
+    if not records: return None
+    record=records[0]
+    eps=bd_field(record,'earnings_Per_Share')
+    rate=fx_rate(str(record.get('currency') or '').upper(),quote_currency)
+    return eps*rate if eps is not None and rate and rate>0 else None
 
 # Branschspecifika MODELLANTAGANDEN – användarens egna scenariovärden, inte marknadskonsensus.
 VALUATION_PROFILES={
@@ -2206,8 +2213,35 @@ if ticker=='WBGR-B.ST' and quote_ccy=='SEK' and (pd.Timestamp.now()-pd.Timestamp
     valuation_result['pe_zero']=False
     st.caption('Wästbygg: rapporterade R12-värden per 2026-09-30. [Delårsrapport](https://storage.mfn.se/483f4127-3e38-4f38-8898-fd6d6f348c61/delarsrapport-q3-2026-sv.pdf). Aktieantal 175 988 388 och nettoskuld 72 M inkluderar genomförd emission.')
     netdebt_ebitda=None
+# Börsdata R12 overrides only directly supported, comparable metrics.
+bd_overview=borsapi_r12_records(ticker,borsapi_key())
+bd_overview_period=None
+if bd_overview and ticker!='WBGR-B.ST':
+    record=bd_overview[0]
+    bd_overview_period=str(record.get('report_End_Date') or record.get('reportEndDate'))[:10]
+    bd_currency=str(record.get('currency') or '').upper()
+    bd_revenue=bd_field(record,'revenues')
+    bd_ebit=bd_field(record,'operating_Income')
+    bd_cf=bd_field(record,'cash_Flow_From_Operating_Activities')
+    bd_profit=bd_field(record,'profit_To_Equity_Holders')
+    bd_equity=bd_field(record,'total_Equity')
+    bd_div=bd_field(record,'dividend')
+    if bd_currency and bd_currency==report_ccy:
+        if bd_revenue is not None: revenue=bd_revenue*1e6
+        if bd_cf is not None: opcf=bd_cf*1e6
+        if bd_revenue and bd_revenue>0 and bd_ebit is not None: margin=bd_ebit/bd_revenue
+        prior=next((r for r in bd_overview[1:] if str(r.get('currency') or '').upper()==bd_currency and abs((pd.Timestamp(bd_overview_period)-pd.Timestamp(r.get('report_End_Date') or r.get('reportEndDate'))).days-365)<=20),None)
+        if prior:
+            old_revenue=bd_field(prior,'revenues')
+            old_equity=bd_field(prior,'total_Equity')
+            if bd_revenue is not None and old_revenue and old_revenue>0: sales_growth_pct=(bd_revenue/old_revenue-1)*100
+            if bd_profit is not None and bd_equity is not None and old_equity is not None and min(bd_equity,old_equity)>0: roe_overview=100*bd_profit/((bd_equity+old_equity)/2)
+    if bd_div is not None and bd_div>=0 and valuation_price and valuation_price>0:
+        rate=fx_rate(bd_currency,quote_ccy)
+        if rate and rate>0: dividend_yield=100*bd_div*rate/valuation_price
+    st.caption('Börsdata R12: '+bd_overview_period+' · tillgängliga jämförbara nyckeltal prioriteras.')
 st.markdown('### Finansiell översikt')
-st.caption('Årsbaserade marginaler, ROE och nettoskuld/EBITDA beräknas från matchade rapportdatum när Yahoo årsdata finns. R12 och kursbaserade värden har separata definitioner; leverantörsuppgifter är inte oberoende verifierade.')
+st.caption('Börsdata R12 prioriteras för jämförbara uppgifter; årsbaserade reservvärden beräknas från matchade rapportdatum. R12 och kursbaserade värden har separata definitioner; leverantörsuppgifter är inte oberoende verifierade.')
 if report_fallback:
     st.caption('Rapporterad EBITA R12, SEK, '+report_fallback[0]+' – [Delårsrapport]('+report_fallback[1]+')')
 
