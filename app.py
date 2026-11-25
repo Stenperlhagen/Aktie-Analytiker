@@ -3248,6 +3248,8 @@ with business_tab:
     st.subheader('Affärsmodell & bolagskvalitet – '+company)
     st.caption('Långsiktigt ägande · finansiell kvalitet och kvalitativ due diligence, separat från riktkursen.')
     verified=VERIFIED_COMPANY_DESCRIPTIONS.get(ticker)
+    if not verified and ticker in ('INVE-A.ST','INVE-B.ST'):
+        verified=('Investor är ett investmentbolag som äger och utvecklar noterade och onoterade företag genom långsiktigt aktivt ägande.','https://www.investorab.com/')
     description=str(info.get('longBusinessSummary') or '').strip()
     if verified:
         st.write(verified[0])
@@ -3256,7 +3258,11 @@ with business_tab:
         st.write(description)
         st.caption('Källa: Yahoo Finance – bolagsprofil, ej oberoende verifierad.')
     else:
-        st.info('Bolagsbeskrivning saknas.')
+        description, description_url, description_source = company_description_fallback(name or company)
+        if description:
+            st.write(description)
+            if description_url: st.markdown(f'[Källa: {description_source}]({description_url})')
+        else: st.caption('Ingen bolagsbeskrivning tillgänglig från anslutna källor.')
     if info.get('website'): st.markdown(f"[Bolagets webbplats]({info['website']})")
     st.markdown('### Finansiell kvalitet')
     category=valuation_result.get('category')
@@ -3272,11 +3278,22 @@ with business_tab:
     ebit=quality_value(fin,['Operating Income','EBIT'],latest)
     interest=quality_value(fin,['Interest Expense'],latest)
     ebitda=quality_value(fin,['EBITDA','Normalized EBITDA'],latest)
-    cols=st.columns(3)
-    cols[0].metric('Operativt kassaflöde / nettovinst',show(100*ocf/profit,' %',1) if operating and profit is not None and profit>0 and ocf is not None else 'Saknas / ej relevant')
-    cols[1].metric('Nettoskuld / EBITDA',show(debt/ebitda,'×',1) if operating and debt is not None and ebitda is not None and ebitda>0 else 'Saknas / ej relevant')
-    cols[2].metric('Räntetäckning (EBIT/ränta)',show(ebit/abs(interest),'×',1) if operating and ebit is not None and interest is not None and interest!=0 else 'Saknas / ej relevant')
-    st.caption('Senaste årsperiod: '+str(latest or 'saknas')[:10]+'. Kassaflödeskvoten kan påverkas av rörelsekapital och engångsposter. Sektorer som banker kräver andra mått.')
+    if operating:
+        cols=st.columns(3)
+        cols[0].metric('Operativt kassaflöde / nettovinst',show(100*ocf/profit,' %',1) if profit is not None and profit>0 and ocf is not None else '–')
+        cols[1].metric('Nettoskuld / EBITDA',show(debt/ebitda,'×',1) if debt is not None and ebitda is not None and ebitda>0 else '–')
+        cols[2].metric('Räntetäckning (EBIT/ränta)',show(ebit/abs(interest),'×',1) if ebit is not None and interest is not None and interest!=0 else '–')
+    elif category=='Investmentbolag / kapitalförvaltning':
+        equity=quality_value(balance,['Stockholders Equity','Total Equity Gross Minority Interest'],latest)
+        assets=quality_value(balance,['Total Assets'],latest)
+        cols=st.columns(3)
+        cols[0].metric('Bokfört eget kapital',show(equity/1e6,' M'+str(report_ccy or ''),0) if equity is not None and report_ccy else '–')
+        cols[1].metric('Soliditet',show(100*equity/assets,' %',1) if equity is not None and assets is not None and assets>0 else '–')
+        cols[2].metric('Nettoskuld / eget kapital',show(100*debt/equity,' %',1) if debt is not None and equity is not None and equity>0 else '–')
+        st.caption('Koncernens bokförda balansmått, inte rapporterat substansvärde eller moderbolagets belåningsgrad. Substansvärdering redovisas separat under Bolagsvärdering.')
+    else:
+        st.caption('Finansiell kvalitet bedöms med sektorspecifika mått under Bolagsvärdering; industriella kassaflödeskvoter visas inte här.')
+    st.caption('Senaste årsperiod: '+str(latest or 'saknas')[:10])
     st.markdown('#### Kapitalallokering')
     st.caption('Kassagenerering och kapitalanvändning per avslutat räkenskapsår. Fritt kassaflöde visas separat för att undvika dubbelräkning.')
     allocation_fields=[
