@@ -944,6 +944,11 @@ PROPERTY_TICKERS={
 # Datum avser värderingsdatum, inte datum då börskursen hämtades.
 VOLATI_Q3_2026={'ebita_ltm':245_000_000.0,'net_debt':1_331_000_000.0,'ordinary_shares':79_406_571.0,'as_of':'2026-09-30','source':'https://www.mfn.se/a/volati/volati-delarsrapport-januari-september-2026'}
 REPORTED_NAV={
+    'INVE-A.ST':{'nav':411.0,'date':'2026-09-30','source':'https://www.mfn.se/cis/a/investor/investor-delarsredogorelse-januari-september-2026-c66c331e.iframe','kind':'Justerat substansvärde'},
+    'INVE-B.ST':{'nav':411.0,'date':'2026-09-30','source':'https://www.mfn.se/cis/a/investor/investor-delarsredogorelse-januari-september-2026-c66c331e.iframe','kind':'Justerat substansvärde'},
+    'LUND-B.ST':{'nav':644.0,'date':'2026-11-23','source':'https://www.lundbergforetagen.se/sv/press/lundbergs-delarsrapport-januari-september-2026-2500329','kind':'Substansvärde efter uppskjuten skatt'},
+    'BURE.ST':{'nav':334.0,'date':'2026-11-04','source':'https://www.mfn.se/a/bure-equity/delarsrapport-januari-september-2026.iframe','kind':'Substansvärde'},
+    'KINV-B.ST':{'nav':108.0,'date':'2026-09-30','source':'https://www.mfn.se/a/kinnevik/kinneviks-delarsrapport-1-januari-30-september-2026.iframe','kind':'Substansvärde'},
     'LATO-B.ST':{'nav':223.0,'date':'2026-11-02','source':'https://www.mfn.se/cis/a/latour/delarsrapport-januari-september-2026-d993ea5e.iframe','kind':'Substansvärde'},
     'INDU-C.ST':{'nav':517.0,'date':'2026-09-30','source':'https://mfn.se/a/industrivarden/delarsrapport-1-januari-30-september-2026.iframe','kind':'Substansvärde'}
 }
@@ -2302,7 +2307,7 @@ if valuation_result.get('category') in ('Investmentbolag / kapitalförvaltning',
         ('Eget kapital (M)',show(equity/1e6,'',0) if equity is not None else 'Saknas'),
         ('Nettoresultat (M)',show(profit/1e6,'',0) if profit is not None else 'Saknas'),
         ('ROE',show(roe_overview,' %',1)),('P/B',show(pb,'×',2)),
-        ('Substansvärde per aktie',show(nav,' kr',1)),('Substansrabatt',show((1-valuation_price/nav)*100,' %',1) if nav and valuation_price else 'Saknas'),
+        ('Substansvärde per aktie',show(nav,' kr',1)),('Substansrabatt' if not nav or not valuation_price or valuation_price<=nav else 'Substanspremie',show(abs(1-valuation_price/nav)*100,' %',1) if nav and valuation_price else 'Saknas'),
         overview_items[8],overview_items[11]]
     if equity_period: st.caption('Eget kapital: '+equity_period+' · '+str(report_ccy))
     if nav: st.caption('Rapporterat substansvärde: '+nav_record['date']+' · [Källa]('+nav_record['source']+')')
