@@ -2145,7 +2145,8 @@ with st.sidebar:
     ticker = ALL_COMPANIES[name] if name else ''
     st.caption(f'Ticker: {ticker or "–"}')
     if st.button('Uppdatera data', use_container_width=True):
-        st.cache_data.clear()
+        fetch.clear()
+        screener_snapshot.clear()
         st.session_state['screener_results']={}
         st.session_state['ranking_timestamps']={}
         st.rerun()
@@ -2156,7 +2157,8 @@ with st.sidebar:
     def open_ranked_company(company_name):
         st.session_state['ranked_company_pending']=company_name
         st.rerun(scope='app')
-    @st.fragment(run_every=2)
+    scan_enabled=st.toggle('Automatisk aktieskanning',value=False,key='scan_enabled',help='Aktivera vid behov. Skanningen pausas annars för att minska serverbelastningen.')
+    @st.fragment(run_every=60 if scan_enabled else None)
     def ranked_companies():
         import time
         now=time.time()
@@ -2164,7 +2166,7 @@ with st.sidebar:
         timestamps=st.session_state.setdefault('ranking_timestamps',{})
         pending=[sym for sym in universe if sym not in results or now-timestamps.get(sym,0)>=21600]
         # One company per fragment run; the main company view remains independent.
-        if pending:
+        if pending and scan_enabled:
             sym=pending[0]
             results[sym]=screener_snapshot(sym)
             timestamps[sym]=time.time()
@@ -2174,7 +2176,8 @@ with st.sidebar:
             if sym in screener_names and potential is not None and abs(potential)!=float('inf') and v.get('target') is not None and not v.get('audit'):
                 valid.append((sym,potential))
         st.caption(f'Automatisk ranking · {len(results)} av {len(universe)} genomsökta · {len(valid)} utan granskningsvarning')
-        if pending: st.caption('Listan uppdateras successivt.')
+        if pending and scan_enabled: st.caption('Listan uppdateras successivt, högst ett bolag per minut.')
+        elif pending: st.caption('Skanningen är pausad. Befintliga resultat visas.')
         size_groups=[('10 mdkr och över',10e9,float('inf')),('2–10 mdkr',2e9,10e9),('Under 2 mdkr',0,2e9)]
         for heading,lower,upper in size_groups:
             with st.expander(heading,expanded=True):
