@@ -1184,6 +1184,17 @@ def borsapi_r12_records(symbol,api_key):
         return sorted([r for r in records if isinstance(r,dict) and (r.get('report_End_Date') or r.get('reportEndDate'))],key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
     except Exception: return []
 
+@st.cache_data(ttl=21600,show_spinner=False)
+def borsapi_debt_ebitda_map(api_key):
+    if not api_key: return {},'API-nyckel saknas'
+    try:
+        response=requests.get('https://apiservice.borsdata.se/v1/instruments/kpis/42/last/latest',params={'authKey':api_key},timeout=20)
+        if not response.ok: return {},'HTTP '+str(response.status_code)
+        rows=response.json().get('values',[])
+        result={str(row['i']):numeric(row.get('n')) for row in rows if isinstance(row,dict) and row.get('i') is not None}
+        return result,'' if result else 'Tomt nyckeltalssvar'
+    except Exception as exc: return {},type(exc).__name__
+
 def borsapi_r12_eps(symbol,api_key,quote_currency):
     records=borsapi_r12_records(symbol,api_key)
     if not records: return None
@@ -2628,6 +2639,16 @@ if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade lä
                 ebita=ea
                 ev_ebita_source='Yahoo årsrapport '+str(period)[:10]+'; '+report_ccy
         if ebita is not None and ev_ebita is not None and netdebt_ebitda is not None: break
+if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') and borsapi_key():
+    bd_kpis,bd_kpi_error=borsapi_debt_ebitda_map(borsapi_key())
+    bd_identity,_=borsapi_reports(ticker,borsapi_key())
+    bd_ratio=bd_kpis.get(str(bd_identity.get('instrument_id')))
+    if bd_ratio is not None:
+        netdebt_ebitda=bd_ratio
+        st.caption('Nettoskuld/EBITDA: Börsdata senaste nyckeltalsvärde.')
+    else:
+        with st.expander('Börsdata – nyckeltalstäckning'):
+            st.caption(bd_kpi_error or 'Nettoskuld/EBITDA saknas för matchat instrument i nyckeltalssvaret.')
 st.markdown('### Finansiell översikt')
 st.caption('Börsdata R12 prioriteras för jämförbara uppgifter; årsbaserade reservvärden beräknas från matchade rapportdatum. R12 och kursbaserade värden har separata definitioner; leverantörsuppgifter är inte oberoende verifierade.')
 if report_fallback:
