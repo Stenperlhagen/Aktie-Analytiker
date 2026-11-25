@@ -1195,6 +1195,84 @@ def borsapi_debt_ebitda_map(api_key):
         return result,'' if result else 'Tomt nyckeltalssvar'
     except Exception as exc: return {},type(exc).__name__
 
+@st.cache_data(ttl=86400,show_spinner=False)
+def report_ebita_extract(website, company, period, currency):
+    # Conservative PDF table extraction: accept explicit R12 column and unadjusted EBITA only.
+    from html.parser import HTMLParser
+    class Links(HTMLParser):
+        def __init__(self):
+            super().__init__(); self.urls=[]
+        def handle_starttag(self,tag,attrs):
+            if tag=='a':
+                href=dict(attrs).get('href')
+                if href: self.urls.append(href)
+    if not website or not period or not currency: return None
+    try:
+        end=pd.Timestamp(period)
+        if pd.isna(end): return None
+        root=requests.get(website,timeout=8)
+        if not root.ok: return None
+        domain=urllib.parse.urlparse(root.url).netloc
+        queue=[root.url]; visited=set(); pdfs=[]
+        for _ in range(5):
+            if not queue: break
+            url=queue.pop(0)
+            if url in visited: continue
+            visited.add(url)
+            page=root if url==root.url else requests.get(url,timeout=8)
+            if not page.ok: continue
+            parser=Links(); parser.feed(page.text[:1000000])
+            for href in parser.urls:
+                link=urllib.parse.urljoin(page.url,href).split('#')[0]
+                parsed=urllib.parse.urlparse(link)
+                if parsed.scheme!='https': continue
+                path=parsed.path.lower()
+                if path.endswith('.pdf') and any(k in path for k in ('report','rapport','interim','quarter','q1','q2','q3','q4')):
+                    if link not in pdfs: pdfs.append(link)
+                elif parsed.netloc==domain and any(k in path for k in ('investor','investerare','reports','rapporter','financial','finansiell')) and link not in visited and link not in queue: queue.append(link)
+        year=str(end.year)
+        pdfs.sort(key=lambda u:(year in u,any(k in u.lower() for k in ('q'+str(end.quarter),'delarsrapport','interim'))),reverse=True)
+        for url in pdfs[:6]:
+            try:
+                response=requests.get(url,timeout=12,stream=True)
+                if not response.ok: continue
+                buf=bytearray()
+                for chunk in response.iter_content(65536):
+                    buf.extend(chunk)
+                    if len(buf)>12000000: break
+                response.close()
+                if len(buf)>12000000 or not buf.startswith(b'%PDF'): continue
+                reader=PdfReader(io.BytesIO(buf))
+                cover=' '.join((p.extract_text() or '') for p in reader.pages[:2]).lower()
+                month={3:'(?:mars|march|mar)',6:'(?:juni|june|jun)',9:'(?:september|sep)',12:'(?:december|dec)'}.get(end.month)
+                if not month or not re.search(month+r'\s+'+year,cover): continue
+                if not any(w in cover for w in re.findall(r'[a-zåäö]{4,}',company.lower()) if w not in ('group','holding','aktiebolag')): continue
+                for page in reader.pages[:20]:
+                    lines=(page.extract_text(extraction_mode='layout') or '').splitlines()
+                    for i,line in enumerate(lines):
+                        match=re.match(r'^\s*EBITA(?:\s*\d+\))?(?:\s*,\s*(?:Mkr|MSEK|MEUR|SEK million|EUR million))?\s{2,}(.+)$',line,re.I)
+                        if not match: continue
+                        header=lines[max(0,i-12):i]
+                        unit=' '.join(header+[line])
+                        if currency=='SEK' and not re.search(r'\b(?:Mkr|MSEK|SEK million)\b',unit,re.I): continue
+                        if currency=='EUR' and not re.search(r'\b(?:MEUR|EUR million)\b',unit,re.I): continue
+                        if currency not in ('SEK','EUR'): continue
+                        cols=[m.start() for h in header for m in re.finditer(r'\b(?:LTM|R12|12\s*mån(?:ader)?|rolling 12 months)\b',h,re.I)]
+                        numbers=list(re.finditer(r'(?<!\S)[-−]?\d+(?:[.,]\d+)?(?!\S)',line[match.start(1):]))
+                        if len(set(cols))!=1 or len(numbers)<2: continue
+                        col=cols[0]
+                        distances=[abs(match.start(1)+n.end()-col) for n in numbers]
+                        order=sorted(range(len(numbers)),key=lambda j:distances[j])
+                        if distances[order[0]]>8 or distances[order[1]]-distances[order[0]]<3: continue
+                        n=numbers[order[0]]
+                        value=float(n.group().replace('−','-').replace(',','.'))
+                        # Reject split thousands and ambiguous layout rather than guess.
+                        if re.search(r'\d\s\d{3}\b',match.group(1)): continue
+                        return {'value':value*1e6,'period':str(end.date()),'currency':currency,'url':url}
+            except Exception: continue
+    except Exception: pass
+    return None
+
 def borsapi_r12_eps(symbol,api_key,quote_currency):
     records=borsapi_r12_records(symbol,api_key)
     if not records: return None
@@ -2649,6 +2727,16 @@ if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade lä
     else:
         with st.expander('Börsdata – nyckeltalstäckning'):
             st.caption(bd_kpi_error or 'Nettoskuld/EBITDA saknas för matchat instrument i nyckeltalssvaret.')
+if ebita is None and valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') and bd_overview_period and report_ccy:
+    report_hit=report_ebita_extract(str(info.get('website') or ''),str(name or company),bd_overview_period,report_ccy)
+    if report_hit:
+        ebita=report_hit['value']
+        st.caption('Rapporterad EBITA R12 '+report_hit['period']+' · '+report_hit['currency']+' · [Delårsrapport]('+report_hit['url']+')')
+        matched_debt=bd_field(bd_overview[0],'net_Debt') if str(bd_overview[0].get('currency') or '').upper()==report_ccy else None
+        rate=fx_rate(quote_ccy,report_ccy) if quote_ccy else None
+        if matched_debt is not None and rate and market_cap is not None and ebita>0:
+            ev_ebita=(market_cap*rate+matched_debt*1e6)/ebita
+            ev_ebita_source='Rapporterad EBITA R12; matchad Börsdata nettoskuld'
 st.markdown('### Finansiell översikt')
 st.caption('Börsdata R12 prioriteras för jämförbara uppgifter; årsbaserade reservvärden beräknas från matchade rapportdatum. R12 och kursbaserade värden har separata definitioner; leverantörsuppgifter är inte oberoende verifierade.')
 if report_fallback:
