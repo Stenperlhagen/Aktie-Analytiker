@@ -48,6 +48,13 @@ def roic_key():
 def company_icon(website,company_name,cache_version='logo-v4'):
     import base64
     from PIL import Image, ImageDraw
+    try:
+        import json
+        from pathlib import Path
+        library=json.loads(Path(__file__).with_name('company_logos.json').read_text())
+        symbol=ALL_COMPANIES.get(company_name)
+        if symbol and symbol in library: return library[symbol]
+    except Exception: pass
     raw=str(website or '').strip()
     # Yahoo may omit website when only quote data is returned.
     known_domains={'investor':'investorab.com','industrivärden':'industrivarden.se','latour':'latour.se','kinnevik':'kinnevik.com','bure':'bure.se','lundbergföretagen':'lundbergforetagen.se','volvo':'volvogroup.com','atlas copco':'atlascopcogroup.com','addlife':'add.life','aak':'aak.com','betsson':'betssonab.com','ericsson':'ericsson.com','academedia':'academedia.se','husqvarna':'husqvarnagroup.com','embracer':'embracer.com','saab':'saab.com','mildef':'mildef.com','sectra':'sectra.com'}
