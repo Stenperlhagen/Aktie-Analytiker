@@ -2756,7 +2756,7 @@ def investment_score(v, info, metrics=None):
 
 with technical_slot.container():
     render_main_technical(ticker)
-one,two,three,four,quality_tab,five,six=st.tabs(['Kurs och historik','Finansiella rapporter','Kurspotential','Bolagsvärdering','Tillväxt & stabilitet','Kurspåverkande händelser','Bull & Bear'])
+one,four,quality_tab,three,six,five=st.tabs(['Kurs och historik','Bolagsvärdering','Tillväxt & stabilitet','Kurspotential','Bull & Bear','Kurspåverkande händelser'])
 with six:
     render_bull_bear(ticker)
 with five:
@@ -2814,278 +2814,6 @@ with one:
             st.info('Ingen verifierad bolagsbeskrivning kunde hämtas automatiskt från Yahoo Finance eller Wikipedia för detta bolag. Vi visar inte en påhittad beskrivning.')
     if info.get('website'):
         st.markdown(f"[Bolagets webbplats]({info['website']})")
-with two:
-    st.caption('Finansiella rapportdata från Yahoo Finance. Belopp visas i miljoner (M) av bolagets rapporteringsvaluta. År avser rapportperiodens slutdatum, inte nödvändigtvis kalenderår.')
-
-    # Explicit mapping only: do not substitute EBIT for EBITA or infer missing figures.
-    report_sections = [
-        ('Resultaträkning', fin, [
-            ('Omsättning', ['Total Revenue', 'Operating Revenue'], 'money'),
-            ('Bruttoresultat', ['Gross Profit'], 'money'),
-            ('EBITDA', ['EBITDA'], 'money'),
-            ('Rörelseresultat (EBIT)', ['Operating Income', 'EBIT'], 'money'),
-            ('Resultat före skatt', ['Pretax Income'], 'money'),
-            ('Årets resultat', ['Net Income', 'Net Income Common Stockholders'], 'money'),
-            ('Resultat per aktie (EPS)', ['Diluted EPS', 'Basic EPS'], 'per_share'),
-        ]),
-        ('Kassaflöde', cash, [
-            ('Kassaflöde från löpande verksamheten', ['Operating Cash Flow', 'Cash Flow From Continuing Operating Activities'], 'money'),
-            ('Investeringar i anläggningstillgångar', ['Capital Expenditure'], 'money'),
-            ('Fritt kassaflöde', ['Free Cash Flow'], 'money'),
-            ('Kassaflöde från investeringar', ['Investing Cash Flow'], 'money'),
-            ('Kassaflöde från finansiering', ['Financing Cash Flow'], 'money'),
-        ]),
-        ('Balansräkning', balance, [
-            ('Totala tillgångar', ['Total Assets'], 'money'),
-            ('Eget kapital', ['Stockholders Equity', 'Total Equity Gross Minority Interest'], 'money'),
-            ('Totala skulder', ['Total Liabilities Net Minority Interest'], 'money'),
-            ('Räntebärande skulder', ['Total Debt'], 'money'),
-            ('Likvida medel', ['Cash And Cash Equivalents', 'Cash Cash Equivalents And Short Term Investments'], 'money'),
-        ]),
-    ]
-    for section_name, frame, metrics in report_sections:
-        st.markdown(f'#### {section_name}')
-        if frame is None or frame.empty:
-            st.info('Rapportdata saknas för denna del.')
-            continue
-        cols = sorted(frame.columns, reverse=True)[:5]
-        # Visa inte 2021 i kassaflöde/balans när året helt saknar data
-        # för de rapportposter som faktiskt presenteras i tabellen.
-        if section_name in ('Resultaträkning','Kassaflöde','Balansräkning'):
-            visible_labels={key for _,candidates,_ in metrics for key in candidates if key in frame.index}
-            cols=[col for col in cols if not (
-                str(pd.Timestamp(col).year if not pd.isna(pd.to_datetime(col,errors='coerce')) else col) == '2021'
-                and not any(numeric(frame.at[key,col]) is not None for key in visible_labels)
-            )]
-        periods = [str(c.date()) if hasattr(c, 'date') else str(c)[:10] for c in cols]
-        rows = []
-        for label, candidates, unit in metrics:
-            found = next((key for key in candidates if key in frame.index), None)
-            values = []
-            for col in cols:
-                raw = numeric(frame.at[found, col]) if found else None
-                if raw is None:
-                    values.append('Saknas')
-                elif unit == 'money':
-                    values.append(show(raw / 1e6, digits=1))
-                else:
-                    values.append(show(raw, digits=2))
-            rows.append([label] + values)
-        # Compute only directly comparable ratios from the same reporting period.
-        if section_name == 'Resultaträkning':
-            ratio_values = []
-            for col in cols:
-                revenue_key = next((k for k in ['Total Revenue', 'Operating Revenue'] if k in frame.index), None)
-                ebit_key = next((k for k in ['Operating Income', 'EBIT'] if k in frame.index), None)
-                rev = numeric(frame.at[revenue_key, col]) if revenue_key else None
-                ebit = numeric(frame.at[ebit_key, col]) if ebit_key else None
-                ratio_values.append(show(100 * ebit / rev, ' %', 1) if rev and ebit is not None else 'Saknas')
-            rows.insert(4, ['Rörelsemarginal (EBIT)'] + ratio_values)
-        table = pd.DataFrame(rows, columns=['Nyckeltal'] + periods)
-        st.dataframe(table, use_container_width=True, hide_index=True)
-        st.caption('Belopp i M (miljoner), utom EPS och procenttal. ”Saknas” betyder att dataleverantören inte har lämnat uppgiften.')
-        if section_name == 'Resultaträkning':
-            st.caption('EBITA och EBITA-marginal visas inte eftersom de inte kan fastställas säkert från dessa standardiserade Yahoo-fält.')
-        with st.expander(f'Visa samtliga originalposter – {section_name.lower()}'):
-            raw_table = frame.copy()
-            raw_table.columns = [str(c.date()) if hasattr(c, 'date') else str(c) for c in raw_table.columns]
-            st.dataframe(raw_table, use_container_width=True)
-    st.markdown('#### Kvartalsutveckling – rapporterade siffror')
-    st.caption('Senaste tillgängliga kvartal från Yahoo Finance. Jämför samma kvartal föregående år när sådana uppgifter finns. Belopp i miljoner av rapportvalutan.')
-    quarterly_income=extended.get('quarterly_income',pd.DataFrame())
-    quarterly_cash=extended.get('quarterly_cash',pd.DataFrame())
-    quarterly_balance=extended.get('quarterly_balance',pd.DataFrame())
-    quarterly_definitions=[
-        ('Omsättning',quarterly_income,('Total Revenue','Operating Revenue'),'M'),
-        ('EBIT',quarterly_income,('Operating Income','EBIT'),'M'),
-        ('Nettoresultat',quarterly_income,('Net Income','Net Income Common Stockholders'),'M'),
-        ('Resultat per aktie',quarterly_income,('Diluted EPS','Basic EPS'),'EPS'),
-        ('Operativt kassaflöde',quarterly_cash,('Operating Cash Flow','Cash Flow From Continuing Operating Activities'),'M'),
-        ('Fritt kassaflöde',quarterly_cash,('Free Cash Flow',),'M'),
-        ('Räntebärande skulder',quarterly_balance,('Total Debt',),'M'),
-        ('Likvida medel',quarterly_balance,('Cash And Cash Equivalents','Cash Cash Equivalents And Short Term Investments'),'M'),
-    ]
-    # Komplettera enbart saknade årsjämförelser med ROIC:s rapporterade kvartal.
-    roic_quarters=[]
-    roic_quarter_error=None
-    if roic_key() and _roic_data.get('symbol'):
-        roic_quarters,roic_quarter_error=roic_quarterly_income(_roic_data['symbol'],roic_key())
-    roic_quarter_fields={
-        'Omsättning':('is_sales_revenue_turnover','revenue','total_revenue'),
-        'EBIT':('is_operating_income','operating_income','ebit'),
-        'Nettoresultat':('is_net_income','net_income','net_income_common_stockholders'),
-        'Resultat per aktie':('eps_diluted','eps_basic','eps','is_eps_diluted','is_eps_basic')
-    }
-    quarterly_rows=[]
-    for label,frame,aliases,unit in quarterly_definitions:
-        if frame is None or frame.empty: continue
-        matched=next((k for k in aliases if k in frame.index),None)
-        if matched is None: continue
-        series=pd.to_numeric(frame.loc[matched],errors='coerce').dropna()
-        if series.empty: continue
-        try:
-            series.index=pd.to_datetime(series.index)
-            series=series.sort_index(ascending=False)
-        except (ValueError,TypeError):
-            continue
-        latest_date=series.index[0]
-        latest_value=float(series.iloc[0])
-        # Samma räkenskapskvartal föregående år; välj närmaste periodslut,
-        # inte godtyckligt första datum i ett brett intervall.
-        target_date=latest_date-pd.DateOffset(years=1)
-        candidates=series.iloc[1:]
-        candidates=candidates[abs((candidates.index-target_date).days)<=45]
-        prior_date=None
-        prior_value=None
-        if not candidates.empty:
-            prior_date=min(candidates.index,key=lambda d:abs((d-target_date).days))
-            prior_value=float(candidates.loc[prior_date])
-        yoy=None
-        reason=''
-        yoy_source='Yahoo Finance'
-        # ROIC får endast fylla en lucka om både period och valuta kan verifieras.
-        if prior_value is None and label in roic_quarter_fields and roic_quarters and report_ccy:
-            def roic_quarter_value(record):
-                if record.get('currency')!=report_ccy: return None
-                for field in roic_quarter_fields[label]:
-                    value=numeric(record.get(field))
-                    if value is not None: return value
-                return None
-            current_match=next((record for record in roic_quarters
-                if abs((pd.Timestamp(record['period_end_date'])-latest_date).days)<=45
-                and roic_quarter_value(record) is not None),None)
-            past_match=next((record for record in roic_quarters
-                if abs((pd.Timestamp(record['period_end_date'])-target_date).days)<=45
-                and roic_quarter_value(record) is not None),None)
-            if current_match is not None and past_match is not None:
-                latest_value=roic_quarter_value(current_match)
-                prior_value=roic_quarter_value(past_match)
-                prior_date=pd.Timestamp(past_match['period_end_date'])
-                latest_date=pd.Timestamp(current_match['period_end_date'])
-                yoy_source='ROIC AI · rapporterade kvartal'
-        if prior_value is None:
-            reason='Kvartalsdata för samma period föregående år saknas – se separat helårsjämförelse nedan'
-        elif label in ('Räntebärande skulder','Likvida medel'):
-            reason='Balanspost: procentuell förändring ska inte tolkas som automatisk förbättring eller försämring'
-        elif prior_value<=0:
-            reason='Procentuell tillväxt kan bli missvisande när jämförelsevärdet är noll eller negativt'
-        else:
-            yoy=(latest_value/prior_value-1)*100
-        # Kvartal mot närmast föregående kvartal med redan hämtad data.
-        previous_quarter_date=None
-        previous_quarter_value=None
-        previous_quarter_change=None
-        q_target=latest_date-pd.DateOffset(months=3)
-        q_candidates=series.iloc[1:]
-        q_candidates=q_candidates[abs((q_candidates.index-q_target).days)<=40]
-        if not q_candidates.empty:
-            previous_quarter_date=min(q_candidates.index,key=lambda d:abs((d-q_target).days))
-            previous_quarter_value=float(q_candidates.loc[previous_quarter_date])
-            if previous_quarter_value>0:
-                previous_quarter_change=(latest_value/previous_quarter_value-1)*100
-        # För balansposter visar vi jämförelse med föregående balansdag,
-        # men inte en godtycklig tolkning av bättre eller sämre.
-        if label in ('Räntebärande skulder','Likvida medel') and prior_value is not None and prior_value>0:
-            yoy=(latest_value/prior_value-1)*100
-            reason='Balanspost: förändringen är inte automatiskt positiv eller negativ'
-        quarterly_rows.append({
-            'Nyckeltal':label,'Senaste kvartal':str(latest_date.date()),
-            'Rapporterat värde':show(latest_value/1e6,' M',1) if unit=='M' else show(latest_value,'',2),
-            'Föregående kvartal':str(previous_quarter_date.date()) if previous_quarter_date is not None else 'Saknas',
-            'Förändring mot föregående kvartal':show(previous_quarter_change,' %',1) if previous_quarter_change is not None else 'Saknas',
-            'Jämförelsekvartal':str(prior_date.date()) if prior_date is not None else 'Saknas',
-            'Värde föregående år':(show(prior_value/1e6,' M',1) if unit=='M' else show(prior_value,'',2)) if prior_value is not None else 'Saknas',
-            'Förändring mot samma kvartal föregående år':show(yoy,' %',1) if yoy is not None else 'Saknas'
-        })
-    if quarterly_rows:
-        quarter_table=pd.DataFrame(quarterly_rows)
-        if quarter_table['Förändring mot samma kvartal föregående år'].eq('Saknas').all():
-            st.info('Samma kvartal föregående år finns inte i tillgängliga rapportdata. Tabellen visar kvartalsutvecklingen där den går att beräkna; längre ned finns en separat jämförelse mellan två rapporterade helår.')
-            quarter_table=quarter_table.drop(columns=['Jämförelsekvartal','Värde föregående år','Förändring mot samma kvartal föregående år'])
-        st.dataframe(quarter_table,hide_index=True,use_container_width=True)
-        st.caption('QoQ jämför med föregående rapporterade kvartal. YoY jämför med motsvarande kvartal ett år tidigare, endast när båda värdena finns. Helårsförändringen redovisas separat nedan. Ingen saknad kvartalsdata uppskattas.')
-    else:
-        st.info('Kvartalsrapporter saknas hos den anslutna datakällan för detta bolag.')
-
-    if roic_quarter_error:
-        st.caption('Kompletterande ROIC-kvartal: '+roic_quarter_error+'. Årsjämförelser kan fortfarande saknas.')
-    elif roic_quarters:
-        st.caption('ROIC AI levererade '+str(len(roic_quarters))+' rapporterade kvartal. Dessa används endast när motsvarande Yahoo-jämförelse saknas och valuta och period överensstämmer.')
-
-    st.markdown('#### Årsförändring – beräknad från befintliga årsrapporter')
-    st.caption('Förändring mellan två rapporterade helår, beräknad från de faktiska årsredovisningsposterna. Detta är inte en jämförelse mellan enskilda kvartal.')
-    annual_comparisons=[
-        ('Omsättning',fin,('Total Revenue','Operating Revenue'),'M'),
-        ('EBIT',fin,('Operating Income','EBIT'),'M'),
-        ('Nettoresultat',fin,('Net Income','Net Income Common Stockholders'),'M'),
-        ('EPS',fin,('Diluted EPS','Basic EPS'),'EPS'),
-        ('Operativt kassaflöde',cash,('Operating Cash Flow','Cash Flow From Continuing Operating Activities'),'M'),
-        ('Fritt kassaflöde',cash,('Free Cash Flow',),'M'),
-        ('Räntebärande skulder',balance,('Total Debt',),'M'),
-        ('Likvida medel',balance,('Cash And Cash Equivalents','Cash Cash Equivalents And Short Term Investments'),'M')
-    ]
-    annual_rows=[]
-    for label,annual_frame,aliases,unit in annual_comparisons:
-        if annual_frame is None or annual_frame.empty: continue
-        key=next((k for k in aliases if k in annual_frame.index),None)
-        if key is None: continue
-        vals=pd.to_numeric(annual_frame.loc[key],errors='coerce').dropna()
-        try:
-            vals.index=pd.to_datetime(vals.index)
-            vals=vals.sort_index(ascending=False)
-        except (ValueError,TypeError):
-            continue
-        if len(vals)<2: continue
-        current_date=vals.index[0]
-        earlier_candidates=vals.iloc[1:]
-        earlier_candidates=earlier_candidates[abs((earlier_candidates.index-(current_date-pd.DateOffset(years=1))).days)<=45]
-        if earlier_candidates.empty: continue
-        older_date=min(earlier_candidates.index,key=lambda d:abs((d-(current_date-pd.DateOffset(years=1))).days))
-        current=float(vals.iloc[0])
-        older=float(earlier_candidates.loc[older_date])
-        growth=(current/older-1)*100 if older>0 else None
-        annual_rows.append({
-            'Nyckeltal':label,
-            'Senaste helår':str(current_date.date()),
-            'Värde senaste helår':show(current/1e6,' M',1) if unit=='M' else show(current,'',2),
-            'Föregående helår':str(older_date.date()),
-            'Värde föregående helår':show(older/1e6,' M',1) if unit=='M' else show(older,'',2),
-            'Förändring helår':show(growth,' %',1) if growth is not None else 'Ej meningsfull'
-        })
-    if annual_rows:
-        st.dataframe(pd.DataFrame(annual_rows),hide_index=True,use_container_width=True)
-        st.caption('Årsförändringen beräknas som (senaste helår / föregående helår − 1) × 100. En negativ eller nollstor jämförelsebas ger ingen vanlig procentuell tillväxt.')
-    else:
-        st.caption('Även två jämförbara årsperioder saknas för de tillgängliga posterna.')
-
-    st.markdown('#### Fullständiga kvartalsrapporter')
-    st.caption('Samtliga tillgängliga originalposter från dataleverantören visas nedan, inte bara de utvalda nyckeltalen i sammanfattningen. Rapportperioder och saknade värden bevaras.')
-    for report_title,report_frame in [
-        ('Resultaträkning – kvartal',quarterly_income),
-        ('Kassaflödesanalys – kvartal',quarterly_cash),
-        ('Balansräkning – kvartal',quarterly_balance)
-    ]:
-        with st.expander(report_title):
-            if not isinstance(report_frame,pd.DataFrame) or report_frame.empty:
-                st.info('Inga kvartalsuppgifter levererades för denna rapport. Det betyder inte att bolaget saknar offentlig kvartalsrapport.')
-            else:
-                raw_quarters=report_frame.copy()
-                raw_quarters.columns=[str(pd.Timestamp(c).date()) if not pd.isna(pd.to_datetime(c,errors='coerce')) else str(c) for c in raw_quarters.columns]
-                raw_quarters=raw_quarters.reset_index().rename(columns={'index':'Rapportpost'})
-                st.dataframe(raw_quarters,use_container_width=True,hide_index=True)
-                st.caption(str(len(report_frame.index))+' rapportposter · '+str(len(report_frame.columns))+' rapportperioder · Yahoo Finance. Belopp visas i originalenheter (inte miljoner).')
-                st.download_button('Ladda ner '+report_title+' (CSV)',data=raw_quarters.to_csv(index=False).encode('utf-8-sig'),file_name=ticker.replace('.','_')+'_'+('resultat' if 'Resultat' in report_title else 'kassaflode' if 'Kassaflöde' in report_title else 'balans')+'_kvartal.csv',mime='text/csv',key='quarter_export_'+report_title)
-    st.caption('Kvartalsrapporter kan innehålla kumulativa kassaflöden beroende på datakällans definition. Summera inte kvartalsvärden utan att kontrollera att de är fristående kvartal.')
-    st.markdown('#### Datatäckning och rapporternas kvalitet')
-    coverage_frames=[('Årsresultat',fin),('Årskassaflöde',cash),('Årsbalans',balance),
-                     ('Kvartalsresultat',quarterly_income),('Kvartalskassaflöde',quarterly_cash),('Kvartalsbalans',quarterly_balance)]
-    coverage=[]
-    for label,frame in coverage_frames:
-        count=len(frame.columns) if isinstance(frame,pd.DataFrame) and not frame.empty else 0
-        coverage.append({'Rapport':label,'Tillgängliga perioder':count})
-    st.dataframe(pd.DataFrame(coverage),hide_index=True,use_container_width=True)
-    st.caption('Datatäckning visar vilka rapportserier som har hämtats, inte att varje post är reviderad eller fullständigt kvalitetssäkrad. Kontrollera viktiga värden mot bolagets publicerade rapporter.')
-
 with three:
     st.subheader(f'Kurspotential – {company}')
     with st.container(border=True):
@@ -3690,6 +3418,279 @@ with four:
         story.append(Paragraph('Modellantaganden är inte garanterade prognoser. Rapportdata kan vara ofullständiga.',styles['BodyText']))
         SimpleDocTemplate(buffer).build(story)
         st.download_button('Ladda ner värderingsrapport (PDF)',buffer.getvalue(),file_name=ticker+'-analys.pdf',mime='application/pdf')
+
+    with st.expander('Finansiella rapporter – fullständigt underlag',expanded=False):
+        st.caption('Finansiella rapportdata från Yahoo Finance. Belopp visas i miljoner (M) av bolagets rapporteringsvaluta. År avser rapportperiodens slutdatum, inte nödvändigtvis kalenderår.')
+
+        # Explicit mapping only: do not substitute EBIT for EBITA or infer missing figures.
+        report_sections = [
+            ('Resultaträkning', fin, [
+                ('Omsättning', ['Total Revenue', 'Operating Revenue'], 'money'),
+                ('Bruttoresultat', ['Gross Profit'], 'money'),
+                ('EBITDA', ['EBITDA'], 'money'),
+                ('Rörelseresultat (EBIT)', ['Operating Income', 'EBIT'], 'money'),
+                ('Resultat före skatt', ['Pretax Income'], 'money'),
+                ('Årets resultat', ['Net Income', 'Net Income Common Stockholders'], 'money'),
+                ('Resultat per aktie (EPS)', ['Diluted EPS', 'Basic EPS'], 'per_share'),
+            ]),
+            ('Kassaflöde', cash, [
+                ('Kassaflöde från löpande verksamheten', ['Operating Cash Flow', 'Cash Flow From Continuing Operating Activities'], 'money'),
+                ('Investeringar i anläggningstillgångar', ['Capital Expenditure'], 'money'),
+                ('Fritt kassaflöde', ['Free Cash Flow'], 'money'),
+                ('Kassaflöde från investeringar', ['Investing Cash Flow'], 'money'),
+                ('Kassaflöde från finansiering', ['Financing Cash Flow'], 'money'),
+            ]),
+            ('Balansräkning', balance, [
+                ('Totala tillgångar', ['Total Assets'], 'money'),
+                ('Eget kapital', ['Stockholders Equity', 'Total Equity Gross Minority Interest'], 'money'),
+                ('Totala skulder', ['Total Liabilities Net Minority Interest'], 'money'),
+                ('Räntebärande skulder', ['Total Debt'], 'money'),
+                ('Likvida medel', ['Cash And Cash Equivalents', 'Cash Cash Equivalents And Short Term Investments'], 'money'),
+            ]),
+        ]
+        for section_name, frame, metrics in report_sections:
+            st.markdown(f'#### {section_name}')
+            if frame is None or frame.empty:
+                st.info('Rapportdata saknas för denna del.')
+                continue
+            cols = sorted(frame.columns, reverse=True)[:5]
+            # Visa inte 2021 i kassaflöde/balans när året helt saknar data
+            # för de rapportposter som faktiskt presenteras i tabellen.
+            if section_name in ('Resultaträkning','Kassaflöde','Balansräkning'):
+                visible_labels={key for _,candidates,_ in metrics for key in candidates if key in frame.index}
+                cols=[col for col in cols if not (
+                    str(pd.Timestamp(col).year if not pd.isna(pd.to_datetime(col,errors='coerce')) else col) == '2021'
+                    and not any(numeric(frame.at[key,col]) is not None for key in visible_labels)
+                )]
+            periods = [str(c.date()) if hasattr(c, 'date') else str(c)[:10] for c in cols]
+            rows = []
+            for label, candidates, unit in metrics:
+                found = next((key for key in candidates if key in frame.index), None)
+                values = []
+                for col in cols:
+                    raw = numeric(frame.at[found, col]) if found else None
+                    if raw is None:
+                        values.append('Saknas')
+                    elif unit == 'money':
+                        values.append(show(raw / 1e6, digits=1))
+                    else:
+                        values.append(show(raw, digits=2))
+                rows.append([label] + values)
+            # Compute only directly comparable ratios from the same reporting period.
+            if section_name == 'Resultaträkning':
+                ratio_values = []
+                for col in cols:
+                    revenue_key = next((k for k in ['Total Revenue', 'Operating Revenue'] if k in frame.index), None)
+                    ebit_key = next((k for k in ['Operating Income', 'EBIT'] if k in frame.index), None)
+                    rev = numeric(frame.at[revenue_key, col]) if revenue_key else None
+                    ebit = numeric(frame.at[ebit_key, col]) if ebit_key else None
+                    ratio_values.append(show(100 * ebit / rev, ' %', 1) if rev and ebit is not None else 'Saknas')
+                rows.insert(4, ['Rörelsemarginal (EBIT)'] + ratio_values)
+            table = pd.DataFrame(rows, columns=['Nyckeltal'] + periods)
+            st.dataframe(table, use_container_width=True, hide_index=True)
+            st.caption('Belopp i M (miljoner), utom EPS och procenttal. ”Saknas” betyder att dataleverantören inte har lämnat uppgiften.')
+            if section_name == 'Resultaträkning':
+                st.caption('EBITA och EBITA-marginal visas inte eftersom de inte kan fastställas säkert från dessa standardiserade Yahoo-fält.')
+            with st.expander(f'Visa samtliga originalposter – {section_name.lower()}'):
+                raw_table = frame.copy()
+                raw_table.columns = [str(c.date()) if hasattr(c, 'date') else str(c) for c in raw_table.columns]
+                st.dataframe(raw_table, use_container_width=True)
+        st.markdown('#### Kvartalsutveckling – rapporterade siffror')
+        st.caption('Senaste tillgängliga kvartal från Yahoo Finance. Jämför samma kvartal föregående år när sådana uppgifter finns. Belopp i miljoner av rapportvalutan.')
+        quarterly_income=extended.get('quarterly_income',pd.DataFrame())
+        quarterly_cash=extended.get('quarterly_cash',pd.DataFrame())
+        quarterly_balance=extended.get('quarterly_balance',pd.DataFrame())
+        quarterly_definitions=[
+            ('Omsättning',quarterly_income,('Total Revenue','Operating Revenue'),'M'),
+            ('EBIT',quarterly_income,('Operating Income','EBIT'),'M'),
+            ('Nettoresultat',quarterly_income,('Net Income','Net Income Common Stockholders'),'M'),
+            ('Resultat per aktie',quarterly_income,('Diluted EPS','Basic EPS'),'EPS'),
+            ('Operativt kassaflöde',quarterly_cash,('Operating Cash Flow','Cash Flow From Continuing Operating Activities'),'M'),
+            ('Fritt kassaflöde',quarterly_cash,('Free Cash Flow',),'M'),
+            ('Räntebärande skulder',quarterly_balance,('Total Debt',),'M'),
+            ('Likvida medel',quarterly_balance,('Cash And Cash Equivalents','Cash Cash Equivalents And Short Term Investments'),'M'),
+        ]
+        # Komplettera enbart saknade årsjämförelser med ROIC:s rapporterade kvartal.
+        roic_quarters=[]
+        roic_quarter_error=None
+        if roic_key() and _roic_data.get('symbol'):
+            roic_quarters,roic_quarter_error=roic_quarterly_income(_roic_data['symbol'],roic_key())
+        roic_quarter_fields={
+            'Omsättning':('is_sales_revenue_turnover','revenue','total_revenue'),
+            'EBIT':('is_operating_income','operating_income','ebit'),
+            'Nettoresultat':('is_net_income','net_income','net_income_common_stockholders'),
+            'Resultat per aktie':('eps_diluted','eps_basic','eps','is_eps_diluted','is_eps_basic')
+        }
+        quarterly_rows=[]
+        for label,frame,aliases,unit in quarterly_definitions:
+            if frame is None or frame.empty: continue
+            matched=next((k for k in aliases if k in frame.index),None)
+            if matched is None: continue
+            series=pd.to_numeric(frame.loc[matched],errors='coerce').dropna()
+            if series.empty: continue
+            try:
+                series.index=pd.to_datetime(series.index)
+                series=series.sort_index(ascending=False)
+            except (ValueError,TypeError):
+                continue
+            latest_date=series.index[0]
+            latest_value=float(series.iloc[0])
+            # Samma räkenskapskvartal föregående år; välj närmaste periodslut,
+            # inte godtyckligt första datum i ett brett intervall.
+            target_date=latest_date-pd.DateOffset(years=1)
+            candidates=series.iloc[1:]
+            candidates=candidates[abs((candidates.index-target_date).days)<=45]
+            prior_date=None
+            prior_value=None
+            if not candidates.empty:
+                prior_date=min(candidates.index,key=lambda d:abs((d-target_date).days))
+                prior_value=float(candidates.loc[prior_date])
+            yoy=None
+            reason=''
+            yoy_source='Yahoo Finance'
+            # ROIC får endast fylla en lucka om både period och valuta kan verifieras.
+            if prior_value is None and label in roic_quarter_fields and roic_quarters and report_ccy:
+                def roic_quarter_value(record):
+                    if record.get('currency')!=report_ccy: return None
+                    for field in roic_quarter_fields[label]:
+                        value=numeric(record.get(field))
+                        if value is not None: return value
+                    return None
+                current_match=next((record for record in roic_quarters
+                    if abs((pd.Timestamp(record['period_end_date'])-latest_date).days)<=45
+                    and roic_quarter_value(record) is not None),None)
+                past_match=next((record for record in roic_quarters
+                    if abs((pd.Timestamp(record['period_end_date'])-target_date).days)<=45
+                    and roic_quarter_value(record) is not None),None)
+                if current_match is not None and past_match is not None:
+                    latest_value=roic_quarter_value(current_match)
+                    prior_value=roic_quarter_value(past_match)
+                    prior_date=pd.Timestamp(past_match['period_end_date'])
+                    latest_date=pd.Timestamp(current_match['period_end_date'])
+                    yoy_source='ROIC AI · rapporterade kvartal'
+            if prior_value is None:
+                reason='Kvartalsdata för samma period föregående år saknas – se separat helårsjämförelse nedan'
+            elif label in ('Räntebärande skulder','Likvida medel'):
+                reason='Balanspost: procentuell förändring ska inte tolkas som automatisk förbättring eller försämring'
+            elif prior_value<=0:
+                reason='Procentuell tillväxt kan bli missvisande när jämförelsevärdet är noll eller negativt'
+            else:
+                yoy=(latest_value/prior_value-1)*100
+            # Kvartal mot närmast föregående kvartal med redan hämtad data.
+            previous_quarter_date=None
+            previous_quarter_value=None
+            previous_quarter_change=None
+            q_target=latest_date-pd.DateOffset(months=3)
+            q_candidates=series.iloc[1:]
+            q_candidates=q_candidates[abs((q_candidates.index-q_target).days)<=40]
+            if not q_candidates.empty:
+                previous_quarter_date=min(q_candidates.index,key=lambda d:abs((d-q_target).days))
+                previous_quarter_value=float(q_candidates.loc[previous_quarter_date])
+                if previous_quarter_value>0:
+                    previous_quarter_change=(latest_value/previous_quarter_value-1)*100
+            # För balansposter visar vi jämförelse med föregående balansdag,
+            # men inte en godtycklig tolkning av bättre eller sämre.
+            if label in ('Räntebärande skulder','Likvida medel') and prior_value is not None and prior_value>0:
+                yoy=(latest_value/prior_value-1)*100
+                reason='Balanspost: förändringen är inte automatiskt positiv eller negativ'
+            quarterly_rows.append({
+                'Nyckeltal':label,'Senaste kvartal':str(latest_date.date()),
+                'Rapporterat värde':show(latest_value/1e6,' M',1) if unit=='M' else show(latest_value,'',2),
+                'Föregående kvartal':str(previous_quarter_date.date()) if previous_quarter_date is not None else 'Saknas',
+                'Förändring mot föregående kvartal':show(previous_quarter_change,' %',1) if previous_quarter_change is not None else 'Saknas',
+                'Jämförelsekvartal':str(prior_date.date()) if prior_date is not None else 'Saknas',
+                'Värde föregående år':(show(prior_value/1e6,' M',1) if unit=='M' else show(prior_value,'',2)) if prior_value is not None else 'Saknas',
+                'Förändring mot samma kvartal föregående år':show(yoy,' %',1) if yoy is not None else 'Saknas'
+            })
+        if quarterly_rows:
+            quarter_table=pd.DataFrame(quarterly_rows)
+            if quarter_table['Förändring mot samma kvartal föregående år'].eq('Saknas').all():
+                st.info('Samma kvartal föregående år finns inte i tillgängliga rapportdata. Tabellen visar kvartalsutvecklingen där den går att beräkna; längre ned finns en separat jämförelse mellan två rapporterade helår.')
+                quarter_table=quarter_table.drop(columns=['Jämförelsekvartal','Värde föregående år','Förändring mot samma kvartal föregående år'])
+            st.dataframe(quarter_table,hide_index=True,use_container_width=True)
+            st.caption('QoQ jämför med föregående rapporterade kvartal. YoY jämför med motsvarande kvartal ett år tidigare, endast när båda värdena finns. Helårsförändringen redovisas separat nedan. Ingen saknad kvartalsdata uppskattas.')
+        else:
+            st.info('Kvartalsrapporter saknas hos den anslutna datakällan för detta bolag.')
+
+        if roic_quarter_error:
+            st.caption('Kompletterande ROIC-kvartal: '+roic_quarter_error+'. Årsjämförelser kan fortfarande saknas.')
+        elif roic_quarters:
+            st.caption('ROIC AI levererade '+str(len(roic_quarters))+' rapporterade kvartal. Dessa används endast när motsvarande Yahoo-jämförelse saknas och valuta och period överensstämmer.')
+
+        st.markdown('#### Årsförändring – beräknad från befintliga årsrapporter')
+        st.caption('Förändring mellan två rapporterade helår, beräknad från de faktiska årsredovisningsposterna. Detta är inte en jämförelse mellan enskilda kvartal.')
+        annual_comparisons=[
+            ('Omsättning',fin,('Total Revenue','Operating Revenue'),'M'),
+            ('EBIT',fin,('Operating Income','EBIT'),'M'),
+            ('Nettoresultat',fin,('Net Income','Net Income Common Stockholders'),'M'),
+            ('EPS',fin,('Diluted EPS','Basic EPS'),'EPS'),
+            ('Operativt kassaflöde',cash,('Operating Cash Flow','Cash Flow From Continuing Operating Activities'),'M'),
+            ('Fritt kassaflöde',cash,('Free Cash Flow',),'M'),
+            ('Räntebärande skulder',balance,('Total Debt',),'M'),
+            ('Likvida medel',balance,('Cash And Cash Equivalents','Cash Cash Equivalents And Short Term Investments'),'M')
+        ]
+        annual_rows=[]
+        for label,annual_frame,aliases,unit in annual_comparisons:
+            if annual_frame is None or annual_frame.empty: continue
+            key=next((k for k in aliases if k in annual_frame.index),None)
+            if key is None: continue
+            vals=pd.to_numeric(annual_frame.loc[key],errors='coerce').dropna()
+            try:
+                vals.index=pd.to_datetime(vals.index)
+                vals=vals.sort_index(ascending=False)
+            except (ValueError,TypeError):
+                continue
+            if len(vals)<2: continue
+            current_date=vals.index[0]
+            earlier_candidates=vals.iloc[1:]
+            earlier_candidates=earlier_candidates[abs((earlier_candidates.index-(current_date-pd.DateOffset(years=1))).days)<=45]
+            if earlier_candidates.empty: continue
+            older_date=min(earlier_candidates.index,key=lambda d:abs((d-(current_date-pd.DateOffset(years=1))).days))
+            current=float(vals.iloc[0])
+            older=float(earlier_candidates.loc[older_date])
+            growth=(current/older-1)*100 if older>0 else None
+            annual_rows.append({
+                'Nyckeltal':label,
+                'Senaste helår':str(current_date.date()),
+                'Värde senaste helår':show(current/1e6,' M',1) if unit=='M' else show(current,'',2),
+                'Föregående helår':str(older_date.date()),
+                'Värde föregående helår':show(older/1e6,' M',1) if unit=='M' else show(older,'',2),
+                'Förändring helår':show(growth,' %',1) if growth is not None else 'Ej meningsfull'
+            })
+        if annual_rows:
+            st.dataframe(pd.DataFrame(annual_rows),hide_index=True,use_container_width=True)
+            st.caption('Årsförändringen beräknas som (senaste helår / föregående helår − 1) × 100. En negativ eller nollstor jämförelsebas ger ingen vanlig procentuell tillväxt.')
+        else:
+            st.caption('Även två jämförbara årsperioder saknas för de tillgängliga posterna.')
+
+        st.markdown('#### Fullständiga kvartalsrapporter')
+        st.caption('Samtliga tillgängliga originalposter från dataleverantören visas nedan, inte bara de utvalda nyckeltalen i sammanfattningen. Rapportperioder och saknade värden bevaras.')
+        for report_title,report_frame in [
+            ('Resultaträkning – kvartal',quarterly_income),
+            ('Kassaflödesanalys – kvartal',quarterly_cash),
+            ('Balansräkning – kvartal',quarterly_balance)
+        ]:
+            with st.expander(report_title):
+                if not isinstance(report_frame,pd.DataFrame) or report_frame.empty:
+                    st.info('Inga kvartalsuppgifter levererades för denna rapport. Det betyder inte att bolaget saknar offentlig kvartalsrapport.')
+                else:
+                    raw_quarters=report_frame.copy()
+                    raw_quarters.columns=[str(pd.Timestamp(c).date()) if not pd.isna(pd.to_datetime(c,errors='coerce')) else str(c) for c in raw_quarters.columns]
+                    raw_quarters=raw_quarters.reset_index().rename(columns={'index':'Rapportpost'})
+                    st.dataframe(raw_quarters,use_container_width=True,hide_index=True)
+                    st.caption(str(len(report_frame.index))+' rapportposter · '+str(len(report_frame.columns))+' rapportperioder · Yahoo Finance. Belopp visas i originalenheter (inte miljoner).')
+                    st.download_button('Ladda ner '+report_title+' (CSV)',data=raw_quarters.to_csv(index=False).encode('utf-8-sig'),file_name=ticker.replace('.','_')+'_'+('resultat' if 'Resultat' in report_title else 'kassaflode' if 'Kassaflöde' in report_title else 'balans')+'_kvartal.csv',mime='text/csv',key='quarter_export_'+report_title)
+        st.caption('Kvartalsrapporter kan innehålla kumulativa kassaflöden beroende på datakällans definition. Summera inte kvartalsvärden utan att kontrollera att de är fristående kvartal.')
+        st.markdown('#### Datatäckning och rapporternas kvalitet')
+        coverage_frames=[('Årsresultat',fin),('Årskassaflöde',cash),('Årsbalans',balance),
+                         ('Kvartalsresultat',quarterly_income),('Kvartalskassaflöde',quarterly_cash),('Kvartalsbalans',quarterly_balance)]
+        coverage=[]
+        for label,frame in coverage_frames:
+            count=len(frame.columns) if isinstance(frame,pd.DataFrame) and not frame.empty else 0
+            coverage.append({'Rapport':label,'Tillgängliga perioder':count})
+        st.dataframe(pd.DataFrame(coverage),hide_index=True,use_container_width=True)
+        st.caption('Datatäckning visar vilka rapportserier som har hämtats, inte att varje post är reviderad eller fullständigt kvalitetssäkrad. Kontrollera viktiga värden mot bolagets publicerade rapporter.')
+
 
 st.divider()
 st.caption('Källor: Yahoo Finance via yfinance för nyckeltal och historik; Google News RSS för nyhetssökning; användarens egna uppladdade dokument. Inga automatiska AI-slutsatser påstås ha gjorts. Appen körs på egen Streamlit-server och filerna behandlas i den sessionen.')
