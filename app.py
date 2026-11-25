@@ -3214,6 +3214,25 @@ with one:
         st.plotly_chart(mark_high_low(chart_five_years,h),use_container_width=True)
     else:st.warning('Kursserie saknas.')
 
+    st.markdown('#### Bolagsbeskrivning')
+    verified=VERIFIED_COMPANY_DESCRIPTIONS.get(ticker)
+    if not verified and ticker in ('INVE-A.ST','INVE-B.ST'):
+        verified=('Investor är ett investmentbolag som äger och utvecklar noterade och onoterade företag genom långsiktigt aktivt ägande.','https://www.investorab.com/')
+    description=str(info.get('longBusinessSummary') or '').strip()
+    if verified:
+        st.write(verified[0])
+        st.markdown(f'[Bolagets officiella beskrivning]({verified[1]})')
+    elif description:
+        st.write(description)
+        st.caption('Källa: Yahoo Finance – bolagsprofil, ej oberoende verifierad.')
+    else:
+        description, description_url, description_source = company_description_fallback(name or company)
+        if description:
+            st.write(description)
+            if description_url: st.markdown(f'[Källa: {description_source}]({description_url})')
+        else: st.caption('Ingen bolagsbeskrivning tillgänglig från anslutna källor.')
+    if info.get('website'): st.markdown(f"[Bolagets webbplats]({info['website']})")
+
 with three:
     st.subheader(f'Kurspotential – {company}')
     with st.container(border=True):
@@ -3515,23 +3534,6 @@ with quality_tab:
 with business_tab:
     st.subheader('Affärsmodell & bolagskvalitet – '+company)
     st.caption('Långsiktigt ägande · finansiell kvalitet och kvalitativ due diligence, separat från riktkursen.')
-    verified=VERIFIED_COMPANY_DESCRIPTIONS.get(ticker)
-    if not verified and ticker in ('INVE-A.ST','INVE-B.ST'):
-        verified=('Investor är ett investmentbolag som äger och utvecklar noterade och onoterade företag genom långsiktigt aktivt ägande.','https://www.investorab.com/')
-    description=str(info.get('longBusinessSummary') or '').strip()
-    if verified:
-        st.write(verified[0])
-        st.markdown(f'[Bolagets officiella beskrivning]({verified[1]})')
-    elif description:
-        st.write(description)
-        st.caption('Källa: Yahoo Finance – bolagsprofil, ej oberoende verifierad.')
-    else:
-        description, description_url, description_source = company_description_fallback(name or company)
-        if description:
-            st.write(description)
-            if description_url: st.markdown(f'[Källa: {description_source}]({description_url})')
-        else: st.caption('Ingen bolagsbeskrivning tillgänglig från anslutna källor.')
-    if info.get('website'): st.markdown(f"[Bolagets webbplats]({info['website']})")
     st.markdown('### Finansiell kvalitet')
     category=valuation_result.get('category')
     operating=category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag')
