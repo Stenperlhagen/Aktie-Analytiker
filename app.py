@@ -3957,20 +3957,24 @@ with four:
     v=valuation_result
     ccy=str(v.get('currency') or '')
     audited=bool(v.get('audit'))
-    with st.container(border=True):
-        k1,k2,k3,k4=st.columns(4)
-        k1.metric('Aktuell kurs',show(v.get('price'),' '+ccy,2))
-        k2.metric('Preliminärt värde' if audited else 'Motiverat aktievärde',show(v.get('target'),' '+ccy,2))
-        k3.metric('Kurspotential',show(None if audited else v.get('upside'),' %',1))
-        k4.metric('Köpkurs · 20 % säkerhetsmarginal',show(None if audited else v.get('buy_limit'),' '+ccy,2))
-        st.caption(str(v.get('category') or '')+' · '+str(v.get('profile') or 'Sektormodell'))
+    from html import escape as html_escape
+    def valuation_tile(label,value,bg='#edf3f9',fg='#173451',detail=''):
+        st.markdown(f'<div style="background:{bg};color:{fg};padding:18px;border-radius:12px;min-height:110px"><div style="font-size:14px;font-weight:600">{html_escape(str(label))}</div><div style="font-size:28px;font-weight:700">{html_escape(str(value))}</div><div style="font-size:12px">{html_escape(str(detail))}</div></div>',unsafe_allow_html=True)
+    upside=None if audited else numeric(v.get('upside'))
+    k1,k2=st.columns(2)
+    with k1: valuation_tile('Preliminärt värde' if audited else 'Motiverat aktievärde',show(v.get('target'),' '+ccy,2),'#172d49','#ffffff')
+    with k2: valuation_tile('Aktuell aktiekurs',show(v.get('price'),' '+ccy,2))
+    k3,k4=st.columns(2)
+    with k3: valuation_tile('Kurspotential',show(upside,' %',1),'#e4f3e9' if upside is not None and upside>0 else '#fae9e9' if upside is not None and upside<0 else '#edf3f9','#166534' if upside is not None and upside>0 else '#991b1b' if upside is not None and upside<0 else '#173451')
+    with k4: valuation_tile('Högsta köpkurs',show(None if audited else v.get('buy_limit'),' '+ccy,2),detail='20 % säkerhetsmarginal')
+    st.caption(str(v.get('category') or '')+' · '+str(v.get('profile') or 'Sektormodell'))
     if audited: st.warning('Datakontroll: '+'; '.join(v['audit']))
     st.markdown('### Värderingsmodeller')
     model_rows=[{'Modell':k,'Aktievärde':numeric(x)} for k,x in v.get('models',{}).items() if numeric(x) is not None]
     if v.get('target') is not None: model_rows.append({'Modell':'Sammanvägt modellvärde','Aktievärde':v['target']})
     if model_rows:
         import plotly.graph_objects as go
-        fig=go.Figure(go.Bar(x=[x['Aktievärde'] for x in model_rows],y=[x['Modell'] for x in model_rows],orientation='h',marker_color=['#2563eb' if x['Modell']=='Sammanvägt modellvärde' else '#94a3b8' for x in model_rows],text=[show(x['Aktievärde'],' '+ccy,2) for x in model_rows],textposition='outside',cliponaxis=False))
+        fig=go.Figure(go.Bar(x=[x['Aktievärde'] for x in model_rows],y=[x['Modell'] for x in model_rows],orientation='h',marker_color=['#2563eb' if x['Modell']=='Sammanvägt modellvärde' else '#7399c5' for x in model_rows],text=[show(x['Aktievärde'],' '+ccy,2) for x in model_rows],textposition='outside',cliponaxis=False))
         if v.get('price') is not None: fig.add_vline(x=v['price'],line_dash='dash',line_color='#64748b',annotation_text='Aktuell kurs')
         fig.update_layout(template='plotly_white',height=max(230,65*len(model_rows)+80),margin=dict(l=10,r=85,t=35,b=15),xaxis_title=ccy,yaxis=dict(autorange='reversed'))
         st.plotly_chart(fig,use_container_width=True)
@@ -3979,7 +3983,10 @@ with four:
     lcol,rcol=st.columns(2)
     with lcol:
         st.markdown('**Modellantaganden**')
-        if v.get('assumptions'): st.dataframe(pd.DataFrame([{'Antagande':k,'Värde':show(x,'',2)} for k,x in v['assumptions'].items()]),hide_index=True,use_container_width=True)
+        assumptions=list(v.get('assumptions',{}).items())
+        for offset in range(0,len(assumptions),2):
+            for col,(label,value) in zip(st.columns(2),assumptions[offset:offset+2]):
+                with col: valuation_tile(label,show(value,'',2))
     with rcol:
         st.markdown('**Finansiellt underlag**')
         if v.get('inputs'): st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in v['inputs'].items()]),hide_index=True,use_container_width=True)
