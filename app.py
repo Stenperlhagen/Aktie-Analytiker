@@ -3979,6 +3979,19 @@ with four:
         fig.update_layout(template='plotly_white',height=max(230,65*len(model_rows)+80),margin=dict(l=10,r=85,t=35,b=15),xaxis_title=ccy,yaxis=dict(autorange='reversed'))
         st.plotly_chart(fig,use_container_width=True)
     else: st.info('Värderingsunderlag saknas.')
+    implied=numeric(v.get('reverse_growth'))
+    assumed=numeric(v.get('assumptions',{}).get('FCFF-tillväxt (%)'))
+    if assumed is not None:
+        st.markdown('### Marknadens tillväxtförväntningar')
+        rc1,rc2,rc3=st.columns(3)
+        with rc1: valuation_tile('Inprisad tillväxt – Reverse DCF',show(implied,' %',1),detail='Årlig FCFF-tillväxt')
+        with rc2: valuation_tile('Modellens tillväxtantagande',show(assumed,' %',1),detail='Årlig FCFF-tillväxt')
+        difference=assumed-implied if implied is not None else None
+        with rc3: valuation_tile('Skillnad i tillväxtförväntningar',show(difference,' procentenheter',1),detail='Modell minus marknad')
+        if difference is not None:
+            st.caption(('Marknadspriset motsvarar lägre kassaflödestillväxt än modellen.' if difference>0 else 'Marknadspriset motsvarar högre kassaflödestillväxt än modellen.' if difference<0 else 'Tillväxtantagandena sammanfaller.')+' Givet samma WACC, terminaltillväxt och kapitalstruktur. Inte ett självständigt bevis på felvärdering.')
+        else: st.caption('Inprisad tillväxt kunde inte fastställas med tillgängligt underlag.')
+        if audited: st.caption('Preliminär jämförelse – värderingens granskningsvarningar gäller även här.')
     st.markdown('### Värderingsantaganden')
     assumptions=list(v.get('assumptions',{}).items())
     for offset in range(0,len(assumptions),3):
@@ -4116,7 +4129,7 @@ with four:
     st.caption('Helårsdata. ROE: nettoresultat / genomsnittligt eget kapital. ROCE: EBIT / genomsnittligt sysselsatt kapital (tillgångar minus kortfristiga skulder). ROIC: EBIT efter effektiv skatt / genomsnittligt investerat kapital (eget kapital plus skuld minus kassa).')
     if v.get('missing'): st.caption('Underlag som saknas: '+'; '.join(v['missing']))
     if audited: st.metric('Preliminärt modellutfall före kontroll',show(v.get('unreviewed_target'),' '+ccy,2))
-    st.metric('Reverse DCF – inprisad tillväxt','Ej tillämpligt' if v.get('category')=='Bank / finansiella tjänster' else show(v.get('reverse_growth'),' %',1))
+
     st.markdown('#### Utdelning och förväntad totalavkastning')
     current=v.get('price')
     fair=v.get('target')
