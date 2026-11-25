@@ -1647,14 +1647,18 @@ def screener_snapshot(symbol):
                 fallback['missing'].append('ROIC-underlag gav ingen riktkurs; Yahoo-reservmodell används.')
                 result=fallback
         result['fetch_errors']=errors
+        cap=val(info,'marketCap') or val(quick,'market_cap')
+        cap_currency=info.get('currency') or quick.get('currency')
+        cap_fx=fx_rate(cap_currency,'SEK') if cap_currency else None
+        result['market_cap_sek']=cap*cap_fx if cap and cap>0 and cap_fx and cap_fx>0 else None
         return result
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v40':
+if st.session_state.get('screener_model_version')!='unified-v41':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v39'
+    st.session_state['screener_model_version']='unified-v41'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -1717,12 +1721,18 @@ with st.sidebar:
                 valid.append((sym,potential))
         st.caption(f'Automatisk ranking · {len(results)} av {len(universe)} genomsökta · {len(valid)} utan granskningsvarning')
         if pending: st.caption('Listan uppdateras successivt.')
-        for heading,entries in [('Störst uppgångspotential',sorted((x for x in valid if x[1]>0),key=lambda x:-x[1])[:5]),('Störst nedgångspotential',sorted((x for x in valid if x[1]<0),key=lambda x:x[1])[:5])]:
-            st.markdown('**'+heading+'**')
-            if not entries: st.caption('Inga kvalificerade resultat ännu.')
-            for rank,(sym,potential) in enumerate(entries,1):
-                if st.button(f'{rank}. {screener_names[sym]} · {potential:+.1f} %',key='rank_'+sym,use_container_width=True):
-                    open_ranked_company(screener_names[sym])
+        size_groups=[('10 mdkr och över',10e9,float('inf')),('2–10 mdkr',2e9,10e9),('Under 2 mdkr',0,2e9)]
+        for heading,lower,upper in size_groups:
+            with st.expander(heading,expanded=True):
+                eligible=[(sym,potential) for sym,potential in valid if numeric(results[sym].get('market_cap_sek')) is not None and lower<=results[sym]['market_cap_sek']<upper]
+                for direction,entries in [('Störst uppgångspotential',sorted((x for x in eligible if x[1]>0),key=lambda x:-x[1])[:5]),('Störst nedgångspotential',sorted((x for x in eligible if x[1]<0),key=lambda x:x[1])[:5])]:
+                    st.markdown('**'+direction+'**')
+                    if not entries: st.caption('Inga kvalificerade resultat ännu.')
+                    for rank,(sym,potential) in enumerate(entries,1):
+                        if st.button(f'{rank}. {screener_names[sym]} · {potential:+.1f} %',key='rank_'+sym,use_container_width=True):
+                            open_ranked_company(screener_names[sym])
+        unknown=sum(1 for sym,_ in valid if numeric(results[sym].get('market_cap_sek')) is None)
+        if unknown: st.caption(f'{unknown} bolag saknar verifierat börsvärde i SEK och visas inte i storleksrankingen.')
         st.caption('Modellpotential, inte prognos. Resultat med granskningsvarningar utesluts.')
     ranked_companies()
 if not ticker:st.stop()
