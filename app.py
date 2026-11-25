@@ -1870,7 +1870,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
         out['status']='Preliminär värdering – kontroll krävs'
     return out
 
-@st.cache_data(ttl=86400,show_spinner=False)
+@st.cache_data(ttl=604800,show_spinner=False)
 def qualitative_research(symbol, company, website, profile, report_date, model, _api_key):
     import json
     labels=['Affärsmodell','Kundnytta','Konkurrensfördelar','AI-risk','Prissättningskraft','Kundlojalitet','Kund- och leverantörsberoende','Efterfrågan om 15+ år']
@@ -1883,13 +1883,25 @@ def qualitative_research(symbol, company, website, profile, report_date, model, 
         'Returnera endast JSON utan markdown: {"items":[{"label":"kategori","status":"bedömning","reason":"motivering","confidence":"Medel","url":"https://..."}]}. '
         'Bolagsprofil som utgångspunkt: '+profile[:5000])
     try:
-        response=requests.post('https://api.openai.com/v1/responses',headers={'Authorization':'Bearer '+_api_key},json={'model':model,'input':prompt,'tools':[{'type':'web_search'}],'tool_choice':'required','max_output_tokens':4500,'store':False},timeout=150)
-        if not response.ok: return {},'AI-analys HTTP '+str(response.status_code)
+        response=requests.post('https://api.groq.com/openai/v1/chat/completions',headers={'Authorization':'Bearer '+_api_key},json={'model':model,'messages':[{'role':'user','content':prompt}],'max_completion_tokens':6500,'temperature':0.2},timeout=150)
+        if not response.ok: return {},'Groq HTTP '+str(response.status_code)
         payload=response.json()
-        if payload.get('status')!='completed': return {},'AI-analysen slutfördes inte'
-        chunks=[c for item in payload.get('output',[]) if item.get('type')=='message' for c in item.get('content',[]) if c.get('type')=='output_text']
-        urls={a.get('url') for c in chunks for a in c.get('annotations',[]) if a.get('type')=='url_citation'}
-        output=''.join(c.get('text','') for c in chunks).strip()
+        message=payload['choices'][0]['message']
+        output=str(message.get('content') or '').strip()
+        # Only accept links returned by the search tool, not model-generated URLs.
+        urls=set()
+        def collect_search_urls(value):
+            if isinstance(value,dict):
+                for key,v in value.items():
+                    if key in ('url','link') and isinstance(v,str) and v.startswith('https://'): urls.add(v)
+                    elif isinstance(v,(dict,list)): collect_search_urls(v)
+                    elif key in ('output','result','results') and isinstance(v,str):
+                        try: collect_search_urls(json.loads(v))
+                        except (ValueError,TypeError): pass
+            elif isinstance(value,list):
+                for v in value: collect_search_urls(v)
+        collect_search_urls(message.get('executed_tools',[]))
+        collect_search_urls(message.get('annotations',[]))
         if output.startswith(chr(96)*3):
             output=output.split('\n',1)[-1]
             if output.rstrip().endswith(chr(96)*3):
@@ -3528,17 +3540,17 @@ with business_tab:
         add_quality('Affärsmodell','Beskriven',first[:420], 'Bolagets webbplats' if verified else 'Yahoo Finance – bolagsprofil')
     else: add_quality('Affärsmodell','Underlag saknas','Ingen tillgänglig verksamhetsbeskrivning.','–')
     import os
-    try: research_key=str(st.secrets.get('OPENAI_API_KEY','')).strip()
+    try: research_key=str(st.secrets.get('GROQ_API_KEY','')).strip()
     except Exception: research_key=''
-    research_key=research_key or os.environ.get('OPENAI_API_KEY','')
-    try: research_model=str(st.secrets.get('OPENAI_QUALITY_MODEL','gpt-5-mini'))
-    except Exception: research_model='gpt-5-mini'
+    research_key=research_key or os.environ.get('GROQ_API_KEY','')
+    try: research_model=str(st.secrets.get('GROQ_QUALITY_MODEL','groq/compound'))
+    except Exception: research_model='groq/compound'
     research={}
     research_error=''
     if research_key:
         with st.spinner('Analyserar bolagets rapporter och marknad...'):
             research,research_error=qualitative_research(ticker,str(info.get('longName') or ticker),str(info.get('website') or ''),str(description or ''),str(max(periods)) if len(periods) else '',research_model,research_key)
-    else: research_error='AI-integrationen behöver aktiveras i Streamlit Secrets.'
+    else: research_error='GROQ_API_KEY saknas i Streamlit Secrets.'
     for label in ['Kundnytta','Konkurrensfördelar','AI-risk','Prissättningskraft','Kundlojalitet','Kund- och leverantörsberoende','Efterfrågan om 15+ år']:
         row=research.get(label)
         if row:
