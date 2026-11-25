@@ -3333,215 +3333,23 @@ with three:
         st.caption('Investeringshorisonten är modellens, inte ett personligt råd.')
 
     st.divider()
-    st.markdown('#### Historiska nyckeltalsindikatorer – ej investeringsbetyg')
-    st.caption('Den äldre färgmodellen är inte kalibrerad för framtida tillväxt och används inte för scenariovärderingen ovan.')
-    st.caption('Automatisk historikbaserad analys. Inga manuellt påhittade tillväxttal, multiplar eller sannolikheter används.')
-    def series_from_statement(frame, labels):
-        if frame is None or frame.empty:
-            return pd.Series(dtype='float64')
-        for label in labels:
-            if label in frame.index:
-                values = pd.to_numeric(frame.loc[label], errors='coerce').dropna()
-                if not values.empty:
-                    return values.sort_index()
-        return pd.Series(dtype='float64')
-
-    def growth_rate(series):
-        if len(series) < 2:
-            return None
-        first, last = float(series.iloc[0]), float(series.iloc[-1])
-        years = len(series) - 1
-        if first <= 0 or last <= 0:
-            return None
-        return (last / first) ** (1 / years) - 1
-
-    revenues = series_from_statement(fin, ['Total Revenue', 'Operating Revenue'])
-    earnings = series_from_statement(fin, ['Operating Income', 'EBIT'])
-    profits = series_from_statement(fin, ['Net Income', 'Net Income Common Stockholders'])
-    operating_cf = series_from_statement(cash, ['Operating Cash Flow', 'Cash Flow From Continuing Operating Activities'])
-    free_cf = series_from_statement(cash, ['Free Cash Flow'])
-    sales_growth = growth_rate(revenues)
-    profit_growth = growth_rate(profits)
-    margins = []
-    for period in revenues.index.intersection(earnings.index):
-        rev, earn = float(revenues.loc[period]), float(earnings.loc[period])
-        if rev > 0:
-            margins.append(earn / rev)
-    current_margin = margins[-1] if margins else None
-    margin_change = (margins[-1] - margins[0]) if len(margins) >= 2 else None
-    cf_positive = int((operating_cf > 0).sum()) if not operating_cf.empty else None
-    cf_total = len(operating_cf)
-    shares_raw = val(info, 'sharesOutstanding') or val(quick, 'shares')
-    cap = val(info, 'marketCap')
-    if cap is None and price is not None and shares_raw is not None:
-        cap = price * shares_raw
-    ev_ebitda = (cap + netdebt) / ebitda if cap is not None and netdebt is not None and ebitda and ebitda > 0 else None
-    leverage = netdebt / ebitda if netdebt is not None and ebitda and ebitda > 0 else None
-    cols = st.columns(4)
-    cols[0].metric('Historisk omsättningstillväxt', show(sales_growth * 100, ' %/år') if sales_growth is not None else 'Saknas')
-    cols[1].metric('Historisk vinsttillväxt', show(profit_growth * 100, ' %/år') if profit_growth is not None else 'Saknas')
-    cols[2].metric('Nettoskuld/EBITDA', show(leverage, '×', 2) if leverage is not None else 'Saknas')
-    cols[3].metric('EV/EBITDA', show(ev_ebitda, '×', 1) if ev_ebitda is not None else 'Saknas')
-    st.markdown('#### Officiella bolagsrapporter')
-    official_source = OFFICIAL_REPORT_SOURCES.get(ticker)
-    if official_source:
-        st.markdown(f"[Öppna senaste registrerade rapport ({official_source['period']})]({official_source['report']}) · [Rapportarkiv]({official_source['archive']})")
-        if st.button('Hämta rapportuppgifter från bolaget',key='official_report_button'):
-            st.session_state['official_report_ticker'] = ticker
-            official_report_excerpt.clear()
-        if st.session_state.get('official_report_ticker') == ticker:
-            official_lines, official_error = official_report_excerpt(ticker)
-            if official_lines:
-                st.caption('Verifierbar rapporttext från bolagets egen webbplats. Texten är inte automatiskt normaliserad till modellens beräkningar.')
-                for line in official_lines:
-                    st.write(line)
-            elif official_error:
-                st.warning('Rapporten kunde inte hämtas: '+official_error)
+    with st.expander('Historisk kursutveckling och risk',expanded=False):
+        if not hist.empty and 'Close' in hist:
+            prices = pd.to_numeric(hist['Close'], errors='coerce').dropna()
+            if len(prices) >= 60:
+                returns = prices.pct_change().dropna()
+                yearly = (prices.iloc[-1]/prices.iloc[0])**(252/max(len(prices)-1,1))-1 if prices.iloc[0]>0 else None
+                volatility = returns.std() * (252**0.5)
+                drawdown = (prices/prices.cummax()-1).min()
+                x,y,z = st.columns(3)
+                x.metric('Genomsnittlig årlig kursutveckling', show(yearly*100,' %') if yearly is not None else 'Saknas')
+                y.metric('Historisk volatilitet', show(volatility*100,' %'))
+                z.metric('Största historiska nedgång', show(drawdown*100,' %'))
+                st.caption('Beräknat på tillgängliga handelsdagar. Kursförändringen exkluderar utdelningar när ej justerad kurs används. Historisk utveckling är ingen prognos.')
             else:
-                st.info('Ingen läsbar finansiell rapporttext hittades på sidan. Öppna originalrapporten via länken.')
-    else:
-        st.caption('Ingen officiell rapportkälla är ännu registrerad för detta bolag. Yahoo Finance är tills vidare huvudkälla.')
-    st.markdown('#### Äldre investeringsbedömning – historiska gränsvärden')
-    st.write(_signal_title)
-    if _assessment_score is not None:
-        st.metric('Modellpoäng',f'{_assessment_score*100:.0f} av 100')
-    st.caption(_signal_detail)
-    # Sammanfattad investeringsanalys med begripliga enheter och tydlig motivering.
-    if _assessment_rows:
-        st.markdown('##### Vad talar för och emot bolaget?')
-        factor_explanations = {
-            'Omsättning CAGR': ('Omsättningstillväxt','Omsättningen har vuxit över den analyserade perioden.'),
-            'Nettovinst CAGR': ('Vinsttillväxt','Nettovinsten har förändrats över den analyserade perioden.'),
-            'Senaste EBIT-marginal': ('Rörelsemarginal','Visar hur stor del av omsättningen som blir rörelseresultat.'),
-            'Marginalförändring': ('Förändrad rörelsemarginal','Visar hur lönsamheten har utvecklats mellan rapportåren.'),
-            'Andel positiva kassaflödesår': ('Operativt kassaflöde','Andel analyserade år med positivt operativt kassaflöde.'),
-            'Andel positiva FCF-år': ('Fritt kassaflöde','Andel analyserade år med positivt fritt kassaflöde.'),
-            'ROE senaste år': ('Avkastning på eget kapital','Visar avkastningen på aktieägarnas redovisade kapital.'),
-            'FCF-yield senaste år': ('Fritt kassaflöde i förhållande till börsvärde','Senaste årets fria kassaflöde jämfört med börsvärdet.'),
-            'P/E': ('P/E-tal','Aktiekursens värdering i förhållande till vinst per aktie.'),
-            'Nettoskuld/EBITDA': ('Skuldsättning','Nettoskuld i förhållande till EBITDA.')
-        }
-        def factor_display(item):
-            raw_name = str(item.get('Faktor','Nyckeltal'))
-            label, description = factor_explanations.get(raw_name,(raw_name,str(item.get('Metod',''))))
-            raw_value = numeric(item.get('Värde'))
-            if raw_value is None:
-                formatted = 'Saknas'
-            elif raw_name in ('Omsättning CAGR','Nettovinst CAGR','Senaste EBIT-marginal','Marginalförändring','Andel positiva kassaflödesår','Andel positiva FCF-år','ROE senaste år','FCF-yield senaste år'):
-                formatted = show(raw_value*100,' %',1)
-                if raw_name=='Marginalförändring':
-                    formatted = show(raw_value*100,' procentenheter',1)
-            else:
-                formatted = show(raw_value,'×',1)
-            return {'Faktor':label,'Värde':formatted,'Förklaring':description}
-        positives = [factor_display(x) for x in _assessment_rows if x.get('Utfall')=='Positivt']
-        negatives = [factor_display(x) for x in _assessment_rows if x.get('Utfall')=='Negativt']
-        # Kompakta analyskort utan upprepade rubriker eller stora styckesavstånd.
-        from html import escape as html_escape
-        def render_factor_cards(factors, empty_text, accent):
-            if not factors:
-                st.caption(empty_text)
-                return
-            cards = []
-            for factor in factors:
-                title = html_escape(str(factor['Faktor']))
-                value = html_escape(str(factor['Värde']))
-                description = html_escape(str(factor['Förklaring']))
-                cards.append(
-                    '<div style="border:1px solid #e4e8ef;border-left:3px solid '+accent+';'
-                    'border-radius:9px;padding:11px 13px;margin:0 0 8px 0;background:transparent;">'
-                    '<div style="display:flex;justify-content:space-between;align-items:baseline;'
-                    'gap:12px;flex-wrap:wrap;">'
-                    '<span style="font-size:14px;font-weight:600;">'+title+'</span>'
-                    '<span style="font-size:16px;font-weight:700;white-space:nowrap;">'+value+'</span>'
-                    '</div><div style="font-size:12px;opacity:.72;line-height:1.45;margin-top:3px;">'
-                    +description+'</div></div>'
-                )
-            st.markdown(''.join(cards),unsafe_allow_html=True)
-        col_strengths,col_risks=st.columns(2,gap='large')
-        with col_strengths:
-            st.markdown('**Styrkor**')
-            render_factor_cards(positives,'Inga positiva faktorer har kunnat fastställas.','#2c8b69')
-        with col_risks:
-            st.markdown('**Utmaningar och risker**')
-            render_factor_cards(negatives,'Inga negativa faktorer identifierades med tillgängliga data.','#c58a45')
-        st.markdown('**Sammanfattande bedömning**')
-        if _assessment_score is None:
-            st.write('Underlaget räcker inte för ett sammanvägt betyg. De enskilda styrkorna och riskerna visas ändå.')
+                st.info('För kort kurshistorik för riskmåtten.')
         else:
-            score_pct = _assessment_score*100
-            st.progress(min(1.0,max(0.0,_assessment_score)),text='Historisk modellpoäng: '+show(score_pct,' av 100',1))
-            debt_warning = netdebt is not None and ebitda is not None and ebitda>0 and netdebt/ebitda>=4
-            if 'GRÖN' in _signal_title:
-                conclusion = 'Bolaget når modellens gräns för grönt, även om de redovisade riskfaktorerna fortfarande behöver följas.'
-            elif debt_warning:
-                conclusion = 'Hög skuldsättning utlöser modellens riskspärr. Lägre skuldsättning krävs för att spärren ska upphöra.'
-            elif score_pct<75:
-                conclusion = 'Modellpoängen ligger '+show(75-score_pct,' poäng',1)+' under gränsen för grönt. Förbättringar i de negativa faktorerna kan höja poängen.'
-            else:
-                conclusion = 'Modellpoängen är tillräcklig för grönt, men ytterligare riskvillkor behöver kontrolleras.'
-            st.write(conclusion)
-        st.caption('Detta är den äldre, historiska poängmodellen. Den bygger främst på Yahoo Finance och fasta metodgränser; den nya femårsprognosen visas separat ovan.')
-    if 'GRÅ' in _signal_title:
-        st.info('Grått betyder att appens anslutna datakällor inte räcker för en investeringsvärdering – inte att bolaget saknar offentliga rapporter.')
-
-    if _assessment_rows:
-        with st.expander('Visa detaljerade modellfaktorer'):
-            st.dataframe(pd.DataFrame(_assessment_rows),hide_index=True,use_container_width=True)
-    with st.expander('Datatäckning och källstatus'):
-        st.write('Årsperioder i resultaträkning:',len(fin.columns) if not fin.empty else 0)
-        st.write('Kvartalsperioder i resultaträkning:',len(extended['quarterly_income'].columns) if not extended['quarterly_income'].empty else 0)
-        st.write('Historiska värderingsperioder:',len(extended['valuation_history'].columns) if not extended['valuation_history'].empty else 0)
-        if extended_errors: st.json(extended_errors)
-    st.warning('Historisk backtestning med publiceringsdatum för varje rapport och jämförelse mot ett totalavkastningsindex är ännu inte genomförd. Modellen ska inte tolkas som validerad prognos.')
-    st.markdown('#### Historisk finansiell utveckling')
-    history_rows = []
-    for label, data in [('Omsättning', revenues), ('Rörelseresultat (EBIT)', earnings), ('Nettoresultat', profits), ('Operativt kassaflöde', operating_cf), ('Fritt kassaflöde', free_cf)]:
-        for period, amount in data.items():
-            history_rows.append({'Nyckeltal': label, 'Rapportperiod': str(period)[:10], 'Belopp (miljoner)': round(float(amount)/1e6, 1)})
-    if history_rows:
-        frame_history = pd.DataFrame(history_rows)
-        st.dataframe(frame_history.pivot_table(index='Nyckeltal', columns='Rapportperiod', values='Belopp (miljoner)', aggfunc='first').reset_index(), hide_index=True, use_container_width=True)
-    else:
-        st.warning('Historiska rapportdata saknas. Ingen fundamental bedömning kan göras utan verifierbara underlag.')
-
-    st.markdown('#### Modellbaserad bedömning')
-    tests = []
-    def check(name, value, condition, reason):
-        if value is not None:
-            tests.append({'Faktor': name, 'Bedömning': 'Positiv' if condition(value) else 'Negativ', 'Förklaring': reason})
-    check('Omsättningstillväxt', sales_growth, lambda x: x > 0, 'Historisk genomsnittlig årstillväxt över eller under noll')
-    check('Vinsttillväxt', profit_growth, lambda x: x > 0, 'Historisk genomsnittlig årstillväxt över eller under noll')
-    check('Rörelsemarginal', current_margin, lambda x: x > 0, 'Senaste jämförbara årsperiod med positiv EBIT-marginal')
-    check('Marginalutveckling', margin_change, lambda x: x > 0, 'Förändring i EBIT-marginal mellan första och senaste tillgängliga period')
-    check('Skuldsättning', leverage, lambda x: x < 3, 'Illustrativ riskgräns: nettoskuld/EBITDA under 3×')
-    if cf_total:
-        check('Operativt kassaflöde', cf_positive / cf_total, lambda x: x >= 0.75, 'Positivt kassaflöde i minst 75 % av tillgängliga årsperioder')
-    if tests:
-        positives = sum(row['Bedömning'] == 'Positiv' for row in tests)
-        st.metric('Positiva finansiella signaler', f'{positives} av {len(tests)}')
-        st.dataframe(pd.DataFrame(tests), hide_index=True, use_container_width=True)
-        st.write('**Tolkning:** ' + ('Övervägande positiva historiska signaler.' if positives > len(tests)/2 else 'Övervägande negativa historiska signaler.' if positives < len(tests)/2 else 'Blandade historiska signaler.'))
-    else:
-        st.info('För få historiska nyckeltal för att göra en bedömning.')
-    st.markdown('#### Historisk kursutveckling och risk')
-    if not hist.empty and 'Close' in hist:
-        prices = pd.to_numeric(hist['Close'], errors='coerce').dropna()
-        if len(prices) >= 60:
-            returns = prices.pct_change().dropna()
-            yearly = (prices.iloc[-1]/prices.iloc[0])**(252/max(len(prices)-1,1))-1 if prices.iloc[0]>0 else None
-            volatility = returns.std() * (252**0.5)
-            drawdown = (prices/prices.cummax()-1).min()
-            x,y,z = st.columns(3)
-            x.metric('Genomsnittlig årlig kursutveckling', show(yearly*100,' %') if yearly is not None else 'Saknas')
-            y.metric('Historisk volatilitet', show(volatility*100,' %'))
-            z.metric('Största historiska nedgång', show(drawdown*100,' %'))
-            st.caption('Beräknat på tillgängliga handelsdagar. Kursförändringen exkluderar utdelningar när ej justerad kurs används. Historisk utveckling är ingen prognos.')
-        else:
-            st.info('För kort kurshistorik för riskmåtten.')
-    else:
-        st.info('Kurshistorik saknas.')
-    st.caption('Detta är en transparent indikatoranalys, inte en statistiskt kalibrerad sannolikhet för uppgång eller nedgång. Tröskelvärdena är metodval, inte empiriskt fastställda prognoser. Värdering kräver dessutom jämförelse mot bransch och historiska multiplar. Banken, investmentbolag och fastighetsbolag behöver andra nyckeltal.')
+            st.info('Kurshistorik saknas.')
 
 
 
