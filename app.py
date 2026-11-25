@@ -4057,21 +4057,48 @@ with four:
         st.caption(valuation_result['pending_acquisition_note'])
         st.markdown('[Förvärvsmeddelande](https://investors.boliden.com/en/press/boliden-acquire-controlling-stake-nexa-resources)')
     if valuation_result.get('fcff_note'): st.caption(valuation_result['fcff_note'])
-    st.markdown('#### Kapitalavkastning och kapitalkostnad')
-    cap_a,cap_b,cap_c=st.columns(3)
-    if valuation_result.get('category')=='Bank / finansiella tjänster':
-        bank_roe=valuation_result.get('roe')
-        bank_roe_pct=bank_roe*100 if bank_roe is not None else roe_overview
-        bank_ke=valuation_result.get('cost_of_equity_pct')
-        cap_a.metric('ROE – avkastning på eget kapital',show(bank_roe_pct,' %',1))
-        cap_b.metric('Avkastningskrav eget kapital',show(bank_ke,' %',1))
-        cap_c.metric('Överavkastning (ROE − avkastningskrav)',show(bank_roe_pct-bank_ke,' procentenheter',1) if bank_roe_pct is not None and bank_ke is not None else 'Saknas')
-        st.caption('För banker används ROE och avkastningskrav på eget kapital istället för ROIC och WACC. Avkastningskravet är ett modellantagande, inte en observerad kapitalkostnad. ROE-källa: '+str(valuation_result.get('roe_source') or 'Finansiell översikt'))
-    else:
-        cap_a.metric('ROIC (rapporterat underlag)',show(valuation_result.get('roic'),' %',1))
-        cap_b.metric('WACC (modellantagande)',show(valuation_result.get('assumptions',{}).get('WACC (%)'),' %',1))
-        cap_c.metric('Avkastningskrav eget kapital',show(valuation_result.get('cost_of_equity_pct'),' %',1))
-        st.caption('ROIC = EBIT efter rapporterad effektiv skatt / genomsnittligt investerat kapital. WACC och avkastningskrav på eget kapital är separata modellantaganden.')
+    st.markdown('### Kapitalavkastning')
+    operating=v.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag')
+    periods=sorted(balance.columns,key=pd.Timestamp)
+    returns=[]
+    for prev,period in zip(periods,periods[1:]):
+        if not 320<=(pd.Timestamp(period)-pd.Timestamp(prev)).days<=410: continue
+        def bv(labels,p): return _annual_balance_value(balance,labels,p)
+        def fv(labels): return _annual_balance_value(fin,labels,period)
+        eq=[bv(['Stockholders Equity','Common Stock Equity'],p) for p in (prev,period)]
+        net=fv(['Net Income Common Stockholders','Net Income'])
+        ebit=fv(['Operating Income','EBIT'])
+        tax=fv(['Tax Provision'])
+        pretax=fv(['Pretax Income'])
+        roe=100*net/(sum(eq)/2) if net is not None and all(x is not None and x>0 for x in eq) else None
+        ce=[]
+        ic=[]
+        for p in (prev,period):
+            assets=bv(['Total Assets'],p)
+            liabilities=bv(['Current Liabilities'],p)
+            equity=bv(['Stockholders Equity'],p)
+            debt=bv(['Total Debt'],p)
+            cash_amount=bv(['Cash And Cash Equivalents'],p)
+            ce.append(assets-liabilities if assets is not None and liabilities is not None else None)
+            ic.append(equity+debt-cash_amount if all(x is not None for x in (equity,debt,cash_amount)) else None)
+        roce=100*ebit/(sum(ce)/2) if operating and ebit is not None and all(x is not None and x>0 for x in ce) else None
+        roic=100*ebit*(1-tax/pretax)/(sum(ic)/2) if operating and ebit is not None and tax is not None and pretax is not None and pretax>0 and 0<=tax/pretax<=1 and all(x is not None and x>0 for x in ic) else None
+        returns.append({'Datum':pd.Timestamp(period),'ROIC':roic,'ROE':roe,'ROCE':roce})
+    return_frame=pd.DataFrame(returns)
+    specs=[('ROIC','#376baf'),('ROE','#16805b'),('ROCE','#9362ba')] if operating else [('ROE','#16805b')]
+    import plotly.graph_objects as go
+    return_fig=go.Figure()
+    for col,(label,color) in zip(st.columns(len(specs)),specs):
+        series=return_frame[label].dropna() if not return_frame.empty else pd.Series(dtype=float)
+        with col:
+            valuation_tile(label,show(series.iloc[-1] if len(series) else None,' %',1),fg=color,detail=str(return_frame.loc[series.index[-1],'Datum'].date()) if len(series) else 'Underlag saknas')
+        if len(series)>=2:
+            return_fig.add_trace(go.Scatter(x=return_frame['Datum'],y=return_frame[label],name=label,mode='lines',line=dict(color=color,width=2,shape='spline',smoothing=0.65),connectgaps=False))
+    if len(return_fig.data):
+        return_fig.update_layout(template='plotly_white',height=340,margin=dict(l=15,r=15,t=35,b=20),hovermode='x unified',legend=dict(orientation='h',y=1.12),yaxis=dict(ticksuffix='%',gridcolor='#e5eaf0'),xaxis=dict(tickformat='%Y',showgrid=False))
+        st.plotly_chart(return_fig,use_container_width=True)
+    else: st.caption('Minst två jämförbara årsperioder krävs för diagrammet.')
+    st.caption('Helårsdata. ROE: nettoresultat / genomsnittligt eget kapital. ROCE: EBIT / genomsnittligt sysselsatt kapital (tillgångar minus kortfristiga skulder). ROIC: EBIT efter effektiv skatt / genomsnittligt investerat kapital (eget kapital plus skuld minus kassa).')
     if v.get('missing'): st.caption('Underlag som saknas: '+'; '.join(v['missing']))
     if audited: st.metric('Preliminärt modellutfall före kontroll',show(v.get('unreviewed_target'),' '+ccy,2))
     st.metric('Reverse DCF – inprisad tillväxt','Ej tillämpligt' if v.get('category')=='Bank / finansiella tjänster' else show(v.get('reverse_growth'),' %',1))
