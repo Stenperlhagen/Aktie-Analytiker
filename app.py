@@ -2840,7 +2840,7 @@ def investment_score(v, info, metrics=None):
 
 with technical_slot.container():
     render_main_technical(ticker)
-one,four,quality_tab,three,six,five=st.tabs(['Kurs och historik','Bolagsvärdering','Tillväxt & stabilitet','Kurspotential','Bull & Bear','Kurspåverkande händelser'])
+one,four,quality_tab,business_tab,three,six,five=st.tabs(['Kurs och historik','Bolagsvärdering','Tillväxt & stabilitet','Affärsmodell & bolagskvalitet','Kurspotential','Bull & Bear','Kurspåverkande händelser'])
 with six:
     render_bull_bear(ticker)
 with five:
@@ -3193,6 +3193,102 @@ with quality_tab:
             st.dataframe(pd.DataFrame(series),hide_index=True,use_container_width=True)
         else: st.info('Jämförbar sektorshistorik saknas.')
         st.caption('Separat kalibrerat stabilitetsindex för denna sektor saknas ännu.')
+
+
+with business_tab:
+    st.subheader('Affärsmodell & bolagskvalitet – '+company)
+    st.caption('Långsiktigt ägande · finansiell kvalitet och kvalitativ due diligence, separat från riktkursen.')
+    verified=VERIFIED_COMPANY_DESCRIPTIONS.get(ticker)
+    description=str(info.get('longBusinessSummary') or '').strip()
+    if verified:
+        st.write(verified[0])
+        st.markdown(f'[Bolagets officiella beskrivning]({verified[1]})')
+    elif description:
+        st.write(description)
+        st.caption('Källa: Yahoo Finance – bolagsprofil, ej oberoende verifierad.')
+    else:
+        st.info('Bolagsbeskrivning saknas.')
+    if info.get('website'): st.markdown(f"[Bolagets webbplats]({info['website']})")
+    st.markdown('### Finansiell kvalitet')
+    category=valuation_result.get('category')
+    operating=category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag')
+    st.caption(str(info.get('_report_source') or 'Rapportkälla: reservdata där tillgänglig')+' · rapportvaluta: '+str(report_ccy or 'saknas'))
+    periods=sorted(fin.columns,reverse=True)
+    latest=periods[0] if periods else None
+    def quality_value(frame,fields,period):
+        return _annual_balance_value(frame,fields,period) if period is not None else None
+    profit=quality_value(fin,['Net Income Common Stockholders','Net Income'],latest)
+    ocf=quality_value(cash,['Operating Cash Flow'],latest)
+    debt=quality_value(balance,['Net Debt'],latest)
+    ebit=quality_value(fin,['Operating Income','EBIT'],latest)
+    interest=quality_value(fin,['Interest Expense'],latest)
+    ebitda=quality_value(fin,['EBITDA','Normalized EBITDA'],latest)
+    cols=st.columns(3)
+    cols[0].metric('Operativt kassaflöde / nettovinst',show(100*ocf/profit,' %',1) if operating and profit is not None and profit>0 and ocf is not None else 'Saknas / ej relevant')
+    cols[1].metric('Nettoskuld / EBITDA',show(debt/ebitda,'×',1) if operating and debt is not None and ebitda is not None and ebitda>0 else 'Saknas / ej relevant')
+    cols[2].metric('Räntetäckning (EBIT/ränta)',show(ebit/abs(interest),'×',1) if operating and ebit is not None and interest is not None and interest!=0 else 'Saknas / ej relevant')
+    st.caption('Senaste årsperiod: '+str(latest or 'saknas')[:10]+'. Kassaflödeskvoten kan påverkas av rörelsekapital och engångsposter. Sektorer som banker kräver andra mått.')
+    st.markdown('#### Kapitalallokering')
+    allocations=[]
+    for period in sorted(cash.columns)[-10:]:
+        row={'År':str(period)[:10]}
+        for label,fields in [('Operativt kassaflöde',['Operating Cash Flow']),('Investeringar (netto)',['Capital Expenditure']),('Förvärv (netto)',['Purchase Of Business','Net Business Purchase And Sale']),('Utdelningar',['Cash Dividends Paid']),('Återköp',['Repurchase Of Capital Stock'])]:
+            v=quality_value(cash,fields,period)
+            row[label]=v/1e6 if v is not None else None
+        allocations.append(row)
+    if allocations:
+        allocation_frame=pd.DataFrame(allocations)
+        fields=[c for c in allocation_frame.columns if c!='År' and allocation_frame[c].notna().any()]
+        if fields:
+            st.plotly_chart(px.bar(allocation_frame,x='År',y=fields,barmode='group',labels={'value':'Miljoner i rapportvaluta','variable':'Kassaflödespost'}),use_container_width=True)
+            st.dataframe(allocation_frame,hide_index=True,use_container_width=True)
+    st.caption('Rapporterade tecken behålls. Saknade poster är inte noll.')
+    st.markdown('#### Motståndskraft i svagare tider')
+    crisis=[]
+    for year in (2008,2020,2022):
+        row={'År':year}
+        for label,fields in [('Omsättning',['Total Revenue','Operating Revenue']),('EBIT',['Operating Income','EBIT'])]:
+            current=next((p for p in periods if pd.Timestamp(p).year==year),None)
+            prior=next((p for p in periods if pd.Timestamp(p).year==year-1),None)
+            v=quality_value(fin,fields,current)
+            prev=quality_value(fin,fields,prior)
+            row[label+' förändring (%)']=(v/prev-1)*100 if operating and v is not None and prev is not None and prev>0 else None
+        crisis.append(row)
+    st.dataframe(pd.DataFrame(crisis),hide_index=True,use_container_width=True)
+    st.caption('Jämförelse med föregående räkenskapsår. Saknade år och förlustbaser lämnas tomma.')
+    st.markdown('### Värdering i förhållande till tillväxt')
+    growth=st.number_input('Eget antagande om årlig framtida EPS-tillväxt (%)',min_value=0.0,max_value=100.0,value=0.0,step=1.0,key='quality_eps_growth_'+ticker)
+    multiple=numeric(valuation_result.get('pe'))
+    if multiple is None and r12_eps is not None and r12_eps>0:
+        price=numeric(valuation_result.get('price'))
+        if price is not None and price>0: multiple=price/r12_eps
+    c1,c2=st.columns(2)
+    c1.metric('P/E',show(multiple,'×',1) if multiple is not None and multiple>0 else 'Saknas')
+    c2.metric('PEG (eget scenario)',show(multiple/growth,'',2) if multiple is not None and multiple>0 and growth>0 else 'Ange positiv tillväxt')
+    st.caption('PEG = P/E dividerat med antagen EPS-tillväxt i procent. Eget scenario, inte konsensusprognos. Högt P/E utan tillväxt är en riskindikator, inte ett automatiskt säljbeslut.')
+    st.markdown('### Kvalitativ analys – 15+ års perspektiv')
+    questions=[
+        ('Affärsmodell','Förstår jag varför bolaget tjänar pengar?'),
+        ('Kundnytta','Skulle kunder sakna bolaget om det försvann?'),
+        ('Konkurrens','Har bolaget uthålliga konkurrensfördelar?'),
+        ('AI-risk','Är affärsmodellen motståndskraftig mot AI och teknologisk förändring?'),
+        ('Historik','Har affärsmodellen fungerat över tid?'),
+        ('Prissättningskraft','Kan bolaget höja priser utan att förlora kunder?'),
+        ('Kundlojalitet','Återkommer kunderna utan att allt måste säljas in på nytt?'),
+        ('Beroenden','Är bolaget tillräckligt diversifierat över kunder, leverantörer och produkter?'),
+        ('Framtida efterfrågan','Tror jag att produkterna efterfrågas om 15 år eller mer?'),
+        ('Kriser','Har bolaget visat motståndskraft i svagare tider?'),
+        ('Skulder','Är skuldsättningen hanterbar?'),
+        ('Kassaflöde','Omvandlas vinsten till pengar i kassan?'),
+        ('Kapitalallokering','Används kapitalet på ett sätt som skapar långsiktigt värde?')]
+    assessed=[]
+    for i,(label,question) in enumerate(questions):
+        with st.expander(label+' – '+question):
+            answer=st.radio('Egen bedömning',['Ej bedömt','Stark','Blandad','Svag'],horizontal=True,key=f'quality_answer_{ticker}_{i}')
+            evidence=st.text_area('Motivering och källa',key=f'quality_evidence_{ticker}_{i}')
+            if answer!='Ej bedömt' and evidence.strip(): assessed.append((label,answer))
+    st.metric('Dokumenterade egna bedömningar',f'{len(assessed)} / {len(questions)}')
+    st.caption('Bedömningarna är användarens egna och sparas i aktuell Streamlit-session. Källor behöver kontrolleras manuellt. Ingen automatisk kvalitetspoäng eller AI-riskklassning utan verifierat underlag.')
 
 
 with four:
