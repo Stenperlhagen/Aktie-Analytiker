@@ -3979,17 +3979,24 @@ with four:
         fig.update_layout(template='plotly_white',height=max(230,65*len(model_rows)+80),margin=dict(l=10,r=85,t=35,b=15),xaxis_title=ccy,yaxis=dict(autorange='reversed'))
         st.plotly_chart(fig,use_container_width=True)
     else: st.info('Värderingsunderlag saknas.')
-    st.markdown('### Värderingsantaganden och beräkningsunderlag')
-    lcol,rcol=st.columns(2)
-    with lcol:
-        st.markdown('**Modellantaganden**')
-        assumptions=list(v.get('assumptions',{}).items())
-        for offset in range(0,len(assumptions),2):
-            for col,(label,value) in zip(st.columns(2),assumptions[offset:offset+2]):
-                with col: valuation_tile(label,show(value,'',2))
-    with rcol:
-        st.markdown('**Finansiellt underlag**')
-        if v.get('inputs'): st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in v['inputs'].items()]),hide_index=True,use_container_width=True)
+    st.markdown('### Värderingsantaganden')
+    assumptions=list(v.get('assumptions',{}).items())
+    for offset in range(0,len(assumptions),3):
+        for col,(label,value) in zip(st.columns(3),assumptions[offset:offset+3]):
+            unit=' %' if '(%)' in label else '×' if label in ('EV/EBITA','P/E','P/B','EV/EBITDA') else ' år' if label=='Prognosår' else ''
+            display=show(value,unit,0 if unit==' år' else 1 if unit else 2)
+            with col:
+                st.markdown(f'<div style="background:#eaf0f7;color:#173451;padding:12px 16px;border-radius:9px;margin-bottom:10px"><div style="font-size:13px;font-weight:500">{html_escape(label.replace(" (%)",""))}</div><div style="font-size:23px;font-weight:700">{html_escape(str(display))}</div></div>',unsafe_allow_html=True)
+    st.markdown('### Finansiellt beräkningsunderlag')
+    money_labels={'ebita','ebita (beräknad)','nettoskuld','fcff','ebit','ebitda','omsättning','eget kapital','nettoresultat','kassaflöde','fritt kassaflöde'}
+    for idx,(label,value) in enumerate(v.get('inputs',{}).items()):
+        n=numeric(value)
+        if n is not None and label.lower() in money_labels: display=show(n/1e6,' M',1)
+        elif n is not None and label.lower()=='antal aktier': display=show(n,'',0)
+        else: display=show(value,'',2)
+        bg='#edf3f9' if idx%2==0 else '#f8fafc'
+        st.markdown(f'<div style="display:flex;justify-content:space-between;align-items:center;gap:16px;background:{bg};color:#173451;padding:10px 14px;border-radius:6px;margin-bottom:4px"><span style="font-size:14px">{html_escape(str(label))}</span><strong style="font-size:16px;white-space:nowrap">{html_escape(str(display))}</strong></div>',unsafe_allow_html=True)
+    st.caption('M = miljoner i modellens underlagsvaluta. Övriga poster visas i originalenhet.')
     if v.get('period'): st.caption('Rapportperiod: '+v['period'])
     if v.get('source'): st.caption('Källa: '+v['source'])
     with st.expander('Jämförelsebolag och multiplar'):
