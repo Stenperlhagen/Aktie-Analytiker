@@ -3002,14 +3002,50 @@ with two:
 
 with three:
     st.subheader(f'Investeringsanalys – {company}')
-    st.markdown('### Investeringsprocess i fem steg')
-    st.caption('Följ bolaget från affärsmodell och finansiell kvalitet till bransch, värdering och uppföljning. Kontrollera underlaget innan en investeringsbedömning görs.')
+    st.markdown('### Investeringsöversikt')
+
+    assessment=valuation_result
+    rating,components,coverage=investment_score(assessment,info)
+    target_value=assessment.get('target')
+    current_value=assessment.get('price')
+    ccy=str(assessment.get('currency') or '')
+    paragraphs=[]
+    if rating is not None:
+        paragraphs.append(company+' har ett fundamentalt indikatorbetyg på '+show(rating,' av 100',0)+' med '+show(coverage,' %',0)+' datatäckning.')
+    else:
+        paragraphs.append('Ett sammanvägt fundamentalt betyg kan inte fastställas med tillgängligt underlag.')
+    strengths=[x['Område']+' ('+x['Nyckeltal']+')' for x in components if x['Poäng']>=75 and x['Område']!='Värdering']
+    risks=[x['Område']+' ('+x['Nyckeltal']+')' for x in components if x['Poäng']<40 and x['Område']!='Värdering']
+    if strengths: paragraphs.append('Styrkor enligt indikatorerna: '+', '.join(strengths)+'.')
+    if risks: paragraphs.append('Riskområden enligt indikatorerna: '+', '.join(risks)+'.')
+    if target_value is not None and current_value and current_value>0:
+        paragraphs.append('Aktien handlas till '+show(current_value,' '+ccy,2)+' jämfört med modellvärdet '+show(target_value,' '+ccy,2)+', motsvarande en modellpotential på '+show(assessment.get('upside'),' %',1)+'. Högsta köpkurs enligt 20 % säkerhetsmarginal är '+show(assessment.get('buy_limit'),' '+ccy,2)+'.')
+        if assessment.get('audit'):
+            paragraphs.append('Slutsats: värderingen är preliminär på grund av datakontroller som inte passerat. Ingen köpindikator ges.')
+        elif rating is None:
+            paragraphs.append('Slutsats: värderingsindikationen kan användas för vidare analys, men bolagskvaliteten är inte tillräckligt bedömd.')
+        elif current_value<=target_value*.8 and rating>=75:
+            paragraphs.append('Slutsats: attraktiv kandidat för fördjupad investeringsanalys enligt modellen, med både säkerhetsmarginal och starkt indikatorbetyg.')
+        elif current_value>target_value:
+            paragraphs.append('Slutsats: aktien handlas över modellvärdet och framstår inte som attraktiv till aktuell kurs enligt modellen.')
+        else:
+            paragraphs.append('Slutsats: avvakta eller fördjupa analysen; kombinationen av bolagskvalitet och säkerhetsmarginal uppfyller inte modellens kriterier för en attraktiv kandidat.')
+    else:
+        paragraphs.append('Slutsats: värderingsunderlaget räcker inte för att bedöma attraktiv köpkurs.')
     with st.container(border=True):
-        st.markdown('**01 · Investeringsram**')
+        st.markdown('**Samlad bedömning**')
+        k1,k2,k3=st.columns(3)
+        k1.metric('Modellbetyg',show(rating,'/100',0))
+        k2.metric('Kurspotential',show(assessment.get('upside'),' %',1))
+        k3.metric('Datatäckning',show(coverage,' %',0))
+        st.write(' '.join(paragraphs))
+    if assessment.get('audit'): st.caption('Datakontroll: '+'; '.join(assessment['audit']))
+    st.caption('Automatisk regelbaserad bedömning, inte en verifierad prognos eller personlig investeringsrekommendation.')
+
+    with st.expander('01 · Investeringsram',expanded=False):
         st.write('Tidshorisont: fem år i prognosmodellen. En rimlig säkerhetsmarginal och risktolerans behöver alltid bedömas utifrån investerarens situation.')
         st.caption('Investeringshorisonten är modellens, inte ett personligt råd.')
-    with st.container(border=True):
-        st.markdown('**02 · Bolagets kvalitet**')
+    with st.expander('02 · Bolagets kvalitet och nyckeltal',expanded=False):
         quality_items=[(label,value) for label,value in overview_items if not label.startswith(('Börsvärde','Aktiekurs'))]
         available_quality=[(label,value) for label,value in quality_items if value!='Saknas']
         st.caption(f'{len(available_quality)} av {len(quality_items)} sektoranpassade nyckeltal tillgängliga.')
@@ -3019,8 +3055,7 @@ with three:
         missing_quality=[label for label,value in quality_items if value=='Saknas']
         if missing_quality: st.caption('Underlag saknas för: '+', '.join(missing_quality))
         st.caption('Nyckeltalen hämtas från samma finansiella översikt som huvudsidan. Rapportperioder kan skilja sig.')
-    with st.container(border=True):
-        st.markdown('**03 · Affärsmodell och konkurrens**')
+    with st.expander('03 · Affärsmodell och jämförelsebolag',expanded=False):
         st.write('Bransch: **'+str(info.get('industry') or valuation_result.get('profile') or valuation_result.get('category') or 'Ej klassificerad')+'** · Sektor: **'+str(info.get('sector') or 'Ej klassificerad')+'**')
         description=str(info.get('longBusinessSummary') or '').strip()
         if description:
@@ -3058,47 +3093,13 @@ with three:
         else:
             st.caption('Inga kvalitetssäkrade börsnoterade jämförelsebolag har valts för detta bolag ännu. Vi visar inte godtyckliga konkurrenter.')
         st.caption('Marknadsandelar och konkurrensfördelar kräver fortfarande separata branschkällor.')
-    with st.container(border=True):
-        st.markdown('**04 · Branschutsikter och risker**')
+    with st.expander('04 · Branschutsikter och risker',expanded=False):
         st.write('Granska reglering, konjunktur, konkurrens, geografisk exponering och hur dessa faktorer påverkar tillväxt och kassaflöde.')
         st.caption('Dessa risker kräver verifierade bolagsrapporter och branschkällor. EquityLab saknar ännu ett kvalitetssäkrat, automatiskt branschunderlag och ger därför ingen poäng.')
-    with st.container(border=True):
-        st.markdown('**05 · Värdering och uppföljning**')
+    with st.expander('05 · Värdering och uppföljning',expanded=False):
         st.write('Aktuell kurs: **'+(show(price,' '+str(quote_ccy),2) if price is not None else 'Saknas')+'**.')
         st.write('Motiverad aktiekurs enligt huvudmodellen: **'+show(valuation_result.get('target'),' '+str(valuation_result.get('currency') or ''),2)+'**. '+valuation_result.get('status',''))
         st.caption('Följ kvartalsrapporter, prognosförändringar, kassaflöde och värderingsantaganden. Använd fliken Bolagsvärdering och bolagens publicerade rapporter för underlaget.')
-    st.markdown('#### Samlad bedömning')
-    assessment=valuation_result
-    rating,components,coverage=investment_score(assessment,info)
-    target_value=assessment.get('target')
-    current_value=assessment.get('price')
-    ccy=str(assessment.get('currency') or '')
-    paragraphs=[]
-    if rating is not None:
-        paragraphs.append(company+' har ett fundamentalt indikatorbetyg på '+show(rating,' av 100',0)+' med '+show(coverage,' %',0)+' datatäckning.')
-    else:
-        paragraphs.append('Ett sammanvägt fundamentalt betyg kan inte fastställas med tillgängligt underlag.')
-    strengths=[x['Område']+' ('+x['Nyckeltal']+')' for x in components if x['Poäng']>=75 and x['Område']!='Värdering']
-    risks=[x['Område']+' ('+x['Nyckeltal']+')' for x in components if x['Poäng']<40 and x['Område']!='Värdering']
-    if strengths: paragraphs.append('Styrkor enligt indikatorerna: '+', '.join(strengths)+'.')
-    if risks: paragraphs.append('Riskområden enligt indikatorerna: '+', '.join(risks)+'.')
-    if target_value is not None and current_value and current_value>0:
-        paragraphs.append('Aktien handlas till '+show(current_value,' '+ccy,2)+' jämfört med modellvärdet '+show(target_value,' '+ccy,2)+', motsvarande en modellpotential på '+show(assessment.get('upside'),' %',1)+'. Högsta köpkurs enligt 20 % säkerhetsmarginal är '+show(assessment.get('buy_limit'),' '+ccy,2)+'.')
-        if assessment.get('audit'):
-            paragraphs.append('Slutsats: värderingen är preliminär på grund av datakontroller som inte passerat. Ingen köpindikator ges.')
-        elif rating is None:
-            paragraphs.append('Slutsats: värderingsindikationen kan användas för vidare analys, men bolagskvaliteten är inte tillräckligt bedömd.')
-        elif current_value<=target_value*.8 and rating>=75:
-            paragraphs.append('Slutsats: attraktiv kandidat för fördjupad investeringsanalys enligt modellen, med både säkerhetsmarginal och starkt indikatorbetyg.')
-        elif current_value>target_value:
-            paragraphs.append('Slutsats: aktien handlas över modellvärdet och framstår inte som attraktiv till aktuell kurs enligt modellen.')
-        else:
-            paragraphs.append('Slutsats: avvakta eller fördjupa analysen; kombinationen av bolagskvalitet och säkerhetsmarginal uppfyller inte modellens kriterier för en attraktiv kandidat.')
-    else:
-        paragraphs.append('Slutsats: värderingsunderlaget räcker inte för att bedöma attraktiv köpkurs.')
-    st.write(' '.join(paragraphs))
-    if assessment.get('audit'): st.caption('Datakontroll: '+'; '.join(assessment['audit']))
-    st.caption('Automatisk regelbaserad bedömning, inte en verifierad prognos eller personlig investeringsrekommendation.')
     st.divider()
 
     st.markdown('### Vad kan aktien vara värd om fem år?')
