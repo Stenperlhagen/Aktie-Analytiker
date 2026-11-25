@@ -3463,28 +3463,61 @@ with business_tab:
         st.write(f'P/E är {multiple:.1f}× och historisk årlig EPS-tillväxt över {n} år är {growth_rates[n]:.1f} %. Det motsvarar ett historiskt PEG på {ratio:.2f}. '+('Värderingen är hög i förhållande till den historiska tillväxttakten enligt en förenklad PEG-tumregel.' if ratio>2 else 'Värderingen är närmare den historiska tillväxttakten enligt en förenklad PEG-tumregel.')+' Detta är inte en bedömning av framtida tillväxt eller ett köpbeslut.')
     st.caption('Verifierad framtida EPS-prognos saknas i denna integration. Inget prognosbaserat PEG beräknas utan sådant underlag.')
     st.markdown('### Kvalitativ analys – 15+ års perspektiv')
-    questions=[
-        ('Affärsmodell','Förstår jag varför bolaget tjänar pengar?'),
-        ('Kundnytta','Skulle kunder sakna bolaget om det försvann?'),
-        ('Konkurrens','Har bolaget uthålliga konkurrensfördelar?'),
-        ('AI-risk','Är affärsmodellen motståndskraftig mot AI och teknologisk förändring?'),
-        ('Historik','Har affärsmodellen fungerat över tid?'),
-        ('Prissättningskraft','Kan bolaget höja priser utan att förlora kunder?'),
-        ('Kundlojalitet','Återkommer kunderna utan att allt måste säljas in på nytt?'),
-        ('Beroenden','Är bolaget tillräckligt diversifierat över kunder, leverantörer och produkter?'),
-        ('Framtida efterfrågan','Tror jag att produkterna efterfrågas om 15 år eller mer?'),
-        ('Kriser','Har bolaget visat motståndskraft i svagare tider?'),
-        ('Skulder','Är skuldsättningen hanterbar?'),
-        ('Kassaflöde','Omvandlas vinsten till pengar i kassan?'),
-        ('Kapitalallokering','Används kapitalet på ett sätt som skapar långsiktigt värde?')]
-    assessed=[]
-    for i,(label,question) in enumerate(questions):
-        with st.expander(label+' – '+question):
-            answer=st.radio('Egen bedömning',['Ej bedömt','Stark','Blandad','Svag'],horizontal=True,key=f'quality_answer_{ticker}_{i}')
-            evidence=st.text_area('Motivering och källa',key=f'quality_evidence_{ticker}_{i}')
-            if answer!='Ej bedömt' and evidence.strip(): assessed.append((label,answer))
-    st.metric('Dokumenterade egna bedömningar',f'{len(assessed)} / {len(questions)}')
-    st.caption('Bedömningarna är användarens egna och sparas i aktuell Streamlit-session. Källor behöver kontrolleras manuellt. Ingen automatisk kvalitetspoäng eller AI-riskklassning utan verifierat underlag.')
+    st.caption('Automatisk bedömning utifrån tillgängliga bolagsbeskrivningar och rapporterade nyckeltal. Framtida konkurrenskraft kräver separat belägg.')
+    assessments=[]
+    def add_quality(label,status,reason,source):
+        assessments.append((label,status,reason,source))
+    report_source=str(info.get('_report_source') or 'Årsrapportdata via reservkälla')
+    if verified or description:
+        import html
+        summary=str(verified[0] if verified else description).strip()
+        first=re.split(r'(?<=[.!?])\s+',summary)[0]
+        add_quality('Affärsmodell','Beskriven',first[:420], 'Bolagets webbplats' if verified else 'Yahoo Finance – bolagsprofil')
+    else: add_quality('Affärsmodell','Underlag saknas','Ingen tillgänglig verksamhetsbeskrivning.','–')
+    for label,reason in [
+        ('Kundnytta','Kundernas alternativ och kostnaden för att byta leverantör är inte verifierade.'),
+        ('Konkurrensfördelar','Marknadsandelar, inträdesbarriärer och konkurrenternas styrka är inte verifierade.'),
+        ('AI-risk','Bolagsspecifik exponering mot AI och möjligheten att ersätta dess produkter är inte verifierade.'),
+        ('Prissättningskraft','Pris- och volymutveckling behöver särskiljas; marginaler ensamma bevisar inte prissättningskraft.'),
+        ('Kundlojalitet','Kundretention, förnyelsegrad eller återkommande intäkter är inte verifierade.'),
+        ('Kund- och leverantörsberoende','Koncentrationen till enskilda kunder, leverantörer och produkter är inte verifierad.'),
+        ('Efterfrågan om 15+ år','Långsiktig efterfrågan kan inte fastställas från historiska rapporter ensamma.')]:
+        add_quality(label,'Ej verifierat',reason,'Bolagets årsredovisning krävs')
+    stability_data=growth_stability(fin) if operating else {}
+    rev_stats=stability_data.get('revenue')
+    earn_stats=stability_data.get('earnings')
+    if rev_stats and earn_stats and min(rev_stats['n'],earn_stats['n'])>=3 and rev_stats['cagr'] is not None and earn_stats['cagr'] is not None:
+        rg,eg=rev_stats['cagr'],earn_stats['cagr']
+        status='Positiv historik' if rg>0 and eg>0 else 'Negativ historik' if rg<0 and eg<0 else 'Blandad historik'
+        add_quality('Historisk affärsutveckling',status,f'Omsättningen har vuxit {rg:+.1f} % per år och {stability_data["label"]} {eg:+.1f} % per år över tillgänglig jämförbar historik.',report_source)
+    else: add_quality('Historisk affärsutveckling','Underlag saknas','Tillräcklig jämförbar omsättnings- och resultathistorik saknas eller kräver sektorspecifik analys.',report_source)
+    if complete:
+        status='Positiv historik' if positive==len(complete) else 'Negativ historik' if negative==len(complete) else 'Blandad historik'
+        add_quality('Motståndskraft i kriser',status,f'Omsättning och EBIT ökade samtidigt under {positive} av {len(complete)} jämförbara krisår. Underlag finns för {len(complete)} av 3 krisår.',report_source)
+    else: add_quality('Motståndskraft i kriser','Underlag saknas','Jämförbara krisår saknas.',report_source)
+    if operating and debt is not None and ebitda is not None and ebitda>0:
+        leverage=debt/ebitda
+        status='Låg nettoskuld' if leverage<1 else 'Måttlig nettoskuld' if leverage<=3 else 'Hög nettoskuld'
+        add_quality('Skuldsättning',status,f'Nettoskuld/EBITDA är {leverage:.1f}×. Bedömningen använder en generell tumregel, inte en sektorspecifik kreditmodell.',report_source)
+    else: add_quality('Skuldsättning','Underlag saknas','Jämförbar nettoskuld/EBITDA saknas eller är inte relevant för sektorn.',report_source)
+    if operating and profit is not None and profit>0 and ocf is not None:
+        conversion=100*ocf/profit
+        status='Positiv kassakonvertering' if conversion>=100 else 'Måttlig kassakonvertering' if conversion>=70 else 'Svag kassakonvertering'
+        add_quality('Kassaflödeskvalitet',status,f'Operativt kassaflöde motsvarar {conversion:.1f} % av nettovinsten senaste räkenskapsåret. Rörelsekapital kan påverka utfallet.',report_source)
+    else: add_quality('Kassaflödeskvalitet','Underlag saknas','Positiv jämförbar nettovinst och operativt kassaflöde krävs.',report_source)
+    if allocations and outflows:
+        add_quality('Kapitalallokering','Redovisad prioritering',outflows[0][0]+' är största redovisade kapitalutflödet senaste året. Avkastningen på kapitalanvändningen är inte verifierad.','Kapitalallokering – källor per post')
+    else: add_quality('Kapitalallokering','Underlag saknas','Tillräckliga detaljer om kapitalanvändningen saknas.','–')
+    import html
+    colors={'Positiv historik':'#15803D','Låg nettoskuld':'#15803D','Positiv kassakonvertering':'#15803D','Negativ historik':'#DC2626','Hög nettoskuld':'#DC2626','Svag kassakonvertering':'#DC2626','Blandad historik':'#B8860B','Måttlig nettoskuld':'#B8860B','Måttlig kassakonvertering':'#B8860B'}
+    for label,status,reason,source in assessments:
+        color=colors.get(status,'#64748B')
+        st.markdown(f'<div style="padding:12px 0;border-bottom:1px solid rgba(148,163,184,.25)"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><b>{html.escape(label)}</b><b style="color:{color}">{html.escape(status)}</b></div><div style="font-size:14px;margin-top:5px">{html.escape(reason)}</div><div style="font-size:11px;opacity:.7;margin-top:4px">{html.escape(source)}</div></div>',unsafe_allow_html=True)
+    st.markdown('**Samlad bedömning**')
+    measured=[(label,status) for label,status,_,_ in assessments if status in colors]
+    if measured:
+        st.write('Rapporterade indikatorer: '+ '; '.join(label+' – '+status.lower() for label,status in measured)+'.')
+    st.caption('En fullständig kvalitativ bedömning av 15+ års konkurrenskraft kräver bolagsspecifika källor. Inga saknade kvalitativa uppgifter omvandlas till kvalitetspoäng.')
 
 
 with four:
