@@ -3038,61 +3038,12 @@ with two:
 
 with three:
     st.subheader(f'Kurspotential – {company}')
-    st.markdown('### Investeringsöversikt')
-
-    assessment=valuation_result
-    equity_per_share_history=[]
-    if assessment.get('category')=='Investmentbolag / kapitalförvaltning':
-        for period in sorted(balance.columns,reverse=True):
-            e=_annual_balance_value(balance,['Common Stock Equity','Stockholders Equity'],period)
-            s=_annual_balance_value(balance,['Ordinary Shares Number','Share Issued'],period)
-            if e is not None and e>0 and s is not None and s>0: equity_per_share_history.append((pd.Timestamp(period),e/s))
-    equity_growth=None
-    if len(equity_per_share_history)>=2:
-        latest,prior=equity_per_share_history[:2]
-        days=(latest[0]-prior[0]).days
-        if 320<=days<=410: equity_growth=(latest[1]/prior[1])**(365.2425/days)-1
-    rating,components,coverage=investment_score(assessment,info,{'roe':roe_overview/100 if roe_overview is not None else None,'growth':sales_growth_pct/100 if sales_growth_pct is not None else None,'margin':margin,'equity_growth':equity_growth})
-    target_value=assessment.get('target')
-    current_value=assessment.get('price')
-    ccy=str(assessment.get('currency') or '')
-    paragraphs=[]
-    if rating is not None:
-        paragraphs.append(company+' har ett fundamentalt indikatorbetyg på '+show(rating,' av 100',0)+' med '+show(coverage,' %',0)+' datatäckning.')
-    else:
-        paragraphs.append('Ett sammanvägt fundamentalt betyg kan inte fastställas med tillgängligt underlag.')
-    strengths=[x['Område']+' ('+x['Nyckeltal']+')' for x in components if x['Poäng']>=75 and x['Område']!='Värdering']
-    risks=[x['Område']+' ('+x['Nyckeltal']+')' for x in components if x['Poäng']<40 and x['Område']!='Värdering']
-    if strengths: paragraphs.append('Styrkor enligt indikatorerna: '+', '.join(strengths)+'.')
-    if risks: paragraphs.append('Riskområden enligt indikatorerna: '+', '.join(risks)+'.')
-    if target_value is not None and current_value and current_value>0:
-        paragraphs.append('Aktien handlas till '+show(current_value,' '+ccy,2)+' jämfört med modellvärdet '+show(target_value,' '+ccy,2)+', motsvarande en modellpotential på '+show(assessment.get('upside'),' %',1)+'. Högsta köpkurs enligt 20 % säkerhetsmarginal är '+show(assessment.get('buy_limit'),' '+ccy,2)+'.')
-        if assessment.get('audit'):
-            paragraphs.append('Slutsats: värderingen är preliminär på grund av datakontroller som inte passerat. Ingen köpindikator ges.')
-        elif rating is None:
-            paragraphs.append('Slutsats: värderingsindikationen kan användas för vidare analys, men bolagskvaliteten är inte tillräckligt bedömd.')
-        elif current_value<=target_value*.8 and rating>=75 and coverage>=75:
-            paragraphs.append('Slutsats: attraktiv kandidat för fördjupad investeringsanalys enligt modellen, med både säkerhetsmarginal och starkt indikatorbetyg.')
-        elif current_value>target_value:
-            paragraphs.append('Slutsats: aktien handlas över modellvärdet och framstår inte som attraktiv till aktuell kurs enligt modellen.')
-        else:
-            paragraphs.append('Slutsats: avvakta eller fördjupa analysen; kombinationen av bolagskvalitet och säkerhetsmarginal uppfyller inte modellens kriterier för en attraktiv kandidat.')
-    else:
-        paragraphs.append('Slutsats: värderingsunderlaget räcker inte för att bedöma attraktiv köpkurs.')
     with st.container(border=True):
-        st.markdown('**Samlad bedömning**')
-        k1,k2,k3,k4=st.columns(4)
-        k1.metric('Modellbetyg' if coverage>=75 else 'Preliminärt modellbetyg',show(rating,'/100',0))
-        k2.metric('Kurspotential',show(assessment.get('upside'),' %',1))
-        k3.metric('Motiverad kurs',show(target_value,' '+ccy,2))
-        k4.metric('Aktuell kurs',show(current_value,' '+ccy,2))
-        st.caption('Datatäckning: '+show(coverage,' %',0))
-        st.write(' '.join(paragraphs))
-        if rating is None: st.caption('Betyg kräver minst tre indikatorer, 50 % datatäckning, en stödd sektormodell och godkända datakontroller.')
-        elif coverage<75: st.caption('Preliminärt betyg med begränsat underlag; ingen positiv köpindikator baseras på detta.')
-    if assessment.get('audit'): st.caption('Datakontroll: '+'; '.join(assessment['audit']))
-    st.caption('Automatisk regelbaserad bedömning, inte en verifierad prognos eller personlig investeringsrekommendation.')
-
+        p1,p2,p3=st.columns(3)
+        p1.metric('Aktuell aktiekurs',show(valuation_result.get('price'),' '+str(valuation_result.get('currency') or ''),2))
+        p2.metric('Motiverad aktiekurs',show(valuation_result.get('target'),' '+str(valuation_result.get('currency') or ''),2))
+        p3.metric('Kurspotential',show(valuation_result.get('upside'),' %',1))
+        if valuation_result.get('audit'): st.caption('Preliminär värdering: '+'; '.join(valuation_result['audit']))
     st.markdown('### Vad kan aktien vara värd om fem år?')
     st.caption('Historikbaserad modellprognos – kontrollera antagandena nedan.')
     def scenario_field(record, keys):
@@ -3294,6 +3245,83 @@ with three:
         historical_chart=px.line(x=historical_close.index,y=historical_close.to_numpy(),labels={'x':'Datum','y':'Aktiekurs ('+str(quote_ccy)+')'},title='Aktiekurs – historik (prognosunderlag saknas)')
         st.plotly_chart(historical_chart,use_container_width=True)
     st.divider()
+    with st.expander('Historisk kursutveckling och risk',expanded=False):
+        if not hist.empty and 'Close' in hist:
+            prices = pd.to_numeric(hist['Close'], errors='coerce').dropna()
+            if len(prices) >= 60:
+                returns = prices.pct_change().dropna()
+                yearly = (prices.iloc[-1]/prices.iloc[0])**(252/max(len(prices)-1,1))-1 if prices.iloc[0]>0 else None
+                volatility = returns.std() * (252**0.5)
+                drawdown = (prices/prices.cummax()-1).min()
+                x,y,z = st.columns(3)
+                x.metric('Genomsnittlig årlig kursutveckling', show(yearly*100,' %') if yearly is not None else 'Saknas')
+                y.metric('Historisk volatilitet', show(volatility*100,' %'))
+                z.metric('Största historiska nedgång', show(drawdown*100,' %'))
+                st.caption('Beräknat på tillgängliga handelsdagar. Kursförändringen exkluderar utdelningar när ej justerad kurs används. Historisk utveckling är ingen prognos.')
+            else:
+                st.info('För kort kurshistorik för riskmåtten.')
+        else:
+            st.info('Kurshistorik saknas.')
+
+
+
+with four:
+    st.subheader('Bolagsvärdering – '+company)
+    st.markdown('### Investeringsöversikt')
+
+    assessment=valuation_result
+    equity_per_share_history=[]
+    if assessment.get('category')=='Investmentbolag / kapitalförvaltning':
+        for period in sorted(balance.columns,reverse=True):
+            e=_annual_balance_value(balance,['Common Stock Equity','Stockholders Equity'],period)
+            s=_annual_balance_value(balance,['Ordinary Shares Number','Share Issued'],period)
+            if e is not None and e>0 and s is not None and s>0: equity_per_share_history.append((pd.Timestamp(period),e/s))
+    equity_growth=None
+    if len(equity_per_share_history)>=2:
+        latest,prior=equity_per_share_history[:2]
+        days=(latest[0]-prior[0]).days
+        if 320<=days<=410: equity_growth=(latest[1]/prior[1])**(365.2425/days)-1
+    rating,components,coverage=investment_score(assessment,info,{'roe':roe_overview/100 if roe_overview is not None else None,'growth':sales_growth_pct/100 if sales_growth_pct is not None else None,'margin':margin,'equity_growth':equity_growth})
+    target_value=assessment.get('target')
+    current_value=assessment.get('price')
+    ccy=str(assessment.get('currency') or '')
+    paragraphs=[]
+    if rating is not None:
+        paragraphs.append(company+' har ett fundamentalt indikatorbetyg på '+show(rating,' av 100',0)+' med '+show(coverage,' %',0)+' datatäckning.')
+    else:
+        paragraphs.append('Ett sammanvägt fundamentalt betyg kan inte fastställas med tillgängligt underlag.')
+    strengths=[x['Område']+' ('+x['Nyckeltal']+')' for x in components if x['Poäng']>=75 and x['Område']!='Värdering']
+    risks=[x['Område']+' ('+x['Nyckeltal']+')' for x in components if x['Poäng']<40 and x['Område']!='Värdering']
+    if strengths: paragraphs.append('Styrkor enligt indikatorerna: '+', '.join(strengths)+'.')
+    if risks: paragraphs.append('Riskområden enligt indikatorerna: '+', '.join(risks)+'.')
+    if target_value is not None and current_value and current_value>0:
+        paragraphs.append('Aktien handlas till '+show(current_value,' '+ccy,2)+' jämfört med modellvärdet '+show(target_value,' '+ccy,2)+', motsvarande en modellpotential på '+show(assessment.get('upside'),' %',1)+'. Högsta köpkurs enligt 20 % säkerhetsmarginal är '+show(assessment.get('buy_limit'),' '+ccy,2)+'.')
+        if assessment.get('audit'):
+            paragraphs.append('Slutsats: värderingen är preliminär på grund av datakontroller som inte passerat. Ingen köpindikator ges.')
+        elif rating is None:
+            paragraphs.append('Slutsats: värderingsindikationen kan användas för vidare analys, men bolagskvaliteten är inte tillräckligt bedömd.')
+        elif current_value<=target_value*.8 and rating>=75 and coverage>=75:
+            paragraphs.append('Slutsats: attraktiv kandidat för fördjupad investeringsanalys enligt modellen, med både säkerhetsmarginal och starkt indikatorbetyg.')
+        elif current_value>target_value:
+            paragraphs.append('Slutsats: aktien handlas över modellvärdet och framstår inte som attraktiv till aktuell kurs enligt modellen.')
+        else:
+            paragraphs.append('Slutsats: avvakta eller fördjupa analysen; kombinationen av bolagskvalitet och säkerhetsmarginal uppfyller inte modellens kriterier för en attraktiv kandidat.')
+    else:
+        paragraphs.append('Slutsats: värderingsunderlaget räcker inte för att bedöma attraktiv köpkurs.')
+    with st.container(border=True):
+        st.markdown('**Samlad bedömning**')
+        k1,k2,k3,k4=st.columns(4)
+        k1.metric('Modellbetyg' if coverage>=75 else 'Preliminärt modellbetyg',show(rating,'/100',0))
+        k2.metric('Kurspotential',show(assessment.get('upside'),' %',1))
+        k3.metric('Motiverad kurs',show(target_value,' '+ccy,2))
+        k4.metric('Aktuell kurs',show(current_value,' '+ccy,2))
+        st.caption('Datatäckning: '+show(coverage,' %',0))
+        st.write(' '.join(paragraphs))
+        if rating is None: st.caption('Betyg kräver minst tre indikatorer, 50 % datatäckning, en stödd sektormodell och godkända datakontroller.')
+        elif coverage<75: st.caption('Preliminärt betyg med begränsat underlag; ingen positiv köpindikator baseras på detta.')
+    if assessment.get('audit'): st.caption('Datakontroll: '+'; '.join(assessment['audit']))
+    st.caption('Automatisk regelbaserad bedömning, inte en verifierad prognos eller personlig investeringsrekommendation.')
+
     st.markdown('### Fördjupad bolagsanalys')
     with st.container(border=True):
         left,right=st.columns(2)
@@ -3364,28 +3392,6 @@ with three:
         st.caption('Investeringshorisonten är modellens, inte ett personligt råd.')
 
     st.divider()
-    with st.expander('Historisk kursutveckling och risk',expanded=False):
-        if not hist.empty and 'Close' in hist:
-            prices = pd.to_numeric(hist['Close'], errors='coerce').dropna()
-            if len(prices) >= 60:
-                returns = prices.pct_change().dropna()
-                yearly = (prices.iloc[-1]/prices.iloc[0])**(252/max(len(prices)-1,1))-1 if prices.iloc[0]>0 else None
-                volatility = returns.std() * (252**0.5)
-                drawdown = (prices/prices.cummax()-1).min()
-                x,y,z = st.columns(3)
-                x.metric('Genomsnittlig årlig kursutveckling', show(yearly*100,' %') if yearly is not None else 'Saknas')
-                y.metric('Historisk volatilitet', show(volatility*100,' %'))
-                z.metric('Största historiska nedgång', show(drawdown*100,' %'))
-                st.caption('Beräknat på tillgängliga handelsdagar. Kursförändringen exkluderar utdelningar när ej justerad kurs används. Historisk utveckling är ingen prognos.')
-            else:
-                st.info('För kort kurshistorik för riskmåtten.')
-        else:
-            st.info('Kurshistorik saknas.')
-
-
-
-with four:
-    st.subheader('Bolagsvärdering – '+company)
     if valuation_result.get('category') in ('Forskningsbolag','Läkemedel – royalty och pipeline'):
         render_biotech_scenario(ticker,valuation_result['category'],valuation_result)
     score,score_items,score_coverage=investment_score(valuation_result,info)
