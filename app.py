@@ -44,6 +44,38 @@ def roic_key():
     try: return str(st.secrets.get('ROIC_API_KEY','')).strip()
     except Exception: return ''
 
+@st.cache_data(ttl=604800,show_spinner=False)
+def company_icon(website,company_name):
+    import base64
+    from PIL import Image, ImageDraw
+    host=urllib.parse.urlparse(str(website or '')).hostname
+    if host:
+        try:
+            response=requests.get('https://www.google.com/s2/favicons',params={'domain':host,'sz':128},timeout=4)
+            response.raise_for_status()
+            im=Image.open(io.BytesIO(response.content)).convert('RGBA')
+            if min(im.size)>=32:
+                out=io.BytesIO()
+                im.thumbnail((128,128))
+                im.save(out,format='PNG')
+                return 'data:image/png;base64,'+base64.b64encode(out.getvalue()).decode('ascii')
+        except Exception:
+            pass
+    initials=''.join(w[0].upper() for w in str(company_name).split()[:2] if w) or '?'
+    im=Image.new('RGB',(96,96),'#e2e8f0')
+    draw=ImageDraw.Draw(im)
+    from PIL import ImageFont
+    try: font=ImageFont.truetype('DejaVuSans.ttf',32)
+    except OSError: font=ImageFont.load_default()
+    draw.text((48,48),initials,fill='#334155',anchor='mm',font=font)
+    out=io.BytesIO()
+    im.save(out,format='PNG')
+    return 'data:image/png;base64,'+base64.b64encode(out.getvalue()).decode('ascii')
+
+def icon_bytes(website,company_name):
+    import base64
+    return base64.b64decode(company_icon(website,company_name).split(',',1)[1])
+
 @st.cache_data(ttl=86400,show_spinner=False)
 def roic_company_data(ticker, api_key):
     """Identifiera instrument via ROIC:s sök-API utan manuella bolagsmappningar."""
@@ -272,7 +304,7 @@ def peer_snapshot(symbol):
         return {'pe':pe if pe is not None and pe>0 else None,
                 'margin':margin*100 if margin is not None else None,
                 'growth':growth*100 if growth is not None else None,
-                'leverage':leverage}
+                'leverage':leverage,'website':p.get('website')}
     except Exception:
         return {}
 
@@ -1646,6 +1678,7 @@ def screener_snapshot(symbol):
             if fallback.get('target') is not None:
                 fallback['missing'].append('ROIC-underlag gav ingen riktkurs; Yahoo-reservmodell används.')
                 result=fallback
+        result['website']=info.get('website')
         result['fetch_errors']=errors
         cap=val(info,'marketCap') or val(quick,'market_cap')
         cap_currency=info.get('currency') or quick.get('currency')
@@ -1655,10 +1688,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v41':
+if st.session_state.get('screener_model_version')!='unified-v42':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v41'
+    st.session_state['screener_model_version']='unified-v42'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -1729,7 +1762,9 @@ with st.sidebar:
                     st.markdown('**'+direction+'**')
                     if not entries: st.caption('Inga kvalificerade resultat ännu.')
                     for rank,(sym,potential) in enumerate(entries,1):
-                        if st.button(f'{rank}. {screener_names[sym]} · {potential:+.1f} %',key='rank_'+sym,use_container_width=True):
+                        logo_col,button_col=st.columns([1,6],gap='small',vertical_alignment='center')
+                        logo_col.image(icon_bytes(results[sym].get('website'),screener_names[sym]),width=25)
+                        if button_col.button(f'{rank}. {screener_names[sym]} · {potential:+.1f} %',key='rank_'+sym,use_container_width=True):
                             open_ranked_company(screener_names[sym])
         unknown=sum(1 for sym,_ in valid if numeric(results[sym].get('market_cap_sek')) is None)
         if unknown: st.caption(f'{unknown} bolag saknar verifierat börsvärde i SEK och visas inte i storleksrankingen.')
@@ -1751,7 +1786,9 @@ if fetch_errors:
 company=info.get('longName') or name or ticker
 company_col,target_col=st.columns([2,1],vertical_alignment='top')
 with company_col:
-    st.subheader(company)
+    logo_col,name_col=st.columns([1,7],vertical_alignment='center')
+    logo_col.image(icon_bytes(info.get('website'),company),width=64)
+    name_col.subheader(company)
     company_type=valuation_category(ticker,info)
     if company_type=='Rörelsedrivande bolag':
         company_type=operating_valuation_profile(ticker,info) or KNOWN_GROUP_BY_TICKER.get(ticker) or 'Rörelsedrivande bolag'
@@ -2812,19 +2849,19 @@ with three:
         st.markdown('**Jämförelse med börsnoterade konkurrenter**')
         peers=PEER_UNIVERSE.get(ticker,[])
         if peers:
-            peer_rows=[{'Bolag':company,'P/E':pe,'Rörelsemarginal (%)':margin*100 if margin is not None else None,
+            peer_rows=[{'Logotyp':company_icon(info.get('website'),company),'Bolag':company,'P/E':pe,'Rörelsemarginal (%)':margin*100 if margin is not None else None,
                         'Omsättningstillväxt (%)':sales_growth_pct,'Nettoskuld/EBITDA':netdebt_ebitda,
                         'Jämförbarhet':'Bolaget som analyseras'}]
             for peer_name,peer_ticker,peer_note in peers:
                 peer_data=peer_snapshot(peer_ticker)
-                peer_rows.append({'Bolag':peer_name,'P/E':peer_data.get('pe'),
+                peer_rows.append({'Logotyp':company_icon(peer_data.get('website'),peer_name),'Bolag':peer_name,'P/E':peer_data.get('pe'),
                     'Rörelsemarginal (%)':peer_data.get('margin'),
                     'Omsättningstillväxt (%)':peer_data.get('growth'),
                     'Nettoskuld/EBITDA':peer_data.get('leverage'),
                     'Jämförbarhet':peer_note})
             peer_table=pd.DataFrame(peer_rows)
             st.dataframe(peer_table,hide_index=True,use_container_width=True,
-                column_config={'P/E':st.column_config.NumberColumn('P/E',format='%.1f×'),
+                column_config={'Logotyp':st.column_config.ImageColumn('',width='small'),'P/E':st.column_config.NumberColumn('P/E',format='%.1f×'),
                 'Rörelsemarginal (%)':st.column_config.NumberColumn('Rörelsemarginal (%)',format='%.1f'),
                 'Omsättningstillväxt (%)':st.column_config.NumberColumn('Omsättningstillväxt (%)',format='%.1f'),
                 'Nettoskuld/EBITDA':st.column_config.NumberColumn('Nettoskuld/EBITDA',format='%.2f×')})
