@@ -28,6 +28,20 @@ roic_company_data=lru_cache(maxsize=256)(roic_company_data)
 def roic_key():
     return os.environ.get('ROIC_API_KEY','').strip()
 
+def borsapi_key():
+    # CI does not have Streamlit Secrets. Do not require credentials for mathematical tests.
+    return os.environ.get('BORSAPI_API_KEY','').strip()
+
+def borsapi_reports(symbol, api_key):
+    # Deterministic offline fallback; integration is tested separately.
+    return {}, 'Börsdata API unavailable in offline audit'
+
+def borsapi_history(symbol, api_key):
+    return pd.DataFrame(), 'Börsdata API unavailable in offline audit'
+
+def borsapi_annual_frames(symbol, api_key):
+    return None, 'Börsdata API unavailable in offline audit'
+
 def tests():
     assert abs(comparable_ev_ebita(245e6,1331e6,79406571,12,1)-20.263)<0.01
     assert comparable_ev_ebita(100,None,10,12,1) is None
