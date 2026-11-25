@@ -3501,17 +3501,27 @@ with quality_tab:
                     indexed=values/values.iloc[0]*100
                     dates=pd.to_datetime(chart_data['date'])
                     fig.add_trace(go.Scatter(x=dates,y=indexed,name=label,mode='lines',line=dict(color=color,width=2,shape='spline',smoothing=0.65),connectgaps=False))
+                ebit=pd.to_numeric(pd.Series([_annual_balance_value(fin,['EBIT','Operating Income'],p) for p in chart_data['date']],index=chart_data.index),errors='coerce')
+                if key=='ebit': ebit=pd.to_numeric(chart_data[key],errors='coerce')
+                revenue=pd.to_numeric(chart_data['revenue'],errors='coerce')
+                margin=100*ebit/revenue.where(revenue>0)
+                valid_margin=margin.dropna()
+                if len(valid_margin)>=2:
+                    fig.add_trace(go.Scatter(x=pd.to_datetime(chart_data['date']),y=margin,name='EBIT-marginal',yaxis='y2',mode='lines',line=dict(color='#64748b',width=2,dash='dash',shape='spline',smoothing=0.65),connectgaps=False,hovertemplate='%{y:.1f}%<extra>EBIT-marginal</extra>'))
+                    fig.update_layout(yaxis2=dict(title='EBIT-marginal (%)',overlaying='y',side='right',showgrid=False,ticksuffix='%'))
                 fig.add_hline(y=100,line_dash='dot',line_color='#94a3b8')
-                fig.update_layout(template='plotly_white',height=420,margin=dict(l=15,r=15,t=20,b=30),hovermode='x unified',yaxis_title='Index',legend=dict(orientation='h',y=1.12))
+                fig.update_layout(template='plotly_white',height=420,margin=dict(l=15,r=65,t=40,b=30),hovermode='x unified',yaxis_title='Index',legend=dict(orientation='h',y=1.12))
                 fig.update_xaxes(tickformat='%Y',showgrid=False)
                 if len(fig.data): st.plotly_chart(fig,use_container_width=True)
+                if len(valid_margin)>=2:
+                    m1,m2,m3=st.columns(3)
+                    m1.metric('EBIT-marginal '+str(chart_data.loc[valid_margin.index[0],'date'])[:4],f'{valid_margin.iloc[0]:.1f} %')
+                    m2.metric('EBIT-marginal '+str(chart_data.loc[valid_margin.index[-1],'date'])[:4],f'{valid_margin.iloc[-1]:.1f} %')
+                    m3.metric('Marginalförändring',f'{valid_margin.iloc[-1]-valid_margin.iloc[0]:+.1f} p.e.')
+                else: st.caption('Jämförbar EBIT-marginalhistorik saknas.')
                 st.caption('Gemensamt basår: '+str(chart_data['date'].iloc[0])[:10]+' = 100. EPS avser rapporterad grundläggande vinst per aktie; kontrollera historiska splittar.')
                 if omitted: st.caption('Visas inte på grund av saknad eller icke-positiv startbas: '+', '.join(omitted))
             else: st.caption('Jämförbar positiv startbas saknas.')
-        margins=pd.DataFrame([{'Datum':x['date'],'Marginal (%)':100*x[stability['label'].lower()]/x['revenue']} for x in stability['rows'] if x['revenue'] is not None and x['revenue']>0 and x[stability['label'].lower()] is not None])
-        if len(margins)>=2:
-            with st.expander(stability['label']+'-marginal över tid'):
-                st.plotly_chart(px.line(margins,x='Datum',y='Marginal (%)',markers=True),use_container_width=True)
         st.caption('Upp till tio års tillväxtintervall. EBIT visas uttryckligen när EBITA-historik saknas. Tillväxt från förlustår ingår inte i procentberäkningen. Stabilitet är inte ett bevis på prissättningskraft.')
         st.markdown('#### Årsvisa förändringar')
         changes=[]
