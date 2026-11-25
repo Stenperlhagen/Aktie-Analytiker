@@ -2980,9 +2980,7 @@ def investment_score(v, info, metrics=None):
         x=numeric(value)
         if x is None or abs(x)==float('inf'): return
         points=max(0,min(100,100*(x-low)/(high-low)))
-        items.append({'Område':name,'Nyckeltal':show(x,unit,1),'Poäng':round(points,1),'Vikt':weight})
-    if not v.get('audit') and v.get('target') is not None:
-        add('Värdering',v.get('upside'),-30,40,25,' %')
+        items.append({'Område':name,'Nyckeltal':show(x,unit,1),'Poäng':round(points,1),'Vikt':weight,'0 poäng vid':show(low,unit,1),'100 poäng vid':show(high,unit,1)})
     roe=metrics.get('roe') if metrics.get('roe') is not None else v.get('roe')
     if operating or category=='Bank / finansiella tjänster':
         if roe is not None: add('Lönsamhet (ROE)',roe*100,0,20,20,' %')
@@ -3020,17 +3018,21 @@ def investment_score(v, info, metrics=None):
         leverage=val(info,'debtToEquity')
         if leverage is not None and leverage>=0: add('Skuld / eget kapital',leverage,100,0,25,' %')
         if metrics.get('equity_growth') is not None: add('Tillväxt i bokfört eget kapital per aktie',metrics['equity_growth']*100,-10,15,25,' %')
-    expected=95 if operating else 100 if category in ('Bank / finansiella tjänster','Fastigheter') else 100 if category=='Investmentbolag / kapitalförvaltning' else 25
     if operating:
-        for item in items: item['Vikt']=item['Vikt']*80/95
-        expected=100
+        for item in items: item['Vikt']=item['Vikt']*80/70
         stability=metrics.get('stability')
         if stability is not None: add('Historisk tillväxtstabilitet',stability,0,100,20,'/100')
-    coverage=sum(x['Vikt'] for x in items)
-    # Investment holdings use NAV valuation, ROE and leverage, not industrial ratios.
-    eligible=operating or category in ('Bank / finansiella tjänster','Fastigheter','Investmentbolag / kapitalförvaltning')
-    score=sum(x['Poäng']*x['Vikt'] for x in items)/coverage if eligible and coverage>=expected*.5 and len(items)>=3 and not v.get('audit') else None
-    return score,items,coverage/expected*100
+        expected=100
+    else:
+        expected=75
+    coverage=sum(x['Vikt'] for x in items)/expected*100
+    for item in items:
+        item['Vikt']=round(item['Vikt']/expected*100,2)
+        item['Bidrag']=round(item['Poäng']*item['Vikt']/100,2)
+    # Do not redistribute missing weights or imply a precise score with incomplete inputs.
+    eligible=operating
+    score=sum(x['Bidrag'] for x in items) if eligible and coverage>=99.99 and len(items)>=5 else None
+    return score,items,min(100,coverage)
 
 with technical_slot.container():
     render_main_technical(ticker)
@@ -3817,7 +3819,7 @@ with four:
     ccy=str(assessment.get('currency') or '')
     paragraphs=[]
     if rating is not None:
-        paragraphs.append(company+' har ett fundamentalt indikatorbetyg på '+show(rating,' av 100',0)+' med '+show(coverage,' %',0)+' datatäckning.')
+        paragraphs.append(company+' har ett regelbaserat kvalitetsbetyg på '+show(rating,' av 100',0)+' med '+show(coverage,' %',0)+' datatäckning.')
     else:
         paragraphs.append('Ett sammanvägt fundamentalt betyg kan inte fastställas med tillgängligt underlag.')
     strengths=[x['Område']+' ('+x['Nyckeltal']+')' for x in components if x['Poäng']>=75 and x['Område']!='Värdering']
@@ -3831,7 +3833,7 @@ with four:
         elif rating is None:
             paragraphs.append('Slutsats: värderingsindikationen kan användas för vidare analys, men bolagskvaliteten är inte tillräckligt bedömd.')
         elif current_value<=target_value*.8 and rating>=75 and coverage>=75:
-            paragraphs.append('Slutsats: attraktiv kandidat för fördjupad investeringsanalys enligt modellen, med både säkerhetsmarginal och starkt indikatorbetyg.')
+            paragraphs.append('Slutsats: attraktiv kandidat för fördjupad investeringsanalys enligt modellen, med både säkerhetsmarginal och starkt kvalitetsbetyg.')
         elif current_value>target_value:
             paragraphs.append('Slutsats: aktien handlas över modellvärdet och framstår inte som attraktiv till aktuell kurs enligt modellen.')
         else:
@@ -3841,13 +3843,13 @@ with four:
     with st.container(border=True):
         st.markdown('**Samlad bedömning**')
         k1,k2,k3,k4=st.columns(4)
-        k1.metric('Modellbetyg' if coverage>=75 else 'Preliminärt modellbetyg',show(rating,'/100',0))
-        k2.metric('Kurspotential',show(assessment.get('upside'),' %',1))
+        k1.metric('Bolagskvalitet',show(rating,'/100',0) if rating is not None else 'Ej betygsatt')
+        k2.metric('Värdering – kurspotential',show(assessment.get('upside'),' %',1))
         k3.metric('Motiverad kurs',show(target_value,' '+ccy,2))
         k4.metric('Aktuell kurs',show(current_value,' '+ccy,2))
         st.caption('Datatäckning: '+show(coverage,' %',0))
         st.write(' '.join(paragraphs))
-        if rating is None: st.caption('Betyg kräver minst tre indikatorer, 50 % datatäckning, en stödd sektormodell och godkända datakontroller.')
+        if rating is None: st.caption('Kvalitetsbetyg kräver full datatäckning och en stödd sektormodell. Saknade vikter omfördelas inte.')
         elif coverage<75: st.caption('Preliminärt betyg med begränsat underlag; ingen positiv köpindikator baseras på detta.')
     if assessment.get('audit'): st.caption('Datakontroll: '+'; '.join(assessment['audit']))
     st.caption('Automatisk regelbaserad bedömning, inte en verifierad prognos eller personlig investeringsrekommendation.')
@@ -3924,7 +3926,7 @@ with four:
     st.divider()
     if valuation_result.get('category') in ('Forskningsbolag','Läkemedel – royalty och pipeline'):
         render_biotech_scenario(ticker,valuation_result['category'],valuation_result)
-    score,score_items,score_coverage=investment_score(valuation_result,info)
+    score,score_items,score_coverage=investment_score(valuation_result,info,{'roe':roe_overview/100 if roe_overview is not None else None,'growth':sales_growth_pct/100 if sales_growth_pct is not None else None,'margin':margin,'stability':growth_stability(fin)['score']})
     if ticker=='WBGR-B.ST' and not valuation_result.get('emission'):
         valuation_result['emission']={'Tidigare antal aktier':51744264,'Nya aktier inklusive garantiemission':124244124,'Totalt antal aktier':175988388,'Utspädning (%)':124244124/175988388*100,'Emissionsbelopp (rapporterat)':191e6,'Emissionskostnader':27e6,'Nettoskuld efter emission':72e6}
         valuation_result['emission_source']='https://storage.mfn.se/483f4127-3e38-4f38-8898-fd6d6f348c61/delarsrapport-q3-2026-sv.pdf'
@@ -3964,7 +3966,7 @@ with four:
         st.caption('ROIC = EBIT efter rapporterad effektiv skatt / genomsnittligt investerat kapital. WACC och avkastningskrav på eget kapital är separata modellantaganden.')
     st.markdown('#### Fundamentalt investeringsbetyg')
     st.metric('Investeringsbetyg',show(score,' / 100',0))
-    st.caption('Indikatorbaserad modell, ej historiskt kalibrerad. Datatäckning: '+show(score_coverage,' %',0)+'. Betyg visas för rörelsedrivande bolag, banker och fastighetsbolag med tillräckliga nyckeltal. Bankbetyget saknar ännu kapitaltäckning och kreditförluster; fastighetsbetyget saknar ännu belåningsgrad och räntetäckning. Övriga sektorer kräver ytterligare underlag.')
+    st.caption('Kvalitetsmodell med fasta, ej branschkalibrerade gränser. Datatäckning: '+show(score_coverage,' %',0)+'. Fullständigt betyg visas endast för rörelsedrivande bolag med samtliga indikatorer. Värdering ingår inte.')
     if score_items:
         st.dataframe(pd.DataFrame(score_items),hide_index=True,use_container_width=True)
     if score is None:
