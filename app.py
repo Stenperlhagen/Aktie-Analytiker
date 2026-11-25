@@ -1794,9 +1794,9 @@ with company_col:
         company_type=operating_valuation_profile(ticker,info) or KNOWN_GROUP_BY_TICKER.get(ticker) or 'Rörelsedrivande bolag'
     st.markdown('<div style="font-size:0.92rem;color:#64748b;margin-top:-8px;margin-bottom:10px;">'+company_type+'</div>',unsafe_allow_html=True)
     st.caption(f'{ticker} · Valuta: {info.get("currency","okänd")} · Börsdata hämtad {dt.datetime.now().strftime("%Y-%m-%d %H:%M")} · Yahoo Finance')
+    technical_slot=st.empty()
 with target_col:
     target_slot=st.empty()
-technical_slot=st.empty()
 
 price=val(info,'currentPrice','regularMarketPrice','previousClose')
 if price is None: price=val(quick,'last_price','previous_close')
