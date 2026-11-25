@@ -891,8 +891,8 @@ def render_bull_bear(ticker):
     if scale is None or scale<=0: scale=1
     cols=st.columns(3)
     cols[0].metric('Senaste avslutade dagskurs',f'{last*scale:.2f}')
-    cols[1].metric('Positiv trendvändning över',f'{buy*scale:.2f}' if buy is not None else 'Saknas',f'{(buy/last-1)*100:+.1f} %' if buy is not None else None,delta_color='off')
-    cols[2].metric('Negativ trendvändning under',f'{sell*scale:.2f}' if sell is not None else 'Saknas',f'{(sell/last-1)*100:+.1f} %' if sell is not None else None,delta_color='off')
+    cols[1].metric('Positiv brytpunkt',f'{buy*scale:.2f}' if buy is not None else 'Saknas',f'{(buy/last-1)*100:+.1f} %' if buy is not None else None,delta_color='off')
+    cols[2].metric('Negativ brytpunkt',f'{sell*scale:.2f}' if sell is not None else 'Saknas',f'{(sell/last-1)*100:+.1f} %' if sell is not None else None,delta_color='off')
     if signals:
         month,close,signal=signals[-1]
         st.write(f'Senaste historiska trendvändningssignal: **{signal}** – {month}.')
@@ -905,8 +905,8 @@ def render_bull_bear(ticker):
     visible=p.loc[p.index>=cutoff]
     controls=st.columns(3)
     controls[0].metric('Senaste kurs på diagrambasis',f'{last:.2f}')
-    controls[1].metric('Motstånd',f'{buy:.2f}' if buy is not None else 'Saknas')
-    controls[2].metric('Stöd',f'{sell:.2f}' if sell is not None else 'Saknas')
+    controls[1].metric('Positiv brytpunkt',f'{buy:.2f}' if buy is not None else 'Saknas')
+    controls[2].metric('Negativ brytpunkt',f'{sell:.2f}' if sell is not None else 'Saknas')
     basis=raw.attrs.get('trend_basis','Kurs')
     frame=pd.DataFrame({'Datum':p.index,basis:p.values})
     fig=px.line(frame,x='Datum',y=basis)
@@ -941,7 +941,7 @@ def render_bull_bear(ticker):
                     if x>=cutoff:
                         fig.add_annotation(x=x,y=y,text=tag,showarrow=True,arrowhead=0,arrowcolor=color,ay=-32 if up else 32,bgcolor=color,borderpad=4,font=dict(color='white',size=11))
     if st.checkbox('Visa köp- och säljnivåer',value=True,key='bull_levels_'+ticker):
-        for level,color,label in [(buy,'#008A42','Positiv vändningsnivå'),(sell,'#D32F2F','Negativ vändningsnivå')]:
+        for level,color,label in [(buy,'#008A42','Positiv brytpunkt'),(sell,'#D32F2F','Negativ brytpunkt')]:
             if level is not None: fig.add_hline(y=level,line_color=color,line_width=2,line_dash='dash',annotation_text=f'{label}: {level:.2f}',annotation_position='top left',annotation_font_color=color)
     if st.checkbox('Visa historiska köp- och säljsignaler',value=True,key='bull_signals_'+ticker):
         for signal,color in [('KÖP','#008A42'),('SÄLJ','#D32F2F')]:
