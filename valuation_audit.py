@@ -42,6 +42,10 @@ def borsapi_history(symbol, api_key):
 def borsapi_annual_frames(symbol, api_key):
     return None, 'Börsdata API unavailable in offline audit'
 
+def borsapi_r12_records(symbol, api_key):
+    # Offline audit: R12 endpoint is unavailable without credentials.
+    return []
+
 def tests():
     assert abs(comparable_ev_ebita(245e6,1331e6,79406571,12,1)-20.263)<0.01
     assert comparable_ev_ebita(100,None,10,12,1) is None
