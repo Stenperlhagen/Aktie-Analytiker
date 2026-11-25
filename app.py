@@ -878,11 +878,18 @@ def render_bull_bear(ticker):
     sell=lows[-1][1] if lows else None
     if buy is not None and sell is not None:
         if last<sell:
-            st.error('NEGATIV KURSSIGNAL – kursen ligger under senaste bekräftade botten. Säljbevakningsnivån har passerats. En bekräftad negativ trendvändning kräver även en lägre topp och avslutad månad.')
+            signal_title='NEGATIV KURSSIGNAL'
+            signal_text='Aktiekursen ligger under den negativa brytpunkten. En bekräftad negativ trendvändning kräver även en lägre topp och avslutad månad.'
+            bg,fg='#DC2626','#FFFFFF'
         elif last>buy:
-            st.success('POSITIV KURSSIGNAL – kursen ligger över senaste bekräftade topp. En bekräftad positiv trendvändning kräver även en högre botten och avslutad månad.')
+            signal_title='POSITIV KURSSIGNAL'
+            signal_text='Aktiekursen ligger över den positiva brytpunkten. En bekräftad positiv trendvändning kräver även en högre botten och avslutad månad.'
+            bg,fg='#15803D','#FFFFFF'
         else:
-            st.info('AVVAKTA – kursen ligger mellan senaste bekräftade topp och botten.')
+            signal_title='AVVAKTA'
+            signal_text='Aktiekursen ligger mellan den positiva och negativa brytpunkten.'
+            bg,fg='#EAB308','#422006'
+        st.markdown(f'<div style="background:{bg};color:{fg};padding:18px 22px;border-radius:12px;margin:10px 0 14px"><div style="font-size:21px;font-weight:800;letter-spacing:.3px;margin-bottom:6px">{signal_title}</div><div style="font-size:14px;line-height:1.5">{signal_text}</div></div>',unsafe_allow_html=True)
     else:
         st.info('Otillräckligt underlag för tekniska bevakningsnivåer.')
     st.caption('Kurssignalen ovan beskriver nivåbrott, inte den fullständiga tekniska rekommendationen.')
