@@ -3428,15 +3428,40 @@ with business_tab:
     else: st.caption('Tillräckligt jämförbart underlag saknas för en ekonomisk slutsats.')
     if len(complete)<3: st.caption(f'Fullständigt underlag: {len(complete)} av 3 krisår. Saknade uppgifter och negativa jämförelsebaser ersätts inte med noll.')
     st.markdown('### Värdering i förhållande till tillväxt')
-    growth=st.number_input('Eget antagande om årlig framtida EPS-tillväxt (%)',min_value=0.0,max_value=100.0,value=0.0,step=1.0,key='quality_eps_growth_'+ticker)
-    multiple=numeric(valuation_result.get('pe'))
-    if multiple is None and r12_eps is not None and r12_eps>0:
-        price=numeric(valuation_result.get('price'))
-        if price is not None and price>0: multiple=price/r12_eps
-    c1,c2=st.columns(2)
-    c1.metric('P/E',show(multiple,'×',1) if multiple is not None and multiple>0 else 'Saknas')
-    c2.metric('PEG (eget scenario)',show(multiple/growth,'',2) if multiple is not None and multiple>0 and growth>0 else 'Ange positiv tillväxt')
-    st.caption('PEG = P/E dividerat med antagen EPS-tillväxt i procent. Eget scenario, inte konsensusprognos. Högt P/E utan tillväxt är en riskindikator, inte ett automatiskt säljbeslut.')
+    price=numeric(valuation_result.get('price'))
+    multiple=price/r12_eps if price is not None and price>0 and r12_eps is not None and r12_eps>0 else None
+    st.metric('P/E (R12)',show(multiple,'×',1) if multiple is not None else 'Saknas / ej meningsfullt')
+    eps_history={}
+    for period in periods:
+        value=quality_value(fin,['Basic EPS'],period)
+        if value is not None:
+            eps_history[pd.Timestamp(period).normalize()]=value
+    growth_rates={}
+    cols=st.columns(3)
+    for col,n in zip(cols,(3,5,10)):
+        rate=None
+        if eps_history and report_ccy:
+            end=max(eps_history)
+            target=end-pd.DateOffset(years=n)
+            candidates=[d for d in eps_history if abs((d-target).days)<=45]
+            if candidates:
+                start=min(candidates,key=lambda d:abs((d-target).days))
+                if eps_history[start]>0 and eps_history[end]>0:
+                    rate=100*((eps_history[end]/eps_history[start])**(365.2425/(end-start).days)-1)
+        growth_rates[n]=rate
+        col.metric(f'EPS-tillväxt {n} år',show(rate,' %',1) if rate is not None else 'Saknas')
+        col.caption('Historiskt PEG: '+(show(multiple/rate,'',2) if multiple is not None and rate is not None and rate>0 else 'Ej beräkningsbart'))
+    st.caption('Årlig historisk tillväxt i rapporterad vinst per aktie (CAGR). Kontrollera jämförbarhet efter splittar. Historiskt PEG använder dagens R12-P/E och historisk tillväxt, inte en framtidsprognos.')
+    st.markdown('**Ekonomisk slutsats**')
+    n=next((n for n in (5,3,10) if growth_rates[n] is not None),None)
+    if multiple is None or n is None:
+        st.info('Jämförbart underlag för P/E och historisk vinsttillväxt saknas.')
+    elif growth_rates[n]<=0:
+        st.warning(f'P/E är {multiple:.1f}× samtidigt som vinsten per aktie inte har vuxit över {n} år. Värderingen behöver motiveras av en framtida resultatförbättring eller andra kvaliteter.')
+    else:
+        ratio=multiple/growth_rates[n]
+        st.write(f'P/E är {multiple:.1f}× och historisk årlig EPS-tillväxt över {n} år är {growth_rates[n]:.1f} %. Det motsvarar ett historiskt PEG på {ratio:.2f}. '+('Värderingen är hög i förhållande till den historiska tillväxttakten enligt en förenklad PEG-tumregel.' if ratio>2 else 'Värderingen är närmare den historiska tillväxttakten enligt en förenklad PEG-tumregel.')+' Detta är inte en bedömning av framtida tillväxt eller ett köpbeslut.')
+    st.caption('Verifierad framtida EPS-prognos saknas i denna integration. Inget prognosbaserat PEG beräknas utan sådant underlag.')
     st.markdown('### Kvalitativ analys – 15+ års perspektiv')
     questions=[
         ('Affärsmodell','Förstår jag varför bolaget tjänar pengar?'),
