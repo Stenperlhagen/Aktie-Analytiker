@@ -1883,8 +1883,23 @@ def qualitative_research(symbol, company, website, profile, report_date, model, 
         'Returnera endast JSON utan markdown: {"items":[{"label":"kategori","status":"bedömning","reason":"motivering","confidence":"Medel","url":"https://..."}]}. '
         'Bolagsprofil som utgångspunkt: '+profile[:5000])
     try:
-        response=requests.post('https://api.groq.com/openai/v1/chat/completions',headers={'Authorization':'Bearer '+_api_key},json={'model':model,'messages':[{'role':'user','content':prompt}],'max_completion_tokens':6500,'temperature':0.2},timeout=150)
-        if not response.ok: return {},'Groq HTTP '+str(response.status_code)
+        headers={'Authorization':'Bearer '+_api_key}
+        catalog=requests.get('https://api.groq.com/openai/v1/models',headers=headers,timeout=15)
+        if not catalog.ok: return {},'Groq modellista HTTP '+str(catalog.status_code)
+        available={x.get('id') for x in catalog.json().get('data',[]) if x.get('active',True)}
+        candidates=list(dict.fromkeys([model,'groq/compound','groq/compound-mini']))
+        candidates=[m for m in candidates if m in available and m in ('groq/compound','groq/compound-mini')]
+        if not candidates: return {},'Ingen Compound-modell tillgänglig. Modeller: '+', '.join(sorted(x for x in available if isinstance(x,str)))
+        for candidate in candidates:
+            response=requests.post('https://api.groq.com/openai/v1/chat/completions',headers=headers,json={'model':candidate,'messages':[{'role':'user','content':prompt}],'max_completion_tokens':6500,'temperature':0.2},timeout=150)
+            if response.ok or response.status_code not in (400,404): break
+        if not response.ok:
+            try:
+                err=response.json().get('error',{})
+                detail=str(err.get('code') or '')+' '+str(err.get('message') or '')
+                detail=detail.replace(_api_key,'[redacted]')[:350]
+            except Exception: detail=''
+            return {},'Groq HTTP '+str(response.status_code)+' ('+candidate+'): '+detail
         payload=response.json()
         message=payload['choices'][0]['message']
         output=str(message.get('content') or '').strip()
