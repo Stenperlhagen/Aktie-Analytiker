@@ -3050,79 +3050,20 @@ with three:
         paragraphs.append('Slutsats: värderingsunderlaget räcker inte för att bedöma attraktiv köpkurs.')
     with st.container(border=True):
         st.markdown('**Samlad bedömning**')
-        k1,k2,k3=st.columns(3)
+        k1,k2,k3,k4=st.columns(4)
         k1.metric('Modellbetyg' if coverage>=75 else 'Preliminärt modellbetyg',show(rating,'/100',0))
         k2.metric('Kurspotential',show(assessment.get('upside'),' %',1))
-        k3.metric('Datatäckning',show(coverage,' %',0))
+        k3.metric('Motiverad kurs',show(target_value,' '+ccy,2))
+        k4.metric('Aktuell kurs',show(current_value,' '+ccy,2))
+        st.caption('Datatäckning: '+show(coverage,' %',0))
         st.write(' '.join(paragraphs))
         if rating is None: st.caption('Betyg kräver minst tre indikatorer, 50 % datatäckning, en stödd sektormodell och godkända datakontroller.')
         elif coverage<75: st.caption('Preliminärt betyg med begränsat underlag; ingen positiv köpindikator baseras på detta.')
     if assessment.get('audit'): st.caption('Datakontroll: '+'; '.join(assessment['audit']))
     st.caption('Automatisk regelbaserad bedömning, inte en verifierad prognos eller personlig investeringsrekommendation.')
 
-    with st.expander('01 · Investeringsram',expanded=False):
-        st.write('Tidshorisont: fem år i prognosmodellen. En rimlig säkerhetsmarginal och risktolerans behöver alltid bedömas utifrån investerarens situation.')
-        st.caption('Investeringshorisonten är modellens, inte ett personligt råd.')
-    with st.expander('02 · Bolagets kvalitet och nyckeltal',expanded=False):
-        quality_items=[(label,value) for label,value in overview_items if not label.startswith(('Börsvärde','Aktiekurs'))]
-        available_quality=[(label,value) for label,value in quality_items if value!='Saknas']
-        st.caption(f'{len(available_quality)} av {len(quality_items)} sektoranpassade nyckeltal tillgängliga.')
-        for start in range(0,len(available_quality),3):
-            for col,(label,value) in zip(st.columns(3),available_quality[start:start+3]):
-                col.metric(label,value)
-        missing_quality=[label for label,value in quality_items if value=='Saknas']
-        if missing_quality: st.caption('Underlag saknas för: '+', '.join(missing_quality))
-        st.caption('Nyckeltalen hämtas från samma finansiella översikt som huvudsidan. Rapportperioder kan skilja sig.')
-    with st.expander('03 · Affärsmodell och jämförelsebolag',expanded=False):
-        st.write('Bransch: **'+str(info.get('industry') or valuation_result.get('profile') or valuation_result.get('category') or 'Ej klassificerad')+'** · Sektor: **'+str(info.get('sector') or 'Ej klassificerad')+'**')
-        description=str(info.get('longBusinessSummary') or '').strip()
-        if description:
-            st.write(description[:650]+('…' if len(description)>650 else ''))
-        else:
-            st.caption('Bolagsbeskrivning saknas från datakällan.')
-        st.markdown('**Jämförelse med börsnoterade konkurrenter**')
-        peers=PEER_UNIVERSE.get(ticker,[])
-        if not peers and valuation_result.get('profile'):
-            peers=[(n,s,'Samma värderingsprofil – ej verifierad direkt konkurrent') for n,s in ALL_COMPANIES.items() if s!=ticker and operating_valuation_profile(s)==valuation_result.get('profile') and valuation_category(s)==valuation_result.get('category')][:4]
-        if peers:
-            peer_rows=[{'Logotyp':company_icon(info.get('website'),company),'Bolag':company,'P/E':pe,'Rörelsemarginal (%)':margin*100 if margin is not None else None,
-                        'Omsättningstillväxt (%)':sales_growth_pct,'Nettoskuld/EBITDA':netdebt_ebitda,
-                        'Jämförbarhet':'Bolaget som analyseras'}]
-            for peer_name,peer_ticker,peer_note in peers:
-                peer_data=peer_snapshot(peer_ticker)
-                peer_rows.append({'Logotyp':company_icon(peer_data.get('website'),peer_name),'Bolag':peer_name,'P/E':peer_data.get('pe'),
-                    'Rörelsemarginal (%)':peer_data.get('margin'),
-                    'Omsättningstillväxt (%)':peer_data.get('growth'),
-                    'Nettoskuld/EBITDA':peer_data.get('leverage'),
-                    'Jämförbarhet':peer_note})
-            peer_table=pd.DataFrame(peer_rows)
-            st.dataframe(peer_table,hide_index=True,use_container_width=True,
-                column_config={'Logotyp':st.column_config.ImageColumn('',width='small'),'P/E':st.column_config.NumberColumn('P/E',format='%.1f×'),
-                'Rörelsemarginal (%)':st.column_config.NumberColumn('Rörelsemarginal (%)',format='%.1f'),
-                'Omsättningstillväxt (%)':st.column_config.NumberColumn('Omsättningstillväxt (%)',format='%.1f'),
-                'Nettoskuld/EBITDA':st.column_config.NumberColumn('Nettoskuld/EBITDA',format='%.2f×')})
-            available_pe=[row['P/E'] for row in peer_rows[1:] if row['P/E'] is not None and row['P/E']>0]
-            if len(available_pe)>=2 and pe is not None and pe>0:
-                peer_median=float(pd.Series(available_pe).median())
-                st.write('Bolagets P/E: **'+show(pe,'×',1)+'** · Jämförelsebolagens median-P/E: **'+show(peer_median,'×',1)+'**.')
-            else:
-                st.caption('För få jämförbara P/E-observationer för en meningsfull median.')
-            st.caption('Urvalet bygger på manuella jämförelser eller gemensam värderingsprofil; bolagen behöver inte vara direkta konkurrenter. Yahoo-uppgifterna kan avse olika rapportperioder, redovisningsprinciper och valutor. Jämförelsen är vägledande, inte en automatisk riktkurs eller investeringssignal.')
-        else:
-            st.caption('Inga kvalitetssäkrade börsnoterade jämförelsebolag har valts för detta bolag ännu. Vi visar inte godtyckliga konkurrenter.')
-        st.caption('Marknadsandelar och konkurrensfördelar kräver fortfarande separata branschkällor.')
-    with st.expander('04 · Branschutsikter och risker',expanded=False):
-        st.write('Granska reglering, konjunktur, konkurrens, geografisk exponering och hur dessa faktorer påverkar tillväxt och kassaflöde.')
-        st.caption('Dessa risker kräver verifierade bolagsrapporter och branschkällor. EquityLab saknar ännu ett kvalitetssäkrat, automatiskt branschunderlag och ger därför ingen poäng.')
-    with st.expander('05 · Värdering och uppföljning',expanded=False):
-        st.write('Aktuell kurs: **'+(show(price,' '+str(quote_ccy),2) if price is not None else 'Saknas')+'**.')
-        st.write('Motiverad aktiekurs enligt huvudmodellen: **'+show(valuation_result.get('target'),' '+str(valuation_result.get('currency') or ''),2)+'**. '+valuation_result.get('status',''))
-        st.caption('Följ kvartalsrapporter, prognosförändringar, kassaflöde och värderingsantaganden. Använd fliken Bolagsvärdering och bolagens publicerade rapporter för underlaget.')
-    st.divider()
-
     st.markdown('### Vad kan aktien vara värd om fem år?')
-    st.caption('Utifrån bolagets rapporterade resultat beräknar modellen ett möjligt framtida aktiepris och vad det skulle innebära för din avkastning.')
-    st.markdown('**Så använder du analysen:** Se modellens femårsprognos och kontrollera antagandena bakom beräkningen. Du behöver inte fylla i några siffror.')
+    st.caption('Historikbaserad modellprognos – kontrollera antagandena nedan.')
     def scenario_field(record, keys):
         for key in keys:
             result = numeric(record.get(key))
@@ -3321,6 +3262,76 @@ with three:
         historical_close=hist['Close'].dropna()
         historical_chart=px.line(x=historical_close.index,y=historical_close.to_numpy(),labels={'x':'Datum','y':'Aktiekurs ('+str(quote_ccy)+')'},title='Aktiekurs – historik (prognosunderlag saknas)')
         st.plotly_chart(historical_chart,use_container_width=True)
+    st.divider()
+    st.markdown('### Fördjupad bolagsanalys')
+    with st.container(border=True):
+        left,right=st.columns(2)
+        left.markdown('**Styrkor**')
+        left.write('; '.join(strengths) if strengths else 'Inga tydliga styrkor identifierade av indikatorerna.')
+        right.markdown('**Riskområden**')
+        right.write('; '.join(risks) if risks else 'Inga tydliga riskområden identifierade av indikatorerna; detta innebär inte att risk saknas.')
+    with st.expander('Bolagets kvalitet och nyckeltal',expanded=False):
+        quality_items=[(label,value) for label,value in overview_items if not label.startswith(('Börsvärde','Aktiekurs'))]
+        available_quality=[(label,value) for label,value in quality_items if value!='Saknas']
+        st.caption(f'{len(available_quality)} av {len(quality_items)} sektoranpassade nyckeltal tillgängliga.')
+        for start in range(0,len(available_quality),3):
+            for col,(label,value) in zip(st.columns(3),available_quality[start:start+3]):
+                col.metric(label,value)
+        missing_quality=[label for label,value in quality_items if value=='Saknas']
+        if missing_quality: st.caption('Underlag saknas för: '+', '.join(missing_quality))
+        st.caption('Nyckeltalen hämtas från samma finansiella översikt som huvudsidan. Rapportperioder kan skilja sig.')
+
+    with st.expander('Affärsmodell och jämförelsebolag',expanded=False):
+        st.write('Bransch: **'+str(info.get('industry') or valuation_result.get('profile') or valuation_result.get('category') or 'Ej klassificerad')+'** · Sektor: **'+str(info.get('sector') or 'Ej klassificerad')+'**')
+        description=str(info.get('longBusinessSummary') or '').strip()
+        if description:
+            st.write(description[:650]+('…' if len(description)>650 else ''))
+        else:
+            st.caption('Bolagsbeskrivning saknas från datakällan.')
+        st.markdown('**Jämförelse med börsnoterade konkurrenter**')
+        peers=PEER_UNIVERSE.get(ticker,[])
+        if not peers and valuation_result.get('profile'):
+            peers=[(n,s,'Samma värderingsprofil – ej verifierad direkt konkurrent') for n,s in ALL_COMPANIES.items() if s!=ticker and operating_valuation_profile(s)==valuation_result.get('profile') and valuation_category(s)==valuation_result.get('category')][:4]
+        if peers:
+            peer_rows=[{'Logotyp':company_icon(info.get('website'),company),'Bolag':company,'P/E':pe,'Rörelsemarginal (%)':margin*100 if margin is not None else None,
+                        'Omsättningstillväxt (%)':sales_growth_pct,'Nettoskuld/EBITDA':netdebt_ebitda,
+                        'Jämförbarhet':'Bolaget som analyseras'}]
+            for peer_name,peer_ticker,peer_note in peers:
+                peer_data=peer_snapshot(peer_ticker)
+                peer_rows.append({'Logotyp':company_icon(peer_data.get('website'),peer_name),'Bolag':peer_name,'P/E':peer_data.get('pe'),
+                    'Rörelsemarginal (%)':peer_data.get('margin'),
+                    'Omsättningstillväxt (%)':peer_data.get('growth'),
+                    'Nettoskuld/EBITDA':peer_data.get('leverage'),
+                    'Jämförbarhet':peer_note})
+            peer_table=pd.DataFrame(peer_rows)
+            st.dataframe(peer_table,hide_index=True,use_container_width=True,
+                column_config={'Logotyp':st.column_config.ImageColumn('',width='small'),'P/E':st.column_config.NumberColumn('P/E',format='%.1f×'),
+                'Rörelsemarginal (%)':st.column_config.NumberColumn('Rörelsemarginal (%)',format='%.1f'),
+                'Omsättningstillväxt (%)':st.column_config.NumberColumn('Omsättningstillväxt (%)',format='%.1f'),
+                'Nettoskuld/EBITDA':st.column_config.NumberColumn('Nettoskuld/EBITDA',format='%.2f×')})
+            available_pe=[row['P/E'] for row in peer_rows[1:] if row['P/E'] is not None and row['P/E']>0]
+            if len(available_pe)>=2 and pe is not None and pe>0:
+                peer_median=float(pd.Series(available_pe).median())
+                st.write('Bolagets P/E: **'+show(pe,'×',1)+'** · Jämförelsebolagens median-P/E: **'+show(peer_median,'×',1)+'**.')
+            else:
+                st.caption('För få jämförbara P/E-observationer för en meningsfull median.')
+            st.caption('Urvalet bygger på manuella jämförelser eller gemensam värderingsprofil; bolagen behöver inte vara direkta konkurrenter. Yahoo-uppgifterna kan avse olika rapportperioder, redovisningsprinciper och valutor. Jämförelsen är vägledande, inte en automatisk riktkurs eller investeringssignal.')
+        else:
+            st.caption('Inga kvalitetssäkrade börsnoterade jämförelsebolag har valts för detta bolag ännu. Vi visar inte godtyckliga konkurrenter.')
+        st.caption('Marknadsandelar och konkurrensfördelar kräver fortfarande separata branschkällor.')
+
+    with st.expander('Branschutsikter och risker',expanded=False):
+        st.write('Granska reglering, konjunktur, konkurrens, geografisk exponering och hur dessa faktorer påverkar tillväxt och kassaflöde.')
+        st.caption('Dessa risker kräver verifierade bolagsrapporter och branschkällor. EquityLab saknar ännu ett kvalitetssäkrat, automatiskt branschunderlag och ger därför ingen poäng.')
+
+    with st.expander('Värdering och uppföljning',expanded=False):
+        st.write('Aktuell kurs: **'+(show(price,' '+str(quote_ccy),2) if price is not None else 'Saknas')+'**.')
+        st.write('Motiverad aktiekurs enligt huvudmodellen: **'+show(valuation_result.get('target'),' '+str(valuation_result.get('currency') or ''),2)+'**. '+valuation_result.get('status',''))
+        st.caption('Följ kvartalsrapporter, prognosförändringar, kassaflöde och värderingsantaganden. Använd fliken Bolagsvärdering och bolagens publicerade rapporter för underlaget.')
+    with st.expander('Investeringsram',expanded=False):
+        st.write('Tidshorisont: fem år i prognosmodellen. En rimlig säkerhetsmarginal och risktolerans behöver alltid bedömas utifrån investerarens situation.')
+        st.caption('Investeringshorisonten är modellens, inte ett personligt råd.')
+
     st.divider()
     st.markdown('#### Historiska nyckeltalsindikatorer – ej investeringsbetyg')
     st.caption('Den äldre färgmodellen är inte kalibrerad för framtida tillväxt och används inte för scenariovärderingen ovan.')
