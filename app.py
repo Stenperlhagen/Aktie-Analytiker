@@ -3176,7 +3176,7 @@ def investment_score(v, info, metrics=None):
 
 with technical_slot.container():
     render_main_technical(ticker)
-one,business_tab,quality_tab,four,three,six,five=st.tabs(['Kurs och historik','Affärsmodell & bolagskvalitet','Tillväxt & stabilitet','Bolagsvärdering','Kurspotential','Bull & Bear','Kurspåverkande händelser'])
+one,business_tab,quality_tab,four,three,six,five=st.tabs(['Kurs och historik','Affärsmodell & bolagskvalitet','Tillväxt & stabilitet','Motiverat aktievärde','Kurspotential','Bull & Bear','Kurspåverkande händelser'])
 with six:
     render_bull_bear(ticker)
 with five:
@@ -3593,9 +3593,9 @@ with business_tab:
         cols[0].metric('Bokfört eget kapital',show(equity/1e6,' M'+str(report_ccy or ''),0) if equity is not None and report_ccy else '–')
         cols[1].metric('Soliditet',show(100*equity/assets,' %',1) if equity is not None and assets is not None and assets>0 else '–')
         cols[2].metric('Nettoskuld / eget kapital',show(100*debt/equity,' %',1) if debt is not None and equity is not None and equity>0 else '–')
-        st.caption('Koncernens bokförda balansmått, inte rapporterat substansvärde eller moderbolagets belåningsgrad. Substansvärdering redovisas separat under Bolagsvärdering.')
+        st.caption('Koncernens bokförda balansmått, inte rapporterat substansvärde eller moderbolagets belåningsgrad. Substansvärdering redovisas separat under Motiverat aktievärde.')
     else:
-        st.caption('Finansiell kvalitet bedöms med sektorspecifika mått under Bolagsvärdering; industriella kassaflödeskvoter visas inte här.')
+        st.caption('Finansiell kvalitet bedöms med sektorspecifika mått under Motiverat aktievärde; industriella kassaflödeskvoter visas inte här.')
     st.caption('Senaste årsperiod: '+str(latest or 'saknas')[:10])
     st.markdown('#### Kapitalallokering')
     st.caption('Kassagenerering och kapitalanvändning per avslutat räkenskapsår. Fritt kassaflöde visas separat för att undvika dubbelräkning.')
@@ -3953,7 +3953,7 @@ with business_tab:
     st.caption('En fullständig kvalitativ bedömning av 15+ års konkurrenskraft kräver bolagsspecifika källor. Inga saknade kvalitativa uppgifter omvandlas till kvalitetspoäng.')
 
 with four:
-    st.subheader('Bolagsvärdering – '+company)
+    st.subheader('Motiverat aktievärde – '+company)
     st.markdown('### Investeringsöversikt')
 
     assessment=valuation_result
@@ -4073,7 +4073,7 @@ with four:
     with st.expander('Värdering och uppföljning',expanded=False):
         st.write('Aktuell kurs: **'+(show(price,' '+str(quote_ccy),2) if price is not None else 'Saknas')+'**.')
         st.write('Motiverad aktiekurs enligt huvudmodellen: **'+show(valuation_result.get('target'),' '+str(valuation_result.get('currency') or ''),2)+'**. '+valuation_result.get('status',''))
-        st.caption('Följ kvartalsrapporter, prognosförändringar, kassaflöde och värderingsantaganden. Använd fliken Bolagsvärdering och bolagens publicerade rapporter för underlaget.')
+        st.caption('Följ kvartalsrapporter, prognosförändringar, kassaflöde och värderingsantaganden. Använd fliken Motiverat aktievärde och bolagens publicerade rapporter för underlaget.')
     with st.expander('Investeringsram',expanded=False):
         st.write('Tidshorisont: fem år i prognosmodellen. En rimlig säkerhetsmarginal och risktolerans behöver alltid bedömas utifrån investerarens situation.')
         st.caption('Investeringshorisonten är modellens, inte ett personligt råd.')
