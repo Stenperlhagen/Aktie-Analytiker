@@ -44,23 +44,31 @@ def roic_key():
     try: return str(st.secrets.get('ROIC_API_KEY','')).strip()
     except Exception: return ''
 
-@st.cache_data(ttl=604800,show_spinner=False)
-def company_icon(website,company_name):
+@st.cache_data(ttl=21600,show_spinner=False)
+def company_icon(website,company_name,cache_version='logo-v2'):
     import base64
     from PIL import Image, ImageDraw
-    host=urllib.parse.urlparse(str(website or '')).hostname
+    raw=str(website or '').strip()
+    host=urllib.parse.urlparse(raw if '://' in raw else 'https://'+raw).hostname if raw else None
     if host:
-        try:
-            response=requests.get('https://www.google.com/s2/favicons',params={'domain':host,'sz':128},timeout=4)
-            response.raise_for_status()
-            im=Image.open(io.BytesIO(response.content)).convert('RGBA')
-            if min(im.size)>=32:
+        domain=host.removeprefix('www.')
+        candidates=[
+            ('https://www.google.com/s2/favicons',{'domain':domain,'sz':128}),
+            ('https://icons.duckduckgo.com/ip3/'+domain+'.ico',None),
+            ('https://'+host+'/favicon.ico',None)
+        ]
+        for url,params in candidates:
+            try:
+                response=requests.get(url,params=params,timeout=4,headers={'User-Agent':'Mozilla/5.0'})
+                response.raise_for_status()
+                im=Image.open(io.BytesIO(response.content)).convert('RGBA')
+                if min(im.size)<16: continue
                 out=io.BytesIO()
                 im.thumbnail((128,128))
                 im.save(out,format='PNG')
                 return 'data:image/png;base64,'+base64.b64encode(out.getvalue()).decode('ascii')
-        except Exception:
-            pass
+            except Exception:
+                continue
     initials=''.join(w[0].upper() for w in str(company_name).split()[:2] if w) or '?'
     im=Image.new('RGB',(96,96),'#e2e8f0')
     draw=ImageDraw.Draw(im)
