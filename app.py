@@ -45,15 +45,15 @@ def roic_key():
     except Exception: return ''
 
 @st.cache_data(ttl=21600,show_spinner=False)
-def company_icon(website,company_name,cache_version='logo-v3'):
+def company_icon(website,company_name,cache_version='logo-v4'):
     import base64
     from PIL import Image, ImageDraw
     raw=str(website or '').strip()
     # Yahoo may omit website when only quote data is returned.
-    known_domains={'investor':'investorab.com','industrivärden':'industrivarden.se','latour':'latour.se','kinnevik':'kinnevik.com','bure':'bure.se','lundbergföretagen':'lundbergforetagen.se','volvo':'volvogroup.com','atlas copco':'atlascopcogroup.com','addlife':'add.life','aak':'aak.com'}
-    if not raw:
-        normalized=str(company_name).lower().strip()
-        raw=next((domain for name,domain in known_domains.items() if normalized==name or normalized.startswith(name+' ')),'')
+    known_domains={'investor':'investorab.com','industrivärden':'industrivarden.se','latour':'latour.se','kinnevik':'kinnevik.com','bure':'bure.se','lundbergföretagen':'lundbergforetagen.se','volvo':'volvogroup.com','atlas copco':'atlascopcogroup.com','addlife':'add.life','aak':'aak.com','betsson':'betssonab.com','ericsson':'ericsson.com','academedia':'academedia.se','husqvarna':'husqvarnagroup.com','embracer':'embracer.com','saab':'saab.com','mildef':'mildef.com','sectra':'sectra.com'}
+    normalized=str(company_name).lower().strip()
+    known=next((domain for name,domain in known_domains.items() if normalized==name or normalized.startswith(name+' ')),'')
+    raw=known or raw
     host=urllib.parse.urlparse(raw if '://' in raw else 'https://'+raw).hostname if raw else None
     if host:
         domain=host.removeprefix('www.')
