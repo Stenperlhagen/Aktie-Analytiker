@@ -3229,20 +3229,91 @@ with business_tab:
     cols[2].metric('Räntetäckning (EBIT/ränta)',show(ebit/abs(interest),'×',1) if operating and ebit is not None and interest is not None and interest!=0 else 'Saknas / ej relevant')
     st.caption('Senaste årsperiod: '+str(latest or 'saknas')[:10]+'. Kassaflödeskvoten kan påverkas av rörelsekapital och engångsposter. Sektorer som banker kräver andra mått.')
     st.markdown('#### Kapitalallokering')
-    allocations=[]
-    for period in sorted(cash.columns)[-10:]:
-        row={'År':str(period)[:10]}
-        for label,fields in [('Operativt kassaflöde',['Operating Cash Flow']),('Investeringar (netto)',['Capital Expenditure']),('Förvärv (netto)',['Purchase Of Business','Net Business Purchase And Sale']),('Utdelningar',['Cash Dividends Paid']),('Återköp',['Repurchase Of Capital Stock'])]:
-            v=quality_value(cash,fields,period)
-            row[label]=v/1e6 if v is not None else None
+    st.caption('Kassaflöden per avslutat räkenskapsår. Övergripande kassaflöden och detaljer visas separat för att undvika dubbelräkning.')
+    allocation_fields=[
+        ('Operativt kassaflöde',['Operating Cash Flow'],'cash_Flow_From_Operating_Activities'),
+        ('Investeringsverksamhet',['Investing Cash Flow'],'cash_Flow_From_Investing_Activities'),
+        ('Finansieringsverksamhet',['Financing Cash Flow'],'cash_Flow_From_Financing_Activities'),
+        ('Fritt kassaflöde',['Free Cash Flow'],'free_Cash_Flow'),
+        ('Materiella/immateriella investeringar (Capex)',['Capital Expenditure'],None),
+        ('Förvärv (netto)',['Net Business Purchase And Sale'],None),
+        ('Betalda utdelningar',['Cash Dividends Paid'],None),
+        ('Aktieåterköp',['Repurchase Of Capital Stock'],None)]
+    bd_data,_=borsapi_reports(ticker,borsapi_key()) if borsapi_key() else ({},'')
+    annual_records={}
+    for record in bd_data.get('periods',[]):
+        if str(record.get('period'))!='5' or str(record.get('currency','')).upper()!=str(report_ccy or '').upper(): continue
+        try:
+            end=pd.Timestamp(record.get('report_End_Date') or record.get('reportEndDate')).normalize()
+            start=pd.Timestamp(record.get('report_Start_Date') or record.get('reportStartDate')).normalize()
+            if pd.isna(end) or end>pd.Timestamp.today().normalize(): continue
+            if pd.notna(start) and not 320<=(end-start).days<=410: continue
+            annual_records[end]=record
+        except (ValueError,TypeError): continue
+    # Fetch detailed reserve data only for this analysis when the primary reports do not expose it.
+    reserve=pd.DataFrame()
+    if report_ccy:
+        try:
+            obj=yf.Ticker(ticker)
+            profile=obj.info or {}
+            if str(profile.get('financialCurrency') or '').upper()==str(report_ccy).upper():
+                reserve=obj.cashflow
+                if reserve is None: reserve=pd.DataFrame()
+                reserve=reserve.copy()
+                reserve.columns=pd.DatetimeIndex(pd.to_datetime(reserve.columns)).tz_localize(None).normalize()
+        except Exception: reserve=pd.DataFrame()
+    dates=sorted(set(annual_records)|set(reserve.columns))[-10:]
+    allocations=[]; provenance=[]
+    for period in dates:
+        if period>pd.Timestamp.today().normalize(): continue
+        row={'År':str(period.date())}
+        record=annual_records.get(period,{})
+        for label,fields,bd_key in allocation_fields:
+            v=bd_field(record,bd_key) if bd_key else None
+            source='Börsdata Pro+' if v is not None else 'Saknas'
+            if v is None and period in reserve.columns:
+                fallback=quality_value(reserve,fields,period)
+                if fallback is not None: v=fallback/1e6; source='Yahoo Finance (reserv)'
+            row[label]=v
+            provenance.append({'År':row['År'],'Post':label,'Källa':source})
         allocations.append(row)
     if allocations:
         allocation_frame=pd.DataFrame(allocations)
-        fields=[c for c in allocation_frame.columns if c!='År' and allocation_frame[c].notna().any()]
-        if fields:
-            st.plotly_chart(px.bar(allocation_frame,x='År',y=fields,barmode='group',labels={'value':'Miljoner i rapportvaluta','variable':'Kassaflödespost'}),use_container_width=True)
-            st.dataframe(allocation_frame,hide_index=True,use_container_width=True)
-    st.caption('Rapporterade tecken behålls. Saknade poster är inte noll.')
+        labels=[x[0] for x in allocation_fields]
+        available=int(allocation_frame[labels].notna().sum().sum())
+        total=len(allocation_frame)*len(labels)
+        unit='M'+str(report_ccy or '')
+        cols=st.columns(3)
+        cols[0].metric('Datatäckning',f'{available}/{total} poster')
+        cols[1].metric('Räkenskapsår',len(allocation_frame))
+        cols[2].metric('Rapportvaluta',unit)
+        palette=['#2563EB','#64748B','#9333EA','#059669','#0891B2','#D97706','#DB2777','#475569']
+        for title,group in [('Kassaflödesöversikt',labels[:4]),('Detaljerad kapitalanvändning',labels[4:])]:
+            st.markdown('**'+title+'**')
+            fields=[c for c in group if allocation_frame[c].notna().any()]
+            if fields:
+                fig=px.bar(allocation_frame,x='År',y=fields,barmode='group',labels={'value':unit,'variable':'Kassaflödespost'},color_discrete_map=dict(zip(labels,palette)))
+                fig.update_layout(height=380,legend=dict(orientation='h',y=-.22),margin=dict(t=20,b=90),xaxis_title=None)
+                fig.update_xaxes(type='category',tickangle=-35)
+                st.plotly_chart(fig,use_container_width=True)
+            else: st.info('Rapporterade uppgifter saknas för dessa poster.')
+        st.dataframe(allocation_frame,hide_index=True,use_container_width=True)
+        with st.expander('Datakällor och saknade uppgifter per år'):
+            st.dataframe(pd.DataFrame(provenance),hide_index=True,use_container_width=True)
+        st.markdown('#### Slutsats – kapitalallokering')
+        recent=allocation_frame.iloc[-1]
+        oc=numeric(recent[labels[0]])
+        inv=numeric(recent[labels[1]])
+        financing=numeric(recent[labels[2]])
+        st.write('Senaste jämförbara räkenskapsår: '+recent['År']+'. '+('Den löpande verksamheten genererade '+show(oc,' '+unit,1)+'.' if oc is not None and oc>0 else 'Operativt kassaflöde var '+show(oc,' '+unit,1)+'.' if oc is not None else 'Operativt kassaflöde saknas.'))
+        details=[label+': '+show(numeric(recent[label]),' '+unit,1) for label in labels[4:] if numeric(recent[label]) is not None]
+        if details: st.write('Rapporterad kapitalanvändning: '+'; '.join(details)+'.')
+        if any(numeric(recent[label]) is None for label in labels[4:]):
+            st.info('Detaljerad kapitalanvändning är ofullständig. Det går inte att avgöra hela fördelningen mellan investeringar, förvärv, utdelningar och återköp.')
+        st.caption('Beloppen är rapporterade kassaflöden med ursprungliga tecken. Negativa belopp är normalt utflöden. Kapitalallokeringens kvalitet kräver även analys av avkastning på investeringarna.')
+    else:
+        st.info('Ingen jämförbar årlig kassaflödeshistorik med verifierad rapportvaluta hittades.')
+    st.caption('Börsdata prioriteras för rapporterade kassaflödesaggregat. Detaljposter kompletteras endast vid exakt matchat rapportdatum och valuta. Saknade poster är inte noll.')
     st.markdown('#### Motståndskraft i svagare tider')
     crisis=[]
     for year in (2008,2020,2022):
