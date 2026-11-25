@@ -3398,19 +3398,35 @@ with business_tab:
         st.caption('Källprioritet: Börsdata Pro+ → ROIC.ai → Yahoo Finance. Matchat rapportdatum och ursprunglig rapportvaluta krävs. Saknade poster är inte noll. Nettoposter kan innehålla både inflöden och utflöden.')
         if roic_error: st.caption('ROIC kassaflöde: '+roic_error)
         if info.get('website'): st.markdown(f"[Bolagets webbplats – årsredovisningar]({info['website']})")
-    st.markdown('#### Motståndskraft i svagare tider')
+    st.markdown('#### Historisk motståndskraft')
+    st.caption('Omsättning och rörelseresultat jämfört med föregående räkenskapsår.')
     crisis=[]
-    for year in (2008,2020,2022):
-        row={'År':year}
+    for year,title in [(2008,'Finanskrisen'),(2020,'Coronapandemin'),(2022,'Inflation och räntehöjningar')]:
+        values=[]
         for label,fields in [('Omsättning',['Total Revenue','Operating Revenue']),('EBIT',['Operating Income','EBIT'])]:
             current=next((p for p in periods if pd.Timestamp(p).year==year),None)
             prior=next((p for p in periods if pd.Timestamp(p).year==year-1),None)
             v=quality_value(fin,fields,current)
             prev=quality_value(fin,fields,prior)
-            row[label+' förändring (%)']=(v/prev-1)*100 if operating and v is not None and prev is not None and prev>0 else None
-        crisis.append(row)
-    st.dataframe(pd.DataFrame(crisis),hide_index=True,use_container_width=True)
-    st.caption('Jämförelse med föregående räkenskapsår. Saknade år och förlustbaser lämnas tomma.')
+            change=(v/prev-1)*100 if operating and v is not None and prev is not None and prev>0 else None
+            values.append(change)
+        crisis.append(values)
+        with st.container(border=True):
+            st.markdown(f'**{year} · {title}**')
+            cols=st.columns(2)
+            for col,label,v in zip(cols,['Omsättningstillväxt','EBIT-tillväxt'],values):
+                color='#15803D' if v is not None and v>0 else '#DC2626' if v is not None and v<0 else '#64748B'
+                formatted=f'{v:+.1f} %' if v is not None else 'Saknas'
+                with col:
+                    st.markdown(f'<div style="font-size:13px;opacity:.8">{label}</div><div style="font-size:27px;font-weight:700;color:{color}">{formatted}</div>',unsafe_allow_html=True)
+    complete=[v for v in crisis if all(x is not None for x in v)]
+    positive=sum(all(x>0 for x in v) for v in complete)
+    negative=sum(all(x<0 for x in v) for v in complete)
+    st.markdown('**Ekonomisk slutsats**')
+    if complete:
+        st.write(f'Omsättning och EBIT ökade samtidigt under {positive} av {len(complete)} jämförbara krisår och minskade samtidigt under {negative}. Övriga jämförbara år hade blandad eller oförändrad utveckling. Detta beskriver historisk utveckling, inte en prognos för nästa kris.')
+    else: st.caption('Tillräckligt jämförbart underlag saknas för en ekonomisk slutsats.')
+    if len(complete)<3: st.caption(f'Fullständigt underlag: {len(complete)} av 3 krisår. Saknade uppgifter och negativa jämförelsebaser ersätts inte med noll.')
     st.markdown('### Värdering i förhållande till tillväxt')
     growth=st.number_input('Eget antagande om årlig framtida EPS-tillväxt (%)',min_value=0.0,max_value=100.0,value=0.0,step=1.0,key='quality_eps_growth_'+ticker)
     multiple=numeric(valuation_result.get('pe'))
