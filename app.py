@@ -1886,7 +1886,7 @@ def qualitative_research(symbol, company, website, profile, report_date, model, 
         headers={'Authorization':'Bearer '+_api_key}
         catalog=requests.get('https://api.groq.com/openai/v1/models',headers=headers,timeout=15)
         if not catalog.ok: return {},'Groq modellista HTTP '+str(catalog.status_code)
-        available={x.get('id') for x in catalog.json().get('data',[]) if x.get('active',True)}
+        available={x.get('id') for x in catalog.json().get('data',[]) if isinstance(x,dict) and x.get('active',True)}
         candidates=[m for m in ('openai/gpt-oss-120b','openai/gpt-oss-20b') if m in available]
         if not candidates: return {},'Ingen kompatibel Groq-modell tillgänglig.'
         evidence={}
@@ -1921,7 +1921,7 @@ def qualitative_research(symbol, company, website, profile, report_date, model, 
             'Status: Stark, Blandad, Svag, Låg risk, Måttlig risk, Hög risk eller Otillräckligt underlag. '
             'Returnera JSON med items, varje rad label,status,reason,confidence (Hög, Medel eller Låg),url (exakt källnyckel från materialet). Motivera kort, hitta inte på fakta.')
         for candidate in candidates:
-            response=requests.post('https://api.groq.com/openai/v1/chat/completions',headers=headers,json={'model':candidate,'messages':[{'role':'user','content':prompt}],'max_completion_tokens':6500,'temperature':0.2},timeout=150)
+            response=requests.post('https://api.groq.com/openai/v1/chat/completions',headers=headers,json={'model':candidate,'messages':[{'role':'user','content':prompt}],'max_completion_tokens':6500,'temperature':0.2,'response_format':{'type':'json_object'}},timeout=150)
             if response.ok or response.status_code not in (400,404): break
         if not response.ok:
             try:
@@ -1951,7 +1951,12 @@ def qualitative_research(symbol, company, website, profile, report_date, model, 
             output=output.split('\n',1)[-1]
             if output.rstrip().endswith(chr(96)*3):
                 output=output.rstrip()[:-3].strip()
-        rows=json.loads(output).get('items',[])
+        decoded=json.loads(output)
+        if isinstance(decoded,list): rows=decoded
+        elif isinstance(decoded,dict): rows=decoded.get('items',[])
+        else: return {},'Groq returnerade oväntat JSON-format.'
+        if isinstance(rows,dict): rows=list(rows.values())
+        if not isinstance(rows,list): return {},'Groq returnerade ingen lista med bedömningar.'
         valid={}
         for row in rows:
             if not isinstance(row,dict): continue
@@ -1961,7 +1966,11 @@ def qualitative_research(symbol, company, website, profile, report_date, model, 
             if row.get('confidence') not in ('Hög','Medel','Låg') or not isinstance(row.get('reason'),str) or not row['reason'].strip(): continue
             valid[label]=row
         return valid,'' if len(valid)==len(labels) else 'Vissa bedömningar saknar tillgängligt källunderlag.'
-    except Exception as exc: return {},'AI-analys: '+type(exc).__name__
+    except Exception as exc:
+        import traceback
+        frames=traceback.extract_tb(exc.__traceback__)
+        line=frames[-1].lineno if frames else 0
+        return {},'AI-analys: '+type(exc).__name__+' på rad '+str(line)+' – '+str(exc).replace(_api_key,'[redacted]')[:180]
 
 def growth_stability(fin):
     def get(period,labels):
