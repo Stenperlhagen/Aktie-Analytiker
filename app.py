@@ -231,6 +231,32 @@ def fetch(ticker):
             errors['Rapportvaluta']=type(exc).__name__+': '+str(exc)[:180]
     for label,frame in [('Resultaträkning',fin),('Balansräkning',balance),('Kassaflöde',cash),('Kurshistorik',history)]:
         if frame.empty: errors.setdefault(label,'Datakällan returnerade tom tabell.')
+    # Shared primary report and price adapter for every caller of fetch().
+    if borsapi_key():
+        try:
+            bundle,bd_error=borsapi_annual_frames(ticker,borsapi_key())
+            if bundle:
+                bd_ccy,bdf,bdb,bdc=bundle
+                if not bdf.empty:
+                    same=info.get('financialCurrency')==bd_ccy
+                    fin=bdf.combine_first(fin.reindex(columns=bdf.columns)) if same else bdf
+                    balance=bdb.combine_first(balance.reindex(columns=bdf.columns)) if same else bdb
+                    cash=bdc.combine_first(cash.reindex(columns=bdf.columns)) if same else bdc
+                    info['financialCurrency']=bd_ccy
+                    info['_report_source']='Börsdata Pro+ (årsrapporter; komplettering vid matchad period)'
+            else: errors['Börsdata rapport']=bd_error
+            bd_hist,bd_error=borsapi_history(ticker,borsapi_key())
+            if not bd_hist.empty:
+                history=bd_hist.loc[bd_hist.index>=pd.Timestamp.today()-pd.DateOffset(years=5)]
+                if not history.empty:
+                    last=float(history.Close.iloc[-1])
+                    info['currentPrice']=last
+                    info['regularMarketPrice']=last
+                    quick['last_price']=last
+                    info['_price_source']='Börsdata Pro+ (senaste stängning)'
+            else: errors['Börsdata kurs']=bd_error
+        except Exception as exc:
+            errors['Börsdata adapter']=type(exc).__name__
     return info or {}, history, fin, cash, balance, quick or {}, errors
 
 @st.cache_data(ttl=3600,show_spinner=False)
@@ -968,6 +994,44 @@ def borsapi_reports(symbol,api_key):
         return {},type(exc).__name__
 
 @st.cache_data(ttl=21600,show_spinner=False)
+def borsapi_history(symbol,api_key):
+    data,error=borsapi_reports(symbol,api_key)
+    iid=data.get('instrument_id')
+    if not iid: return pd.DataFrame(),error
+    try:
+        response=requests.get('https://apiservice.borsdata.se/v1/instruments/'+iid+'/stockprices',params={'authKey':api_key,'from':str(dt.date.today()-dt.timedelta(days=3660))},timeout=25)
+        if not response.ok: return pd.DataFrame(),'Börsdata kurs HTTP '+str(response.status_code)
+        rows=response.json().get('stockPricesList',[])
+        frame=pd.DataFrame(rows).rename(columns={'d':'Date','c':'Close','o':'Open','h':'High','l':'Low','v':'Volume'})
+        if not {'Date','Close'}.issubset(frame.columns): return pd.DataFrame(),'Börsdata kursformat saknas'
+        frame['Date']=pd.to_datetime(frame['Date'],errors='coerce')
+        for k in ('Close','Open','High','Low','Volume'):
+            if k in frame: frame[k]=pd.to_numeric(frame[k],errors='coerce')
+        return frame.dropna(subset=['Date','Close']).set_index('Date').sort_index(),''
+    except Exception as exc: return pd.DataFrame(),type(exc).__name__
+
+def borsapi_annual_frames(symbol,api_key):
+    data,error=borsapi_reports(symbol,api_key)
+    records=[r for r in data.get('periods',[]) if str(r.get('period'))=='5' and r.get('currency') and (r.get('report_End_Date') or r.get('reportEndDate'))]
+    if not records: return None,error or 'Inga jämförbara årsrapporter'
+    records.sort(key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
+    currency=str(records[0]['currency']).upper()
+    maps=[
+        {'Total Revenue':'revenues','Gross Profit':'gross_Income','Operating Income':'operating_Income','Pretax Income':'profit_Before_Tax','Net Income Common Stockholders':'profit_To_Equity_Holders','Basic EPS':'earnings_Per_Share'},
+        {'Net Debt':'net_Debt','Cash And Cash Equivalents':'cash_And_Equivalents','Stockholders Equity':'total_Equity','Total Assets':'total_Assets','Current Assets':'current_Assets','Current Liabilities':'current_Liabilities','Ordinary Shares Number':'number_Of_Shares'},
+        {'Operating Cash Flow':'cash_Flow_From_Operating_Activities','Investing Cash Flow':'cash_Flow_From_Investing_Activities','Financing Cash Flow':'cash_Flow_From_Financing_Activities','Free Cash Flow':'free_Cash_Flow'}]
+    frames=[{} for _ in maps]
+    for record in records:
+        if str(record['currency']).upper()!=currency: continue
+        date=pd.Timestamp(record.get('report_End_Date') or record.get('reportEndDate')).normalize()
+        for dest,mapping in zip(frames,maps):
+            dest[date]={}
+            for label,key in mapping.items():
+                v=numeric(record.get(key))
+                if v is not None: dest[date][label]=v if label=='Basic EPS' else v*1e6
+    return (currency,*[pd.DataFrame(f).dropna(how='all') for f in frames]),''
+
+@st.cache_data(ttl=21600,show_spinner=False)
 def borsapi_r12_eps(symbol,api_key,quote_currency):
     if not api_key or not quote_currency: return None
     data,error=borsapi_reports(symbol,api_key)
@@ -1238,7 +1302,7 @@ def render_biotech_scenario(ticker,category,valuation):
 
 def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
     # ROIC primary for matching annual statements; never mix currencies or periods.
-    primary_source='Yahoo Finance'
+    primary_source=info.get('_report_source','Yahoo Finance')
     key=roic_key() if use_roic else ''
     if key:
         try:
@@ -1793,7 +1857,7 @@ with company_col:
     if company_type=='Rörelsedrivande bolag':
         company_type=operating_valuation_profile(ticker,info) or KNOWN_GROUP_BY_TICKER.get(ticker) or 'Rörelsedrivande bolag'
     st.markdown('<div style="font-size:0.92rem;color:#64748b;margin-top:-8px;margin-bottom:10px;">'+company_type+'</div>',unsafe_allow_html=True)
-    st.caption(f'{ticker} · Valuta: {info.get("currency","okänd")} · Börsdata hämtad {dt.datetime.now().strftime("%Y-%m-%d %H:%M")} · Yahoo Finance')
+    st.caption(f'{ticker} · Valuta: {info.get("currency","okänd")} · Börsdata hämtad {dt.datetime.now().strftime("%Y-%m-%d %H:%M")} · Kurs: {info.get("_price_source","Yahoo Finance")} · Rapporter: {info.get("_report_source","Yahoo Finance")}')
     technical_slot=st.empty()
 with target_col:
     target_slot=st.empty()
