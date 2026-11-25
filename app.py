@@ -2675,7 +2675,7 @@ def investment_score(v, info, metrics=None):
 
 with technical_slot.container():
     render_main_technical(ticker)
-one,two,three,four,five,six=st.tabs(['Kurs och historik','Finansiella rapporter','Investeringsanalys','Bolagsvärdering','Kurspåverkande händelser','Bull & Bear'])
+one,two,three,four,five,six=st.tabs(['Kurs och historik','Finansiella rapporter','Kurspotential','Bolagsvärdering','Kurspåverkande händelser','Bull & Bear'])
 with six:
     render_bull_bear(ticker)
 with five:
@@ -3006,7 +3006,7 @@ with two:
     st.caption('Datatäckning visar vilka rapportserier som har hämtats, inte att varje post är reviderad eller fullständigt kvalitetssäkrad. Kontrollera viktiga värden mot bolagets publicerade rapporter.')
 
 with three:
-    st.subheader(f'Investeringsanalys – {company}')
+    st.subheader(f'Kurspotential – {company}')
     st.markdown('### Investeringsöversikt')
 
     assessment=valuation_result
