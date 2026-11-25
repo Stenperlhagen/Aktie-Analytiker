@@ -3954,86 +3954,38 @@ with business_tab:
 
 with four:
     st.subheader('Motiverat aktievärde – '+company)
-    st.markdown('### Investeringsöversikt')
-
-    assessment=valuation_result
-    equity_per_share_history=[]
-    if assessment.get('category')=='Investmentbolag / kapitalförvaltning':
-        for period in sorted(balance.columns,reverse=True):
-            e=_annual_balance_value(balance,['Common Stock Equity','Stockholders Equity'],period)
-            s=_annual_balance_value(balance,['Ordinary Shares Number','Share Issued'],period)
-            if e is not None and e>0 and s is not None and s>0: equity_per_share_history.append((pd.Timestamp(period),e/s))
-    equity_growth=None
-    if len(equity_per_share_history)>=2:
-        latest,prior=equity_per_share_history[:2]
-        days=(latest[0]-prior[0]).days
-        if 320<=days<=410: equity_growth=(latest[1]/prior[1])**(365.2425/days)-1
-    rating,components,coverage=investment_score(assessment,info,{'roe':roe_overview/100 if roe_overview is not None else None,'growth':sales_growth_pct/100 if sales_growth_pct is not None else None,'margin':margin,'equity_growth':equity_growth,'stability':growth_stability(fin)['score'] if assessment.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') else None})
-    target_value=assessment.get('target')
-    current_value=assessment.get('price')
-    ccy=str(assessment.get('currency') or '')
-    paragraphs=[]
-    if rating is not None:
-        paragraphs.append(company+' har ett regelbaserat kvalitetsbetyg på '+show(rating,' av 100',0)+' med '+show(coverage,' %',0)+' datatäckning.')
-    else:
-        paragraphs.append('Ett sammanvägt fundamentalt betyg kan inte fastställas med tillgängligt underlag.')
-    strengths=[x['Område']+' ('+x['Nyckeltal']+')' for x in components if x['Poäng']>=75 and x['Område']!='Värdering']
-    risks=[x['Område']+' ('+x['Nyckeltal']+')' for x in components if x['Poäng']<40 and x['Område']!='Värdering']
-    if strengths: paragraphs.append('Styrkor enligt indikatorerna: '+', '.join(strengths)+'.')
-    if risks: paragraphs.append('Riskområden enligt indikatorerna: '+', '.join(risks)+'.')
-    if target_value is not None and current_value and current_value>0:
-        paragraphs.append('Aktien handlas till '+show(current_value,' '+ccy,2)+' jämfört med modellvärdet '+show(target_value,' '+ccy,2)+', motsvarande en modellpotential på '+show(assessment.get('upside'),' %',1)+'. Högsta köpkurs enligt 20 % säkerhetsmarginal är '+show(assessment.get('buy_limit'),' '+ccy,2)+'.')
-        if assessment.get('audit'):
-            paragraphs.append('Slutsats: värderingen är preliminär på grund av datakontroller som inte passerat. Ingen köpindikator ges.')
-        elif rating is None:
-            paragraphs.append('Slutsats: värderingsindikationen kan användas för vidare analys, men bolagskvaliteten är inte tillräckligt bedömd.')
-        elif current_value<=target_value*.8 and rating>=75 and coverage>=75:
-            paragraphs.append('Slutsats: attraktiv kandidat för fördjupad investeringsanalys enligt modellen, med både säkerhetsmarginal och starkt kvalitetsbetyg.')
-        elif current_value>target_value:
-            paragraphs.append('Slutsats: aktien handlas över modellvärdet och framstår inte som attraktiv till aktuell kurs enligt modellen.')
-        else:
-            paragraphs.append('Slutsats: avvakta eller fördjupa analysen; kombinationen av bolagskvalitet och säkerhetsmarginal uppfyller inte modellens kriterier för en attraktiv kandidat.')
-    else:
-        paragraphs.append('Slutsats: värderingsunderlaget räcker inte för att bedöma attraktiv köpkurs.')
+    v=valuation_result
+    ccy=str(v.get('currency') or '')
+    audited=bool(v.get('audit'))
     with st.container(border=True):
-        st.markdown('**Samlad bedömning**')
         k1,k2,k3,k4=st.columns(4)
-        k1.metric('Bolagskvalitet',show(rating,'/100',0) if rating is not None else 'Ej betygsatt')
-        k2.metric('Värdering – kurspotential',show(assessment.get('upside'),' %',1))
-        k3.metric('Motiverad kurs',show(target_value,' '+ccy,2))
-        k4.metric('Aktuell kurs',show(current_value,' '+ccy,2))
-        st.caption('Datatäckning: '+show(coverage,' %',0))
-        st.write(' '.join(paragraphs))
-        if rating is None: st.caption('Kvalitetsbetyg kräver full datatäckning och en stödd sektormodell. Saknade vikter omfördelas inte.')
-        elif coverage<75: st.caption('Preliminärt betyg med begränsat underlag; ingen positiv köpindikator baseras på detta.')
-    if assessment.get('audit'): st.caption('Datakontroll: '+'; '.join(assessment['audit']))
-    st.caption('Automatisk regelbaserad bedömning, inte en verifierad prognos eller personlig investeringsrekommendation.')
-
-    st.markdown('### Fördjupad bolagsanalys')
-    with st.container(border=True):
-        left,right=st.columns(2)
-        left.markdown('**Styrkor**')
-        left.write('; '.join(strengths) if strengths else 'Inga tydliga styrkor identifierade av indikatorerna.')
-        right.markdown('**Riskområden**')
-        right.write('; '.join(risks) if risks else 'Inga tydliga riskområden identifierade av indikatorerna; detta innebär inte att risk saknas.')
-    with st.expander('Bolagets kvalitet och nyckeltal',expanded=False):
-        quality_items=[(label,value) for label,value in overview_items if not label.startswith(('Börsvärde','Aktiekurs'))]
-        available_quality=[(label,value) for label,value in quality_items if value!='Saknas']
-        st.caption(f'{len(available_quality)} av {len(quality_items)} sektoranpassade nyckeltal tillgängliga.')
-        for start in range(0,len(available_quality),3):
-            for col,(label,value) in zip(st.columns(3),available_quality[start:start+3]):
-                col.metric(label,value)
-        missing_quality=[label for label,value in quality_items if value=='Saknas']
-        if missing_quality: st.caption('Underlag saknas för: '+', '.join(missing_quality))
-        st.caption('Nyckeltalen hämtas från samma finansiella översikt som huvudsidan. Rapportperioder kan skilja sig.')
-
-    with st.expander('Affärsmodell och jämförelsebolag',expanded=False):
-        st.write('Bransch: **'+str(info.get('industry') or valuation_result.get('profile') or valuation_result.get('category') or 'Ej klassificerad')+'** · Sektor: **'+str(info.get('sector') or 'Ej klassificerad')+'**')
-        description=str(info.get('longBusinessSummary') or '').strip()
-        if description:
-            st.write(description[:650]+('…' if len(description)>650 else ''))
-        else:
-            st.caption('Bolagsbeskrivning saknas från datakällan.')
+        k1.metric('Aktuell kurs',show(v.get('price'),' '+ccy,2))
+        k2.metric('Preliminärt värde' if audited else 'Motiverat aktievärde',show(v.get('target'),' '+ccy,2))
+        k3.metric('Kurspotential',show(None if audited else v.get('upside'),' %',1))
+        k4.metric('Köpkurs · 20 % säkerhetsmarginal',show(None if audited else v.get('buy_limit'),' '+ccy,2))
+        st.caption(str(v.get('category') or '')+' · '+str(v.get('profile') or 'Sektormodell'))
+    if audited: st.warning('Datakontroll: '+'; '.join(v['audit']))
+    st.markdown('### Värderingsmodeller')
+    model_rows=[{'Modell':k,'Aktievärde':numeric(x)} for k,x in v.get('models',{}).items() if numeric(x) is not None]
+    if v.get('target') is not None: model_rows.append({'Modell':'Sammanvägt modellvärde','Aktievärde':v['target']})
+    if model_rows:
+        import plotly.graph_objects as go
+        fig=go.Figure(go.Bar(x=[x['Aktievärde'] for x in model_rows],y=[x['Modell'] for x in model_rows],orientation='h',marker_color=['#2563eb' if x['Modell']=='Sammanvägt modellvärde' else '#94a3b8' for x in model_rows],text=[show(x['Aktievärde'],' '+ccy,2) for x in model_rows],textposition='outside',cliponaxis=False))
+        if v.get('price') is not None: fig.add_vline(x=v['price'],line_dash='dash',line_color='#64748b',annotation_text='Aktuell kurs')
+        fig.update_layout(template='plotly_white',height=max(230,65*len(model_rows)+80),margin=dict(l=10,r=85,t=35,b=15),xaxis_title=ccy,yaxis=dict(autorange='reversed'))
+        st.plotly_chart(fig,use_container_width=True)
+    else: st.info('Värderingsunderlag saknas.')
+    st.markdown('### Värderingsantaganden och beräkningsunderlag')
+    lcol,rcol=st.columns(2)
+    with lcol:
+        st.markdown('**Modellantaganden**')
+        if v.get('assumptions'): st.dataframe(pd.DataFrame([{'Antagande':k,'Värde':show(x,'',2)} for k,x in v['assumptions'].items()]),hide_index=True,use_container_width=True)
+    with rcol:
+        st.markdown('**Finansiellt underlag**')
+        if v.get('inputs'): st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in v['inputs'].items()]),hide_index=True,use_container_width=True)
+    if v.get('period'): st.caption('Rapportperiod: '+v['period'])
+    if v.get('source'): st.caption('Källa: '+v['source'])
+    with st.expander('Jämförelsebolag och multiplar'):
         st.markdown('**Jämförelse med börsnoterade konkurrenter**')
         peers=PEER_UNIVERSE.get(ticker,[])
         if not peers and valuation_result.get('profile'):
@@ -4064,19 +4016,6 @@ with four:
             st.caption('Urvalet bygger på manuella jämförelser eller gemensam värderingsprofil; bolagen behöver inte vara direkta konkurrenter. Yahoo-uppgifterna kan avse olika rapportperioder, redovisningsprinciper och valutor. Jämförelsen är vägledande, inte en automatisk riktkurs eller investeringssignal.')
         else:
             st.caption('Inga kvalitetssäkrade börsnoterade jämförelsebolag har valts för detta bolag ännu. Vi visar inte godtyckliga konkurrenter.')
-        st.caption('Marknadsandelar och konkurrensfördelar kräver fortfarande separata branschkällor.')
-
-    with st.expander('Branschutsikter och risker',expanded=False):
-        st.write('Granska reglering, konjunktur, konkurrens, geografisk exponering och hur dessa faktorer påverkar tillväxt och kassaflöde.')
-        st.caption('Dessa risker kräver verifierade bolagsrapporter och branschkällor. EquityLab saknar ännu ett kvalitetssäkrat, automatiskt branschunderlag och ger därför ingen poäng.')
-
-    with st.expander('Värdering och uppföljning',expanded=False):
-        st.write('Aktuell kurs: **'+(show(price,' '+str(quote_ccy),2) if price is not None else 'Saknas')+'**.')
-        st.write('Motiverad aktiekurs enligt huvudmodellen: **'+show(valuation_result.get('target'),' '+str(valuation_result.get('currency') or ''),2)+'**. '+valuation_result.get('status',''))
-        st.caption('Följ kvartalsrapporter, prognosförändringar, kassaflöde och värderingsantaganden. Använd fliken Motiverat aktievärde och bolagens publicerade rapporter för underlaget.')
-    with st.expander('Investeringsram',expanded=False):
-        st.write('Tidshorisont: fem år i prognosmodellen. En rimlig säkerhetsmarginal och risktolerans behöver alltid bedömas utifrån investerarens situation.')
-        st.caption('Investeringshorisonten är modellens, inte ett personligt råd.')
 
     st.divider()
     if valuation_result.get('category') in ('Forskningsbolag','Läkemedel – royalty och pipeline'):
@@ -4119,32 +4058,9 @@ with four:
         cap_b.metric('WACC (modellantagande)',show(valuation_result.get('assumptions',{}).get('WACC (%)'),' %',1))
         cap_c.metric('Avkastningskrav eget kapital',show(valuation_result.get('cost_of_equity_pct'),' %',1))
         st.caption('ROIC = EBIT efter rapporterad effektiv skatt / genomsnittligt investerat kapital. WACC och avkastningskrav på eget kapital är separata modellantaganden.')
-    st.markdown('#### Fundamentalt investeringsbetyg')
-    st.metric('Investeringsbetyg',show(score,' / 100',0))
-    st.caption('Kvalitetsmodell med fasta, ej branschkalibrerade gränser. Datatäckning: '+show(score_coverage,' %',0)+'. Fullständigt betyg visas endast för rörelsedrivande bolag med samtliga indikatorer. Värdering ingår inte.')
-    if score_items:
-        st.dataframe(pd.DataFrame(score_items),hide_index=True,use_container_width=True)
-    if score is None:
-        st.info('Otillräckligt underlag för ett sammanvägt investeringsbetyg.')
-    else:
-        st.write('Fundamental indikatorbedömning: **'+('Stark' if score>=75 else 'Blandad' if score>=50 else 'Svag')+'**. Bedömningen är inte en köp- eller säljsignal.')
-
-    v=valuation_result
-    st.caption('Huvudmodell: samma cachade värdering som riktkursrutan och aktiescreenern. Femårsscenarier är separata och utgör inte ytterligare riktkurser. Inga analytikerriktkurser.')
-    st.write('**Kategori:** '+v['category']+' · '+str(v.get('profile') or 'Sektormodell'))
-    if v.get('assumptions'): st.dataframe(pd.DataFrame([{'Antagande':k,'Värde':show(x,'',2)} for k,x in v['assumptions'].items()]),hide_index=True,use_container_width=True)
-    if v.get('period'): st.caption('Rapportperiod: '+v['period'])
-    if v.get('source'): st.caption('Källa: '+v['source'])
-    if v.get('inputs'): st.dataframe(pd.DataFrame([{'Underlag':k,'Värde':show(x,'',2)} for k,x in v['inputs'].items()]),hide_index=True,use_container_width=True)
-    for method,value in v.get('models',{}).items(): st.metric(method,show(value,' '+str(v.get('currency') or ''),2))
-    st.metric('Preliminär aktiekurs' if v.get('audit') else 'Motiverad aktiekurs',show(v.get('target'),' '+str(v.get('currency') or ''),2))
-    st.metric('Reverse DCF – inprisad tillväxt','Ej tillämpligt' if v.get('category')=='Bank / finansiella tjänster' else show(v.get('reverse_growth'),' %',1))
-    st.metric('Upp-/nedsida',show(None if v.get('audit') else v.get('upside'),' %',1))
-    st.metric('Högsta köpkurs – 20 % säkerhetsmarginal',show(None if v.get('audit') else v.get('buy_limit'),' '+str(v.get('currency') or ''),2))
-    if v.get('audit'):
-        st.warning('Värderingen behöver granskas: '+'; '.join(v['audit']))
-        st.metric('Preliminärt modellutfall före kontroll',show(v.get('unreviewed_target'),' '+str(v.get('currency') or ''),2))
     if v.get('missing'): st.caption('Underlag som saknas: '+'; '.join(v['missing']))
+    if audited: st.metric('Preliminärt modellutfall före kontroll',show(v.get('unreviewed_target'),' '+ccy,2))
+    st.metric('Reverse DCF – inprisad tillväxt','Ej tillämpligt' if v.get('category')=='Bank / finansiella tjänster' else show(v.get('reverse_growth'),' %',1))
     st.markdown('#### Utdelning och förväntad totalavkastning')
     current=v.get('price')
     fair=v.get('target')
@@ -4154,93 +4070,93 @@ with four:
         if dy is not None and fair is not None and not v.get('audit'):
             st.metric('Illustrativ totalavkastning vid uppnått modellvärde inom ett år',show((fair/current-1)*100+dy,' %',1))
             st.caption('Antar oförändrad kontantutdelning och att modellvärdet uppnås inom ett år. Inte en prognos.')
-    st.markdown('#### Bevakningslista')
-    watch=st.session_state.setdefault('equity_watchlist',{})
-    if st.button('Ta bort från bevakningslistan' if ticker in watch else 'Lägg till i bevakningslistan',key='watch_toggle'):
-        if ticker in watch: watch.pop(ticker,None)
-        else: watch[ticker]={'Bolag':company,'Ticker':ticker,'Aktiekurs':v.get('price'),'Modellvärde':v.get('target')}
-        st.rerun()
-    if watch:
-        st.dataframe(pd.DataFrame(list(watch.values())),hide_index=True,use_container_width=True)
-        st.download_button('Exportera bevakningslista',pd.DataFrame(list(watch.values())).to_csv(index=False).encode('utf-8-sig'),'bevakningslista.csv')
-    st.caption('Bevakningslistan sparas i aktuell session; exportera för att behålla den.')
-    st.markdown('#### Investeringsslutsats')
-    if v.get('target') is None:
-        st.info('Motiverat värde saknas. Ingen värderingsbaserad investeringsslutsats kan dras.')
-    elif v.get('audit'):
-        st.warning('Modellvärdet är preliminärt. Ingen köpindikator ges när datakontrollen visar avvikelser.')
-    elif v.get('price') and v.get('buy_limit') is not None:
-        if v['price']<=v['buy_limit']:
-            st.write('Aktien handlas inom modellens säkerhetsmarginal på 20 %. Kandidat för fördjupad analys.')
-        elif v['price']<=v['target']:
-            st.write('Aktien handlas under modellvärdet men uppfyller inte säkerhetsmarginalen på 20 %.')
-        else:
-            st.write('Aktien handlas över modellvärdet. Modellen ger inte stöd för köp till aktuell kurs.')
-        st.caption('Bedömningen gäller modellens antaganden, inte en garanti för avkastning.')
-    st.markdown('#### Ägarstruktur och insidertransaktioner')
-    if st.button('Hämta ägar- och insideruppgifter',key='load_ownership'):
-        try:
-            obj=yf.Ticker(ticker)
-            for title,attribute in [('Större ägare','major_holders'),('Institutionella ägare','institutional_holders'),('Insidertransaktioner','insider_transactions')]:
-                st.write('**'+title+'**')
+    with st.expander('Övriga verktyg och bevakning'):
+        st.markdown('#### Bevakningslista')
+        watch=st.session_state.setdefault('equity_watchlist',{})
+        if st.button('Ta bort från bevakningslistan' if ticker in watch else 'Lägg till i bevakningslistan',key='watch_toggle'):
+            if ticker in watch: watch.pop(ticker,None)
+            else: watch[ticker]={'Bolag':company,'Ticker':ticker,'Aktiekurs':v.get('price'),'Modellvärde':v.get('target')}
+            st.rerun()
+        if watch:
+            st.dataframe(pd.DataFrame(list(watch.values())),hide_index=True,use_container_width=True)
+            st.download_button('Exportera bevakningslista',pd.DataFrame(list(watch.values())).to_csv(index=False).encode('utf-8-sig'),'bevakningslista.csv')
+        st.caption('Bevakningslistan sparas i aktuell session; exportera för att behålla den.')
+        st.markdown('#### Investeringsslutsats')
+        if v.get('target') is None:
+            st.info('Motiverat värde saknas. Ingen värderingsbaserad investeringsslutsats kan dras.')
+        elif v.get('audit'):
+            st.warning('Modellvärdet är preliminärt. Ingen köpindikator ges när datakontrollen visar avvikelser.')
+        elif v.get('price') and v.get('buy_limit') is not None:
+            if v['price']<=v['buy_limit']:
+                st.write('Aktien handlas inom modellens säkerhetsmarginal på 20 %. Kandidat för fördjupad analys.')
+            elif v['price']<=v['target']:
+                st.write('Aktien handlas under modellvärdet men uppfyller inte säkerhetsmarginalen på 20 %.')
+            else:
+                st.write('Aktien handlas över modellvärdet. Modellen ger inte stöd för köp till aktuell kurs.')
+            st.caption('Bedömningen gäller modellens antaganden, inte en garanti för avkastning.')
+        st.markdown('#### Ägarstruktur och insidertransaktioner')
+        if st.button('Hämta ägar- och insideruppgifter',key='load_ownership'):
+            try:
+                obj=yf.Ticker(ticker)
+                for title,attribute in [('Större ägare','major_holders'),('Institutionella ägare','institutional_holders'),('Insidertransaktioner','insider_transactions')]:
+                    st.write('**'+title+'**')
+                    try:
+                        frame=getattr(obj,attribute)
+                        if isinstance(frame,pd.DataFrame) and not frame.empty:
+                            st.dataframe(frame,use_container_width=True)
+                        else: st.caption('Datakällan saknar uppgifter.')
+                    except Exception: st.caption('Uppgifterna kunde inte hämtas.')
+                st.caption('Källa: Yahoo Finance. Täckning för svenska insidertransaktioner är inte fullständig; kontrollera mot Finansinspektionens insynsregister.')
+            except Exception: st.info('Ägaruppgifter är inte tillgängliga just nu.')
+        st.caption('DCF och EV/EBITA viktas lika när båda kan beräknas. En ensam modell visas separat. Beräkningar är modellscenarier och rapportdata behöver verifieras.')
+        with st.expander('Rapportkalender och rapportbevakning'):
+            if st.button('Hämta rapportdatum',key='report_calendar_load'):
                 try:
-                    frame=getattr(obj,attribute)
-                    if isinstance(frame,pd.DataFrame) and not frame.empty:
-                        st.dataframe(frame,use_container_width=True)
-                    else: st.caption('Datakällan saknar uppgifter.')
-                except Exception: st.caption('Uppgifterna kunde inte hämtas.')
-            st.caption('Källa: Yahoo Finance. Täckning för svenska insidertransaktioner är inte fullständig; kontrollera mot Finansinspektionens insynsregister.')
-        except Exception: st.info('Ägaruppgifter är inte tillgängliga just nu.')
-    st.caption('DCF och EV/EBITA viktas lika när båda kan beräknas. En ensam modell visas separat. Beräkningar är modellscenarier och rapportdata behöver verifieras.')
-
-    with st.expander('Rapportkalender och rapportbevakning'):
-        if st.button('Hämta rapportdatum',key='report_calendar_load'):
-            try:
-                calendar=yf.Ticker(ticker).calendar
-                if isinstance(calendar,dict) and calendar:
-                    st.dataframe(pd.DataFrame([{'Händelse':k,'Uppgift':str(x)} for k,x in calendar.items()]),hide_index=True)
-                elif isinstance(calendar,pd.DataFrame) and not calendar.empty: st.dataframe(calendar)
-                else: st.info('Inga rapportdatum tillgängliga.')
-            except Exception: st.info('Rapportkalendern kunde inte hämtas.')
-        st.caption('Yahoo Finance; datum kan ändras. Ingen automatisk avisering utanför appen.')
-    with st.expander('Portföljanalys'):
-        st.caption('Ange innehav i SEK. Portföljens modellpotential beräknas endast för innehav med tillgängligt modellvärde och utan granskningsavvikelse.')
-        holdings=st.data_editor(pd.DataFrame([{'Bolag':name,'Marknadsvärde SEK':0.0}]),num_rows='dynamic',key='portfolio_holdings',column_config={'Bolag':st.column_config.SelectboxColumn(options=sorted(ALL_COMPANIES)),'Marknadsvärde SEK':st.column_config.NumberColumn(min_value=0.0)},hide_index=True)
-        if st.button('Analysera portfölj',key='portfolio_run'):
-            portfolio=[]
-            for _,holding in holdings.iterrows():
-                sym=ALL_COMPANIES.get(holding['Bolag'])
-                amount=numeric(holding['Marknadsvärde SEK'])
-                if not sym or not amount or amount<=0: continue
-                result=screener_snapshot(sym)
-                potential=result.get('upside') if not result.get('audit') else None
-                portfolio.append({'Bolag':holding['Bolag'],'Marknadsvärde SEK':amount,'Kategori':result.get('category'),'Modellpotential %':potential})
-            if portfolio:
-                pf=pd.DataFrame(portfolio)
-                total=pf['Marknadsvärde SEK'].sum()
-                pf['Portföljvikt %']=pf['Marknadsvärde SEK']/total*100
-                st.metric('Portföljvärde',show(total,' SEK',0))
-                st.dataframe(pf,hide_index=True)
-                st.bar_chart(pf.groupby('Kategori')['Marknadsvärde SEK'].sum()/total*100)
-                valid=pf.dropna(subset=['Modellpotential %'])
-                covered=valid['Marknadsvärde SEK'].sum()
-                st.metric('Värderingstäckning',show(covered/total*100,' %'))
-                if covered>0:
-                    st.metric('Viktad modellpotential för täckta innehav',show((valid['Marknadsvärde SEK']*valid['Modellpotential %']).sum()/covered,' %'))
-    with st.expander('Historisk avkastning – jämförelse mot index'):
-        st.caption('Historisk köp-och-behåll-jämförelse, inte backtest av värderingsstrategin. Ett sådant test kräver historiska rapporter med publiceringsdatum.')
-        if st.button('Beräkna historisk jämförelse',key='historical_compare'):
-            try:
-                asset=yf.Ticker(ticker).history(period='5y',auto_adjust=True)['Close']
-                benchmark=yf.Ticker('^OMXSPI').history(period='5y',auto_adjust=True)['Close']
-                asset.index=asset.index.tz_localize(None).normalize()
-                benchmark.index=benchmark.index.tz_localize(None).normalize()
-                aligned=pd.concat([asset.rename('Aktie (justerad)'),benchmark.rename('OMXSPI (prisindex)')],axis=1).dropna()
-                if len(aligned)>1:
-                    st.line_chart(aligned/aligned.iloc[0]*100)
-                    st.caption('Index 100 vid gemensam start. Aktien är utdelningsjusterad, indexet är ett prisindex; jämförelsen är därför inte likvärdig totalavkastning.')
-                else: st.info('Otillräcklig gemensam historik.')
-            except Exception: st.info('Historiken kunde inte hämtas.')
+                    calendar=yf.Ticker(ticker).calendar
+                    if isinstance(calendar,dict) and calendar:
+                        st.dataframe(pd.DataFrame([{'Händelse':k,'Uppgift':str(x)} for k,x in calendar.items()]),hide_index=True)
+                    elif isinstance(calendar,pd.DataFrame) and not calendar.empty: st.dataframe(calendar)
+                    else: st.info('Inga rapportdatum tillgängliga.')
+                except Exception: st.info('Rapportkalendern kunde inte hämtas.')
+            st.caption('Yahoo Finance; datum kan ändras. Ingen automatisk avisering utanför appen.')
+        with st.expander('Portföljanalys'):
+            st.caption('Ange innehav i SEK. Portföljens modellpotential beräknas endast för innehav med tillgängligt modellvärde och utan granskningsavvikelse.')
+            holdings=st.data_editor(pd.DataFrame([{'Bolag':name,'Marknadsvärde SEK':0.0}]),num_rows='dynamic',key='portfolio_holdings',column_config={'Bolag':st.column_config.SelectboxColumn(options=sorted(ALL_COMPANIES)),'Marknadsvärde SEK':st.column_config.NumberColumn(min_value=0.0)},hide_index=True)
+            if st.button('Analysera portfölj',key='portfolio_run'):
+                portfolio=[]
+                for _,holding in holdings.iterrows():
+                    sym=ALL_COMPANIES.get(holding['Bolag'])
+                    amount=numeric(holding['Marknadsvärde SEK'])
+                    if not sym or not amount or amount<=0: continue
+                    result=screener_snapshot(sym)
+                    potential=result.get('upside') if not result.get('audit') else None
+                    portfolio.append({'Bolag':holding['Bolag'],'Marknadsvärde SEK':amount,'Kategori':result.get('category'),'Modellpotential %':potential})
+                if portfolio:
+                    pf=pd.DataFrame(portfolio)
+                    total=pf['Marknadsvärde SEK'].sum()
+                    pf['Portföljvikt %']=pf['Marknadsvärde SEK']/total*100
+                    st.metric('Portföljvärde',show(total,' SEK',0))
+                    st.dataframe(pf,hide_index=True)
+                    st.bar_chart(pf.groupby('Kategori')['Marknadsvärde SEK'].sum()/total*100)
+                    valid=pf.dropna(subset=['Modellpotential %'])
+                    covered=valid['Marknadsvärde SEK'].sum()
+                    st.metric('Värderingstäckning',show(covered/total*100,' %'))
+                    if covered>0:
+                        st.metric('Viktad modellpotential för täckta innehav',show((valid['Marknadsvärde SEK']*valid['Modellpotential %']).sum()/covered,' %'))
+        with st.expander('Historisk avkastning – jämförelse mot index'):
+            st.caption('Historisk köp-och-behåll-jämförelse, inte backtest av värderingsstrategin. Ett sådant test kräver historiska rapporter med publiceringsdatum.')
+            if st.button('Beräkna historisk jämförelse',key='historical_compare'):
+                try:
+                    asset=yf.Ticker(ticker).history(period='5y',auto_adjust=True)['Close']
+                    benchmark=yf.Ticker('^OMXSPI').history(period='5y',auto_adjust=True)['Close']
+                    asset.index=asset.index.tz_localize(None).normalize()
+                    benchmark.index=benchmark.index.tz_localize(None).normalize()
+                    aligned=pd.concat([asset.rename('Aktie (justerad)'),benchmark.rename('OMXSPI (prisindex)')],axis=1).dropna()
+                    if len(aligned)>1:
+                        st.line_chart(aligned/aligned.iloc[0]*100)
+                        st.caption('Index 100 vid gemensam start. Aktien är utdelningsjusterad, indexet är ett prisindex; jämförelsen är därför inte likvärdig totalavkastning.')
+                    else: st.info('Otillräcklig gemensam historik.')
+                except Exception: st.info('Historiken kunde inte hämtas.')
     with st.expander('Exportera bolagsanalys'):
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
         from reportlab.lib.styles import getSampleStyleSheet
