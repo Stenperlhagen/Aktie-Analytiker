@@ -1302,7 +1302,7 @@ PROFILE_TICKERS={
     'Logistik och transport':{'VOLV-B.ST','VOLV-A.ST','LOOMIS.ST','ELAN-B.ST','CTT.ST'},
     'Teknik och mjukvara':{'VIT-B.ST','ANOD-B.ST','HMS.ST','SINCH.ST','TRUE-B.ST','YUBICO.ST','PDX.ST','SF.ST','STORY-B.ST','LIME.ST','FNOX.ST','SLEEP.ST','TDVOX.ST','ERIC-B.ST','TEL2-B.ST','TELIA.ST','HEXA-B.ST','SECT-B.ST','EMBRAC-B.ST'},
     'Hälsovård och medicinteknik':{'AZN.ST','GETI-B.ST','SOBI.ST','EKTA-B.ST','BIOA-B.ST','CAMX.ST','BONEX.ST','VITR.ST','MCOV-B.ST','ASKER.ST','ARJO-B.ST','ACE.ST','BACTI-B.ST','HNSA.ST','SEZI.ST','SUS.ST','SYNACT.ST','COALA.ST'},
-    'Konsumentvaror och detaljhandel':{'HM-B.ST','ESSITY-B.ST','AXFO.ST','ELUX-B.ST','HUSQ-B.ST','THULE.ST','DOM.ST','SHOT.ST','SKIS-B.ST','BETS-B.ST','BILI-A.ST','NEWA-B.ST','BOKUS.ST','BMAX.ST','RUSTA.ST','RVRC.ST','BHG.ST','BOOZT.ST','CLA-B.ST','DUNI.ST','FOI-B.ST','NELLY.ST','SCST.ST','MSON-B.ST','EVO.ST','CLAS-B.ST','ATT.ST','HUM.ST','ACAD.ST','VSURE.ST','KAR.ST'}
+    'Konsumentvaror och detaljhandel':{'HM-B.ST','ESSITY-B.ST','AXFO.ST','ELUX-B.ST','HUSQ-B.ST','THULE.ST','DOM.ST','SHOT.ST','SKIS-B.ST','BETS-B.ST','BILI-A.ST','NEWA-B.ST','BOKUS.ST','BMAX.ST','RUSTA.ST','RVRC.ST','BHG.ST','BOOZT.ST','CLA-B.ST','DUNI.ST','FOI-B.ST','NELLY.ST','SCST.ST','MSON-B.ST','EVO.ST','CLAS-B.ST','ACAD.ST','VSURE.ST','KAR.ST'}
 }
 PROFILE_BY_SYMBOL={symbol:category for category,symbols in PROFILE_TICKERS.items() for symbol in symbols}
 # Explicit business-model refinements; assumptions are provisional, not peer-derived.
@@ -1323,7 +1323,8 @@ PROFILE_BY_SYMBOL.update({
     'AZN.ST':'Etablerade läkemedelsbolag','SOBI.ST':'Etablerade läkemedelsbolag','CAMX.ST':'Etablerade läkemedelsbolag',
     'GETI-B.ST':'Medicinteknik','EKTA-B.ST':'Medicinteknik','ARJO-B.ST':'Medicinteknik','BONEX.ST':'Medicinteknik','VITR.ST':'Medicinteknik','SEZI.ST':'Medicinteknik','SUS.ST':'Medicinteknik','BACTI-B.ST':'Medicinteknik',
     'PDX.ST':'Spelutvecklare','EMBRAC-B.ST':'Spelutvecklare','SF.ST':'Spelutvecklare',
-    'SHOT.ST':'Hotelloperatörer','AAK.ST':'Livsmedelsproduktion','SCST.ST':'Livsmedelsproduktion'
+    'SHOT.ST':'Hotelloperatörer','AAK.ST':'Livsmedelsproduktion','SCST.ST':'Livsmedelsproduktion',
+    'ATT.ST':'Hälsovård och medicinteknik','HUM.ST':'Hälsovård och medicinteknik'
 })
 
 # Explicit profiles for remaining known instruments; provisional sector assumptions.
@@ -1387,7 +1388,7 @@ def operating_valuation_profile(symbol,info=None):
         return 'Bygg och installation'
     if any(x in industry for x in ('transportation','logistics','trucking','shipping','freight')):
         return 'Logistik och transport'
-    if sector=='healthcare': return 'Hälsovård och medicinteknik'
+    if sector=='healthcare' or any(x in industry for x in ('healthcare services','medical care facilities','nursing care','elderly care')): return 'Hälsovård och medicinteknik'
     if sector=='consumer cyclical' or sector=='consumer defensive': return 'Konsumentvaror och detaljhandel'
     if sector in ('industrials','basic materials'): return 'Tillverkningsindustri'
     return None
