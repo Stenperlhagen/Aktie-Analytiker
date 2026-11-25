@@ -216,6 +216,19 @@ def roic_quarterly_income(identifier, api_key):
     except (requests.RequestException,ValueError,TypeError):
         return [],'ROIC kvartalsdata kunde inte hämtas'
 
+@st.cache_data(ttl=21600,show_spinner=False)
+def roic_annual_cashflow(identifier, api_key):
+    if not identifier or ':' not in identifier or not api_key: return [],'ROIC-instrument eller nyckel saknas'
+    import time
+    if time.time()<getattr(requests,'_equitylab_roic_cooldown',0): return [],'ROIC tillfälligt pausat'
+    try:
+        response=requests.get('https://api.roic.ai/v3.0.0/fundamental/cash-flow/'+urllib.parse.quote(identifier,safe=':'),params={'period_type':'annual','limit':10,'order':'desc'},headers={'Authorization':'Bearer '+api_key},timeout=15)
+        if response.status_code==429: requests._equitylab_roic_cooldown=time.time()+900
+        if not response.ok: return [],'ROIC kassaflöde HTTP '+str(response.status_code)
+        rows=response.json().get('data',[])
+        return [v for v in rows if isinstance(v,dict) and v.get('symbol')==identifier and v.get('period_type')=='annual' and v.get('fx_applied') is False and v.get('currency') and v.get('period_end_date')],''
+    except Exception as exc: return [],type(exc).__name__
+
 @st.cache_data(ttl=1800,show_spinner=False)
 def fetch(ticker):
     """Hämta varje datatyp oberoende så ett fel inte slår ut hela analysen."""
@@ -3250,9 +3263,29 @@ with business_tab:
             if pd.notna(start) and not 320<=(end-start).days<=410: continue
             annual_records[end]=record
         except (ValueError,TypeError): continue
-    # Fetch detailed reserve data only for this analysis when the primary reports do not expose it.
+    roic_fields=dict(zip([x[0] for x in allocation_fields],['cf_cash_from_oper','cf_cash_from_inv_act','cf_cash_from_fin_act','cf_free_cash_flow','cf_cap_expenditures','cf_nt_csh_rcvd_pd_for_acquis_div','cf_dvd_paid','cf_proc_fr_repurch_eqty_detailed']))
+    # Net acquisition/divestiture and net repurchase definitions are used consistently.
+    allocation_fields=[('Aktieåterköp (netto)',['Net Common Stock Issuance'],None) if x[0]=='Aktieåterköp' else x for x in allocation_fields]
+    roic_fields['Aktieåterköp (netto)']=roic_fields.pop('Aktieåterköp')
+    roic_records={}
+    roic_error=''
+    if roic_key() and report_ccy:
+        identifier=(_roic_data or {}).get('symbol')
+        rows,roic_error=roic_annual_cashflow(identifier,roic_key())
+        for record in rows:
+            if str(record.get('currency','')).upper()!=str(report_ccy).upper(): continue
+            try:
+                date=pd.Timestamp(record['period_end_date']).normalize()
+                if pd.notna(date) and date<=pd.Timestamp.today().normalize(): roic_records[date]=record
+            except (ValueError,TypeError): continue
+    else: roic_error='ROIC API-nyckel eller rapportvaluta saknas'
     reserve=pd.DataFrame()
-    if report_ccy:
+    primary_dates=sorted(set(annual_records)|set(roic_records))[-10:]
+    needs_reserve=not primary_dates or any(
+        (not bd_key or bd_field(annual_records.get(period,{}),bd_key) is None)
+        and numeric(roic_records.get(period,{}).get(roic_fields[label])) is None
+        for period in primary_dates for label,fields,bd_key in allocation_fields)
+    if needs_reserve and report_ccy:
         try:
             obj=yf.Ticker(ticker)
             profile=obj.info or {}
@@ -3262,7 +3295,7 @@ with business_tab:
                 reserve=reserve.copy()
                 reserve.columns=pd.DatetimeIndex(pd.to_datetime(reserve.columns)).tz_localize(None).normalize()
         except Exception: reserve=pd.DataFrame()
-    dates=sorted(set(annual_records)|set(reserve.columns))[-10:]
+    dates=sorted(set(annual_records)|set(roic_records)|set(reserve.columns))[-10:]
     allocations=[]; provenance=[]
     for period in dates:
         if period>pd.Timestamp.today().normalize(): continue
@@ -3271,6 +3304,9 @@ with business_tab:
         for label,fields,bd_key in allocation_fields:
             v=bd_field(record,bd_key) if bd_key else None
             source='Börsdata Pro+' if v is not None else 'Saknas'
+            if v is None:
+                fallback=numeric(roic_records.get(period,{}).get(roic_fields[label]))
+                if fallback is not None: v=fallback/1e6; source='ROIC.ai'
             if v is None and period in reserve.columns:
                 fallback=quality_value(reserve,fields,period)
                 if fallback is not None: v=fallback/1e6; source='Yahoo Finance (reserv)'
@@ -3335,7 +3371,9 @@ with business_tab:
         st.caption('Beloppen är rapporterade kassaflöden med ursprungliga tecken. Negativa belopp är normalt utflöden. Kapitalallokeringens kvalitet kräver även analys av avkastning på investeringarna.')
     else:
         st.info('Ingen jämförbar årlig kassaflödeshistorik med verifierad rapportvaluta hittades.')
-    st.caption('Börsdata prioriteras för rapporterade kassaflödesaggregat. Detaljposter kompletteras endast vid exakt matchat rapportdatum och valuta. Saknade poster är inte noll.')
+    st.caption('Källprioritet: Börsdata Pro+ → ROIC.ai → Yahoo Finance. Matchat rapportdatum och ursprunglig rapportvaluta krävs. Saknade poster är inte noll.')
+    if roic_error: st.caption('ROIC kassaflöde: '+roic_error)
+    if info.get('website'): st.markdown(f"[Kontrollera eventuellt saknade poster i bolagets årsredovisningar]({info['website']})")
     st.markdown('#### Motståndskraft i svagare tider')
     crisis=[]
     for year in (2008,2020,2022):
