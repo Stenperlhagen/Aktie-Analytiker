@@ -1722,6 +1722,31 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                         interest=row(fin,['Interest Expense'],period)
                         if all(v is not None for v in (ocf,cap,interest)):
                             fcff=ocf-abs(cap)+abs(interest)*(1-0.206)
+            # Prefer a complete, currency-matched trailing report bundle; never mix annual cash flows with R12 earnings.
+            r12_sales=None
+            r12_used=False
+            if use_roic and symbol not in ('VOLO.ST','AAK.ST','LIAB.ST','BOL.ST','WBGR-B.ST'):
+                records=borsapi_r12_records(symbol,borsapi_key())
+                if records:
+                    rec=records[0]
+                    rdate=pd.Timestamp(rec.get('report_End_Date') or rec.get('reportEndDate')).normalize()
+                    rccy=str(rec.get('currency') or '').upper()
+                    def ramount(key):
+                        value=bd_field(rec,key)
+                        return value*1e6 if value is not None else None
+                    rebit=ramount('operating_Income')
+                    rdebt=ramount('net_Debt')
+                    rsales=ramount('revenues')
+                    if rccy and rccy==report and (not common or rdate>=pd.Timestamp(common[0])) and rebit is not None and rdebt is not None and rsales is not None and rsales>0:
+                        earnings=rebit
+                        earnings_label='EBIT'
+                        debt=rdebt
+                        fcff=None
+                        r12_sales=rsales
+                        r12_used=True
+                        out['period']=str(rdate.date())
+                        out['source']='Börsdata Pro+ R12 · matchad valuta och period'
+                        out['missing'].append('R12: separat EBITA och FCFF kräver verifierade avskrivningar, investeringar och rörelsekapital; EBIT används separat.')
             if symbol=='VOLO.ST':
                 currency=currency or 'SEK'
                 out['currency']=currency
@@ -1779,7 +1804,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
             else:
                 audit.append('Aktieantal och börsvärde kan inte dubbelkontrolleras')
             if symbol not in ('AAK.ST','VOLO.ST') and common:
-                sales=row(fin,['Total Revenue','Operating Revenue'],period)
+                sales=r12_sales if r12_used else row(fin,['Total Revenue','Operating Revenue'],period)
                 if sales is not None and sales>0:
                     if earnings is not None and abs(earnings)>sales:
                         audit.append('EBITA överstiger omsättning; kontrollera enheter')
@@ -1787,6 +1812,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                         audit.append('FCFF överstiger omsättning; kontrollera enheter')
                 else:
                     audit.append('Omsättning saknas för rimlighetskontroll')
+            if profile in ('Hotelloperatörer',) or symbol in ('ATT.ST','HUM.ST'):
+                audit.append('IFRS 16: verifiera att leasingskulder, resultat och multipel har samma definition innan värderingen används')
             preferred=latest(balance,['Preferred Stock','Preferred Stock Equity'])
             if (preferred is not None and preferred>0) or symbol=='VOLO.ST':
                 audit.append('Preferenskapital: marknadsvärde och rättigheter måste verifieras innan stamaktievärdet kan användas som köpsignal')
