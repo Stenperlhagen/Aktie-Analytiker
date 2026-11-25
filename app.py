@@ -2664,11 +2664,12 @@ def investment_score(v, info, metrics=None):
     elif category=='Investmentbolag / kapitalförvaltning':
         if roe is not None: add('Rapporterad ROE',roe*100,0,20,25,' %')
         leverage=val(info,'debtToEquity')
-        if leverage is not None: add('Skuld / eget kapital',leverage,100,0,25,' %')
-    expected=95 if operating else 100 if category in ('Bank / finansiella tjänster','Fastigheter') else 75 if category=='Investmentbolag / kapitalförvaltning' else 25
+        if leverage is not None and leverage>=0: add('Skuld / eget kapital',leverage,100,0,25,' %')
+        if metrics.get('equity_growth') is not None: add('Tillväxt i bokfört eget kapital per aktie',metrics['equity_growth']*100,-10,15,25,' %')
+    expected=95 if operating else 100 if category in ('Bank / finansiella tjänster','Fastigheter') else 100 if category=='Investmentbolag / kapitalförvaltning' else 25
     coverage=sum(x['Vikt'] for x in items)
-    # Investment companies and research firms require more specific data before a composite score.
-    eligible=operating or category in ('Bank / finansiella tjänster','Fastigheter')
+    # Investment holdings use NAV valuation, ROE and leverage, not industrial ratios.
+    eligible=operating or category in ('Bank / finansiella tjänster','Fastigheter','Investmentbolag / kapitalförvaltning')
     score=sum(x['Poäng']*x['Vikt'] for x in items)/coverage if eligible and coverage>=expected*.5 and len(items)>=3 and not v.get('audit') else None
     return score,items,coverage/expected*100
 
@@ -3009,7 +3010,18 @@ with three:
     st.markdown('### Investeringsöversikt')
 
     assessment=valuation_result
-    rating,components,coverage=investment_score(assessment,info,{'roe':roe_overview/100 if roe_overview is not None else None,'growth':sales_growth_pct/100 if sales_growth_pct is not None else None,'margin':margin})
+    equity_per_share_history=[]
+    if assessment.get('category')=='Investmentbolag / kapitalförvaltning':
+        for period in sorted(balance.columns,reverse=True):
+            e=_annual_balance_value(balance,['Common Stock Equity','Stockholders Equity'],period)
+            s=_annual_balance_value(balance,['Ordinary Shares Number','Share Issued'],period)
+            if e is not None and e>0 and s is not None and s>0: equity_per_share_history.append((pd.Timestamp(period),e/s))
+    equity_growth=None
+    if len(equity_per_share_history)>=2:
+        latest,prior=equity_per_share_history[:2]
+        days=(latest[0]-prior[0]).days
+        if 320<=days<=410: equity_growth=(latest[1]/prior[1])**(365.2425/days)-1
+    rating,components,coverage=investment_score(assessment,info,{'roe':roe_overview/100 if roe_overview is not None else None,'growth':sales_growth_pct/100 if sales_growth_pct is not None else None,'margin':margin,'equity_growth':equity_growth})
     target_value=assessment.get('target')
     current_value=assessment.get('price')
     ccy=str(assessment.get('currency') or '')
