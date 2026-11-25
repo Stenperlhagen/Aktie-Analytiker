@@ -593,11 +593,11 @@ def news(company):
 
 def price_events(history):
     """Adjusted close avoids ordinary dividend and split discontinuities."""
-    if history is None or history.empty or 'Adj Close' not in history.columns:
+    if history is None or history.empty or not {'Close','Adj Close'}.intersection(history.columns):
         return pd.DataFrame()
     h=history.sort_index().copy()
     h=h.loc[~h.index.duplicated(keep='last')]
-    adjusted=pd.to_numeric(h['Adj Close'],errors='coerce').where(lambda s:s>0)
+    adjusted=pd.to_numeric(h['Adj Close' if 'Adj Close' in h and h['Adj Close'].notna().any() else 'Close'],errors='coerce').where(lambda s:s>0)
     daily=adjusted.pct_change(fill_method=None)*100
     weekly=adjusted.pct_change(5,fill_method=None)*100
     actions=pd.Series(False,index=h.index)
@@ -645,15 +645,20 @@ def event_news(company,start,end):
 
 def render_price_events(history,company,ticker):
     st.markdown('#### Kurspåverkande händelser')
-    events=price_events(history)
-    st.caption('Justerad stängningskurs: minst ±5 % på en handelsdag eller ±10 % på fem handelsdagar. Överlappande femdagarsperioder kan avse samma händelse.')
-    if events.empty:
-        st.info('Inga identifierade rörelser eller justerad kurshistorik saknas.')
+    if history is None or history.empty or not {'Close','Adj Close'}.intersection(history.columns):
+        st.info('Kurshistorik saknas.')
         return
+    adjusted='Adj Close' in history and history['Adj Close'].notna().any()
+    basis='Adj Close' if adjusted else 'Close'
+    period=st.radio('Period',['1 år','3 år','5 år'],index=2,horizontal=True,key='event_period_'+ticker)
+    cutoff=pd.Timestamp(history.index.max())-pd.DateOffset(years=int(period[0]))
+    history=history.loc[history.index>=cutoff].copy()
+    events=price_events(history)
+    st.caption(('Justerad stängningskurs' if adjusted else 'Stängningskurs – utdelningsjustering ej verifierad')+' · minst ±5 % på en handelsdag eller ±10 % på fem handelsdagar. Överlappande perioder kan avse samma händelse.')
     chart=history.sort_index().copy()
     chart=chart.loc[~chart.index.duplicated(keep='last')].reset_index()
     chart_date=chart.columns[0]
-    fig=px.line(chart,x=chart_date,y='Adj Close',title='Större kursrörelser – fem år')
+    fig=px.line(chart,x=chart_date,y=basis)
     fig.update_traces(line=dict(color='#87909E',width=1.5),name='Normal kursutveckling',showlegend=True)
     dates=[pd.Timestamp(x).date().isoformat() for x in chart[chart_date]]
     positions={date:i for i,date in enumerate(dates)}
@@ -661,7 +666,7 @@ def render_price_events(history,company,ticker):
     moves=[]
     pivot=extreme=None
     direction=0
-    for idx,raw in enumerate(chart['Adj Close']):
+    for idx,raw in enumerate(chart[basis]):
         value=numeric(raw)
         if value is None or value<=0: continue
         if pivot is None:
@@ -689,15 +694,26 @@ def render_price_events(history,company,ticker):
         color='#00B85A' if change>0 else '#E53935'
         label='Kraftig uppgång' if change>0 else 'Kraftig nedgång'
         segment=chart.iloc[start:end+1]
-        fig.add_scatter(x=segment[chart_date],y=segment['Adj Close'],mode='lines',name=label,line=dict(color=color,width=3.5),showlegend=False)
-        fig.add_annotation(x=chart[chart_date].iloc[end],y=chart['Adj Close'].iloc[end],text=f'{change:+.1f} %',showarrow=True,arrowcolor=color,font=dict(color=color,size=14),bgcolor='rgba(255,255,255,0.9)',ay=-30 if change>0 else 30)
-        summary.append({'Datum':dates[end],'Från':dates[start],'Handelsdagar':end-start,'Förändring (%)':round(change,2),'Bolagshändelse':bool(events.loc[(events['Datum']>=dates[start])&(events['Datum']<=dates[end]),'Bolagshändelse'].any()),'Kurs':numeric(chart['Close'].iloc[end]) if 'Close' in chart else None})
-    fig.update_layout(showlegend=False,height=480,margin=dict(t=65,b=35))
+        fig.add_scatter(x=segment[chart_date],y=segment[basis],mode='lines',name=label,line=dict(color=color,width=3.5),showlegend=not any(trace.name==label for trace in fig.data))
+        fig.add_annotation(x=chart[chart_date].iloc[end],y=chart[basis].iloc[end],text=f'{change:+.1f} %',showarrow=True,arrowcolor=color,font=dict(color='white',size=12),bgcolor=color,borderpad=4,ay=-30 if change>0 else 30)
+        summary.append({'Datum':dates[end],'Från':dates[start],'Handelsdagar':end-start,'Förändring (%)':round(change,2),'Bolagshändelse':bool(events.loc[(events['Datum']>=dates[start])&(events['Datum']<=dates[end]),'Bolagshändelse'].any()) if not events.empty else False,'Kurs':numeric(chart['Close'].iloc[end]) if 'Close' in chart else None})
+    values=[m[0] for m in ranked]
+    cols=st.columns(3)
+    cols[0].metric('Största markerade uppgång',f'{max(v for v in values if v>0):+.1f} %' if any(v>0 for v in values) else '–')
+    cols[1].metric('Största markerade nedgång',f'{min(v for v in values if v<0):+.1f} %' if any(v<0 for v in values) else '–')
+    cols[2].metric('Markerade rörelser',len(ranked))
+    fig.update_layout(showlegend=True,height=520,margin=dict(t=45,b=65,l=15,r=20),legend=dict(orientation='h',y=-0.18),hovermode='closest',xaxis_title=None,yaxis_title='Justerad kurs' if adjusted else 'Stängningskurs')
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(gridcolor='rgba(148,163,184,0.18)',zeroline=False)
+    fig.update_traces(hovertemplate='%{x|%Y-%m-%d}<br>Kurs: %{y:.2f}<extra></extra>')
     st.caption('Grafen visar högst fem större sammanhängande rörelser, identifierade med 15 % vändningströskel. Grönt = uppgång, rött = nedgång.')
     st.plotly_chart(fig,use_container_width=True)
+    if not summary and events.empty:
+        st.info('Inga större kursrörelser identifierades under vald period.')
+        return
     display=(pd.DataFrame(summary) if summary else events).sort_values(['Datum','Handelsdagar'],ascending=[False,True]).reset_index(drop=True)
     st.dataframe(display.drop(columns=['Kurs']),hide_index=True,use_container_width=True)
-    st.caption('Utdelningar och splittar hanteras via justerad kurs och markeras separat. Emissioner och särnoteringar kan fortfarande kräva manuell kontroll.')
+    st.caption('Kapitalhändelser markeras när uppgifter finns. Ojusterade eller ej verifierat justerade kurser kan innehålla tekniska kursbrott. Emissioner och särnoteringar kan kräva manuell kontroll.')
     labels=[f"{r['Datum']} | {r['Handelsdagar']} dag(ar) | {r['Förändring (%)']:+.2f} %" for _,r in display.iterrows()]
     choice=st.selectbox('Välj kursrörelse för nyhetskontroll',range(len(labels)),format_func=lambda i:labels[i],key='price_event_'+ticker)
     selected=display.iloc[choice]
