@@ -1152,7 +1152,7 @@ def borsapi_annual_frames(symbol,api_key):
     records.sort(key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
     currency=str(records[0]['currency']).upper()
     maps=[
-        {'Total Revenue':'revenues','Gross Profit':'gross_Income','Operating Income':'operating_Income','Pretax Income':'profit_Before_Tax','Net Income Common Stockholders':'profit_To_Equity_Holders','Basic EPS':'earnings_Per_Share'},
+        {'EBITA':'ebita','Amortization Of Intangibles':'amortization_Of_Intangibles','Total Revenue':'revenues','Gross Profit':'gross_Income','Operating Income':'operating_Income','Pretax Income':'profit_Before_Tax','Net Income Common Stockholders':'profit_To_Equity_Holders','Basic EPS':'earnings_Per_Share'},
         {'Net Debt':'net_Debt','Cash And Cash Equivalents':'cash_And_Equivalents','Stockholders Equity':'total_Equity','Total Assets':'total_Assets','Current Assets':'current_Assets','Current Liabilities':'current_Liabilities','Ordinary Shares Number':'number_Of_Shares'},
         {'Operating Cash Flow':'cash_Flow_From_Operating_Activities','Investing Cash Flow':'cash_Flow_From_Investing_Activities','Financing Cash Flow':'cash_Flow_From_Financing_Activities','Free Cash Flow':'free_Cash_Flow'}]
     frames=[{} for _ in maps]
@@ -1598,7 +1598,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     def amount(key):
                         value=numeric(record.get(key))
                         return value*1e6 if value is not None else None
-                    fi[date]={'Total Revenue':amount('revenues'),'Operating Income':amount('operating_Income'),'Pretax Income':amount('profit_Before_Tax'),'Net Income Common Stockholders':amount('profit_To_Equity_Holders')}
+                    fi[date]={'EBITA':amount('ebita'),'Amortization Of Intangibles':amount('amortization_Of_Intangibles'),'Total Revenue':amount('revenues'),'Operating Income':amount('operating_Income'),'Pretax Income':amount('profit_Before_Tax'),'Net Income Common Stockholders':amount('profit_To_Equity_Holders')}
                     ba[date]={'Net Debt':amount('net_Debt'),'Cash And Cash Equivalents':amount('cash_And_Equivalents'),'Stockholders Equity':amount('total_Equity')}
                     cf[date]={'Operating Cash Flow':amount('cash_Flow_From_Operating_Activities')}
                 rf,rb,rc=pd.DataFrame(fi).dropna(how='all'),pd.DataFrame(ba).dropna(how='all'),pd.DataFrame(cf).dropna(how='all')
@@ -1738,6 +1738,14 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     rdebt=ramount('net_Debt')
                     rsales=ramount('revenues')
                     rebita=ramount('ebita')
+                    if rebita is None and rebit is not None:
+                        amort=ramount('amortization_Of_Intangibles')
+                        if amort is not None: rebita=rebit+abs(amort)
+                    if rebita is None and rccy==report and rebit is not None and rdebt is not None and rsales is not None and rsales>0 and (earnings is None or earnings_label=='EBIT'):
+                        # Official report fallback; strict R12 period and original currency.
+                        hit=report_ebita_extract(str(info.get('website') or ''),str(info.get('longName') or info.get('shortName') or symbol),str(rdate.date()),rccy)
+                        if hit and hit.get('currency')==rccy and hit.get('period')==str(rdate.date()):
+                            rebita=numeric(hit.get('value'))
                     # Do not discard a usable annual EBITA or FCFF model for an incomplete R12 bundle.
                     preserves_models=(earnings is None or earnings_label=='EBIT' or rebita is not None) and (fcff is None or fcff<=0)
                     if preserves_models and rccy and rccy==report and (not common or rdate>=pd.Timestamp(common[0])) and rebit is not None and rdebt is not None and rsales is not None and rsales>0:
@@ -2628,7 +2636,7 @@ if _roic_income:
 
 # Independent annual-report fallback, requiring a single matched period and currency.
 if ev_ebita is None and report_ccy and quote_ccy and market_cap is not None and fin is not None and not fin.empty:
-    for period in fin.columns:
+    for period in sorted(fin.columns,reverse=True):
         annual_ebita=_annual_balance_value(fin,['EBITA'],period)
         if annual_ebita is None:
             operating=_annual_balance_value(fin,['Operating Income','EBIT'],period)
@@ -2709,6 +2717,9 @@ if bd_overview and ticker!='WBGR-B.ST':
     bd_div=bd_field(record,'dividend')
     if bd_currency and bd_currency==report_ccy:
         direct_ebita=bd_field(record,'ebita')
+        if direct_ebita is None and bd_ebit is not None:
+            amort=bd_field(record,'amortization_Of_Intangibles')
+            if amort is not None: direct_ebita=bd_ebit+abs(amort)
         direct_debt=bd_field(record,'net_Debt')
         if direct_ebita is not None:
             ebita=direct_ebita*1e6
