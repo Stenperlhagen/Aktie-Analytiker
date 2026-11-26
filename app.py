@@ -2149,11 +2149,12 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     if rccy==report and rebit is not None and (rebita is None or not all(ramount(k) is not None for k in ('depreciation_And_Amortization','capital_Expenditure','change_In_Working_Capital'))):
                         bridge=matched_yahoo_r12(symbol,currency,report,rec,str(rdate.date()))
                         if rebita is None: rebita=bridge.get('ebita')
-                    if rebita is None and rccy==report and rebit is not None and rdebt is not None and rsales is not None and rsales>0 and (earnings is None or earnings_label=='EBIT'):
-                        # Official report fallback; strict R12 period and original currency.
-                        hit=report_ebita_extract(str(info.get('website') or ''),str(info.get('longName') or info.get('shortName') or symbol),str(rdate.date()),rccy)
-                        if hit and hit.get('currency')==rccy and hit.get('period')==str(rdate.date()):
-                            rebita=numeric(hit.get('value'))
+                    # PDF layout hits alone do not establish consolidated EBITA or reconcile sales and EBIT.
+                    # Preserve matched evidence even if a separate annual model has more complete inputs.
+                    if rccy==report and rebit is not None and rsales is not None and rsales>0 and rebita is not None:
+                        out['r12_ebita_evidence']={'value':rebita,'period':str(rdate.date()),'currency':rccy,
+                                                   'net_debt':rdebt,'source':'Bolagsrapport (avstämd)' if filing else 'Yahoo Finance (avstämda kvartal)' if bridge.get('ebita') is not None else 'Börsdata Pro+',
+                                                   'sources':filing['sources'] if filing else ()}
                     # Do not discard a usable annual EBITA or FCFF model for an incomplete R12 bundle.
                     rda=ramount('depreciation_And_Amortization')
                     rcapex=ramount('capital_Expenditure')
@@ -2263,6 +2264,9 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
             if symbol=='BOL.ST': audit.append('Nexa-förvärv: kontrollera status, finansiering och pro forma kassaflöden innan riktkurs används')
             out['audit']=audit
             out['inputs']={earnings_label:earnings,'Nettoskuld':debt,'Antal aktier':shares,'FCFF':fcff,'Valutakurs':fx}
+            # Preserve operating inputs if later replaced by a P/E reserve.
+            out['operating_inputs']=dict(out['inputs'])
+            out['operating_period']=out.get('period')
             use_ebit=earnings_label=='EBIT'
             # Explicit separate illustrative EBIT multiple, not a measured peer median.
             effective_multiple=max(1.0,m-1.0) if use_ebit else m
@@ -3230,16 +3234,7 @@ if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade lä
     else:
         with st.expander('Börsdata – nyckeltalstäckning'):
             st.caption(bd_kpi_error or 'Nettoskuld/EBITDA saknas för matchat instrument i nyckeltalssvaret.')
-if ebita is None and valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') and bd_overview_period and report_ccy:
-    report_hit=report_ebita_extract(str(info.get('website') or ''),str(name or company),bd_overview_period,report_ccy)
-    if report_hit:
-        ebita=report_hit['value']
-        st.caption('Rapporterad EBITA R12 '+report_hit['period']+' · '+report_hit['currency']+' · [Delårsrapport]('+report_hit['url']+')')
-        matched_debt=bd_field(bd_overview[0],'net_Debt') if str(bd_overview[0].get('currency') or '').upper()==report_ccy else None
-        rate=fx_rate(quote_ccy,report_ccy) if quote_ccy else None
-        if matched_debt is not None and rate and market_cap is not None and ebita>0:
-            ev_ebita=(market_cap*rate+matched_debt*1e6)/ebita
-            ev_ebita_source='Rapporterad EBITA R12; matchad Börsdata nettoskuld'
+# Unreconciled PDF layout hits cannot be used for the financial overview.
 st.markdown('### Finansiell översikt')
 # Use the selected model's paired EBITA and net debt whenever they are available.
 model_ebita=valuation_inputs.get('EBITA')
@@ -3255,7 +3250,18 @@ if model_ebita is not None and model_currency==report_ccy and valuation_debt is 
         st.markdown('Rapporterad eller avstämd EBITA enligt källrapport. '+
                     ' · '.join(f'[Källrapport {i}]({url})' for i,url in enumerate(valuation_result['ebita_sources'],1)))
 
-st.caption('Börsvärde: '+str(info.get('_cap_source') or 'Ej verifierat')+' · Leverantörens eget börsvärde, inte egen beräkning.')
+# Display separately matched R12 EBITA rather than an older annual model metric.
+r12_evidence=valuation_result.get('r12_ebita_evidence') or {}
+if r12_evidence.get('currency')==report_ccy and r12_evidence.get('period')==bd_overview_period and r12_evidence.get('value') is not None:
+    ebita=r12_evidence['value']
+    matched_debt=r12_evidence.get('net_debt')
+    rate=fx_rate(quote_ccy,report_ccy) if quote_ccy else None
+    ev_ebita=(market_cap*rate+matched_debt)/ebita if market_cap is not None and rate and matched_debt is not None and ebita>0 else None
+    ev_ebita_source='Börsdata R12 '+bd_overview_period
+    st.caption('EBITA R12 '+bd_overview_period+' · '+r12_evidence['source']+' · separat från eventuell årsbaserad värdering.')
+    if r12_evidence.get('sources'):
+        st.markdown(' · '.join(f'[Källrapport {i}]({url})' for i,url in enumerate(r12_evidence['sources'],1)))
+st.caption('Börsvärde: '+str(info.get('_cap_source') or 'Ej verifierat')+' · Kapitalisering enligt kontrollerat underlag.')
 av_snapshot=info.get('_avanza_snapshot',{})
 if av_snapshot:
     st.caption('Avanza kontrollkälla: '+show(av_snapshot.get('price'),' '+str(av_snapshot.get('currency') or ''),2)+' · Börsvärde '+show(av_snapshot['market_cap']/1e9,' md',2) if av_snapshot.get('market_cap') is not None else 'Avanza: börsvärde ännu inte verifierat.')
