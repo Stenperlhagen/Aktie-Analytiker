@@ -114,7 +114,9 @@ def tests():
     }
     assert reported_operating_metrics(reported,'USD','SEK',950e6)=={}
     assert reported_operating_metrics({**reported,'operating_Income':-100},'SEK','SEK',950e6)['ev_ebit'] is None
-    assert abb_r12_ebita('ABB.ST',{'currency':'USD','operating_Income':6716},'2026-09-30')['value']==6911e6
+    abb=abb_r12_ebita('ABB.ST',{'currency':'USD','operating_Income':6716},'2026-09-30')
+    assert abb['value']==6911e6
+    assert abs(abb['fcff']-(6716*(1-1601/6702)+880-1077+208)*1e6)<1
     assert abb_r12_ebita('ABB.ST',{'currency':'USD','operating_Income':6000},'2026-09-30') is None
     supplemental=pd.DataFrame({p:[200,20],q:[175,18]},index=['Operating Income','Capital Expenditure'])
     merged=fill_matching_statement_periods(fin,supplemental,fin.columns)
