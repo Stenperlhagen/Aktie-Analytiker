@@ -293,7 +293,18 @@ def fetch(ticker):
             if primary_info.get('financialCurrency') and yahoo_currency != primary_info['financialCurrency']:
                 return primary
             return secondary
-        return primary.combine_first(secondary.reindex(columns=primary.columns))
+        # Require both independently reported income anchors before supplementing any statement.
+        reference=attempt('Yahoo periodkontroll', lambda: obj.income_stmt, pd.DataFrame())
+        accepted=[]
+        for period in fin.columns.intersection(reference.columns):
+            pairs=[]
+            for field in ('Total Revenue','Operating Income'):
+                if field not in fin.index or field not in reference.index: break
+                a,b=numeric(fin.at[field,period]),numeric(reference.at[field,period])
+                if a is None or b is None: break
+                pairs.append(abs(a-b)<=0.02*max(abs(a),abs(b)))
+            if len(pairs)==2 and all(pairs): accepted.append(period)
+        return primary.combine_first(secondary.reindex(columns=accepted))
     fin = fill_report(fin, 'Resultaträkning', annual_income_fallback)
     cash = fill_report(cash, 'Kassaflöde', lambda: obj.cashflow)
     balance = fill_report(balance, 'Balansräkning', lambda: obj.balance_sheet)
