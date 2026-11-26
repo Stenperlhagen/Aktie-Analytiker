@@ -118,6 +118,14 @@ def tests():
     assert abb['value']==6911e6
     assert abs(abb['fcff']-(6716*(1-1601/6702)+880-1077+208)*1e6)<1
     assert abb_r12_ebita('ABB.ST',{'currency':'USD','operating_Income':6000},'2026-09-30') is None
+    bokus={'currency':'SEK','revenues':2210.3,'operating_Income':106.7}
+    official=abb_r12_ebita('BOKUS.ST',bokus,'2026-09-30')
+    assert official['value']==152.6e6 and 'fcff' not in official
+    assert abb_r12_ebita('BOKUS.ST',{**bokus,'currency':'EUR'},'2026-09-30') is None
+    assert abb_r12_ebita('BOKUS.ST',{**bokus,'operating_Income':100},'2026-09-30') is None
+    assert abb_r12_ebita('BOKUS.ST',{**bokus,'revenues':2000},'2026-09-30') is None
+    assert abb_r12_ebita('BOKUS.ST',bokus,'2026-06-30') is None
+    assert abb_r12_ebita('BOKUS-OTHER.ST',bokus,'2026-09-30') is None
     supplemental=pd.DataFrame({p:[200,20],q:[175,18]},index=['Operating Income','Capital Expenditure'])
     merged=fill_matching_statement_periods(fin,supplemental,fin.columns)
     assert merged.at['Operating Income',p]==90e6
@@ -142,7 +150,7 @@ if __name__=='__main__':
     globals()['ecb_exchange_rates']=lru_cache(maxsize=1)(ecb_exchange_rates)
     ALL_COMPANIES={name:sym for name,sym in ALL_COMPANIES.items() if sym not in {'FNOX.ST','COALA.ST','ADDV-B.ST','ADDV-A.ST'}}
     if '--probe' in sys.argv:
-        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-A.ST','TRUE-B.ST'):
+        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-A.ST','TRUE-B.ST','BOKUS.ST'):
             key=borsapi_key()
             info,hist,fin,cash,balance,quick,errors=fetch(symbol)
             annual,_=borsapi_reports(symbol,key)
@@ -180,7 +188,7 @@ if __name__=='__main__':
         except Exception as e:
             failures.append(symbol+': '+str(e))
             rows.append({'ticker':symbol,'missing':type(e).__name__+': '+str(e),'report_verified':False})
-        if 'v' in locals() and rows[-1].get('category'):
+        if rows[-1].get('category'):
             inputs=v.get('inputs',{})
             earnings=inputs.get('EBITA')
             if earnings is None: earnings=inputs.get('EBITA (beräknad)')
