@@ -22,13 +22,11 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(numeric("0.97"), 0.97)
 
     def test_dividend_yield(self):
-        now = pd.Timestamp.now(tz="UTC")
-        yf = Mock()
-        yf.Ticker.return_value.dividends = pd.Series(
-            [0.11, 0.50, 0.50],
-            index=[now-pd.Timedelta(days=30), now-pd.Timedelta(days=400), now+pd.Timedelta(days=10)])
-        calc = load_function("trailing_dividend_yield", {"pd": pd, "yf": yf})
-        self.assertAlmostEqual(calc("STOR-B.ST", 11.10), 0.11/11.10*100)
+        records=[{'currency':'SEK','dividend':0.11}]
+        calc=load_function("trailing_dividend_yield",{"borsapi_key":lambda:'fixture',"borsapi_r12_records":lambda *args:records,"bd_field":lambda r,k:r.get(k)})
+        self.assertAlmostEqual(calc("STOR-B.ST",11.10),0.11/11.10*100)
+        records[0]['currency']='EUR'
+        self.assertIsNone(calc("STOR-B.ST",11.10))
         self.assertIsNone(calc("STOR-B.ST", 0))
         self.assertIsNone(calc("STOR-B.ST", -1))
 
