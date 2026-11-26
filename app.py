@@ -315,6 +315,9 @@ def fetch(ticker):
                     info['_report_source']='Börsdata Pro+ (årsrapporter; komplettering vid matchad period)'
                 else: errors['Börsdata rapport']='Årsrapporter mottagna men inga tolkbara resultatfält.'
             else: errors['Börsdata rapport']=bd_error
+        except Exception as exc:
+            errors['Börsdata rapport']=type(exc).__name__
+        try:
             bd_hist,bd_error=borsapi_history(ticker,borsapi_key())
             if not bd_hist.empty:
                 history=bd_hist.loc[bd_hist.index>=pd.Timestamp.today()-pd.DateOffset(years=5)]
@@ -330,7 +333,7 @@ def fetch(ticker):
                         errors['Börsdata kurs']='Senaste stängningskurs är ogiltig eller äldre än sju dagar.'
             else: errors['Börsdata kurs']=bd_error
         except Exception as exc:
-            errors['Börsdata adapter']=type(exc).__name__
+            errors['Börsdata kurs']=type(exc).__name__
     info['currency']='DKK' if ticker.endswith('.CO') else 'SEK' if ticker.endswith('.ST') else None
     instruments,_=borsapi_instruments(borsapi_key())
     identity,_=borsapi_instrument(ticker,borsapi_key())
@@ -1235,7 +1238,7 @@ def borsapi_history(symbol,api_key):
         rows=response.json().get('stockPricesList',[])
         frame=pd.DataFrame(rows).rename(columns={'d':'Date','c':'Close','o':'Open','h':'High','l':'Low','v':'Volume'})
         if not {'Date','Close'}.issubset(frame.columns): return pd.DataFrame(),'Börsdata kursformat saknas'
-        frame['Date']=pd.to_datetime(frame['Date'],errors='coerce')
+        frame['Date']=pd.to_datetime(frame['Date'],errors='coerce',utc=True).dt.tz_localize(None)
         for k in ('Close','Open','High','Low','Volume'):
             if k in frame: frame[k]=pd.to_numeric(frame[k],errors='coerce')
         frame=frame.dropna(subset=['Date','Close']).loc[lambda rows: rows['Close']>0]
@@ -1244,18 +1247,22 @@ def borsapi_history(symbol,api_key):
 
 def borsapi_annual_frames(symbol,api_key):
     data,error=borsapi_reports(symbol,api_key)
-    records=[r for r in data.get('periods',[]) if str(r.get('period'))=='5' and r.get('currency') and (r.get('report_End_Date') or r.get('reportEndDate'))]
+    records=[]
+    for record in data.get('periods',[]):
+        if not isinstance(record,dict) or str(record.get('period'))!='5' or not record.get('currency'):
+            continue
+        date=pd.to_datetime(record.get('report_End_Date') or record.get('reportEndDate'),errors='coerce',utc=True)
+        if pd.notna(date): records.append((date.tz_localize(None).normalize(),record))
     if not records: return None,error or 'Inga jämförbara årsrapporter'
-    records.sort(key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
-    currency=str(records[0]['currency']).upper()
+    records.sort(key=lambda pair:pair[0],reverse=True)
+    currency=str(records[0][1]['currency']).upper()
     maps=[
         {'EBITDA':'ebitda','Tax Provision':'tax_Provision','EBITA':'ebita','Amortization Of Intangibles':'amortization_Of_Intangibles','Total Revenue':'revenues','Gross Profit':'gross_Income','Operating Income':'operating_Income','Pretax Income':'profit_Before_Tax','Interest Expense':'interest_Expense','Net Income Common Stockholders':'profit_To_Equity_Holders','Basic EPS':'earnings_Per_Share'},
         {'Invested Capital':'invested_Capital','Total Debt':'total_Debt','Net Debt':'net_Debt','Cash And Cash Equivalents':'cash_And_Equivalents','Stockholders Equity':'total_Equity','Total Assets':'total_Assets','Current Assets':'current_Assets','Current Liabilities':'current_Liabilities','Ordinary Shares Number':'number_Of_Shares'},
         {'Operating Cash Flow':'cash_Flow_From_Operating_Activities','Investing Cash Flow':'cash_Flow_From_Investing_Activities','Financing Cash Flow':'cash_Flow_From_Financing_Activities','Free Cash Flow':'free_Cash_Flow','Capital Expenditure':'capital_Expenditure','Depreciation And Amortization':'depreciation_And_Amortization','Change In Working Capital':'change_In_Working_Capital'}]
     frames=[{} for _ in maps]
-    for record in records:
+    for date,record in records:
         if str(record['currency']).upper()!=currency: continue
-        date=pd.Timestamp(record.get('report_End_Date') or record.get('reportEndDate')).normalize()
         for dest,mapping in zip(frames,maps):
             dest[date]={}
             for label,key in mapping.items():
