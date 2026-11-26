@@ -321,6 +321,22 @@ def fetch(ticker):
     for label,frame in [('Resultaträkning',fin),('Balansräkning',balance),('Kassaflöde',cash),('Kurshistorik',history)]:
         if frame.empty: errors.setdefault(label,'Datakällan returnerade tom tabell.')
     capitalization=verified_capitalization(ticker,info,quick,fin,history)
+    # Display the provider's own market cap, not a reconstructed share-class sum.
+    bd_caps,bd_cap_error=borsapi_market_cap_map(borsapi_key())
+    identity,_=borsapi_reports(ticker,borsapi_key())
+    bd_cap_msek=bd_caps.get(str(identity.get('instrument_id')))
+    trade_currency=info.get('currency') or quick.get('currency')
+    rate=fx_rate('SEK',trade_currency)
+    if bd_cap_msek is not None and bd_cap_msek>0 and rate and rate>0:
+        capitalization['market_cap']=bd_cap_msek*1e6*rate
+        capitalization['source']='Börsdata Pro+ – Market Cap, KPI 50 (senaste stängning)'
+        capitalization['verified']=True
+    else:
+        capitalization['market_cap']=None
+        capitalization['verified']=False
+        capitalization['source']='Börsdata börsvärde saknas'
+        capitalization['warnings'].append(bd_cap_error or 'KPI 50 saknas för instrumentet; ingen Yahoo-reserv.')
+
     info['_cap_source']=capitalization['source']
     info['_cap_warnings']=capitalization['warnings']
     info['_cap_verified']=capitalization['verified']
@@ -1194,6 +1210,16 @@ def borsapi_r12_records(symbol,api_key):
         records=response.json().get('reports',[])
         return sorted([r for r in records if isinstance(r,dict) and (r.get('report_End_Date') or r.get('reportEndDate'))],key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
     except Exception: return []
+
+@st.cache_data(ttl=1800,show_spinner=False)
+def borsapi_market_cap_map(api_key):
+    if not api_key: return {},'API-nyckel saknas'
+    try:
+        response=requests.get('https://apiservice.borsdata.se/v1/instruments/kpis/50/last/sek',params={'authKey':api_key},timeout=20)
+        if not response.ok: return {},'Börsdata HTTP '+str(response.status_code)
+        rows=response.json().get('values',[])
+        return {str(r['i']):numeric(r.get('n')) for r in rows if isinstance(r,dict) and r.get('i') is not None},''
+    except Exception as exc: return {},type(exc).__name__
 
 def verified_capitalization(symbol,info,quick,fin,history):
     """Börsvärde = aktuell aktiekurs × rapporterat aktieantal, aldrig okontrollerad Yahoo marketCap."""
@@ -2337,10 +2363,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v46-share-classes':
+if st.session_state.get('screener_model_version')!='unified-v47-borsdata-kpi50':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v46-share-classes'
+    st.session_state['screener_model_version']='unified-v47-borsdata-kpi50'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -2691,7 +2717,7 @@ valuation_fx=valuation_inputs.get('Valutakurs')
 valuation_shares=valuation_inputs.get('Antal aktier')
 valuation_price=valuation_result.get('price')
 if all(x is not None for x in (valuation_earnings,valuation_debt,valuation_fx,valuation_shares,valuation_price)) and valuation_earnings>0 and valuation_fx>0 and valuation_shares>0 and valuation_price>0:
-    ev_ebita=(market_cap/valuation_fx+valuation_debt)/valuation_earnings if market_cap is not None else None
+    ev_ebita=((info.get('_common_cap')+info.get('_preferred_cap'))/valuation_fx+valuation_debt)/valuation_earnings if info.get('_common_cap') is not None and info.get('_preferred_cap') is not None else None
 if valuation_earnings is not None:
     ebita=valuation_earnings
     st.caption('EBITA: värderingsunderlag '+str(valuation_result.get('period') or 'okänd period')+' · '+str(valuation_result.get('source') or 'okänd källa'))
@@ -2890,7 +2916,7 @@ if ebita is None and valuation_result.get('category') in ('Rörelsedrivande bola
             ev_ebita=(market_cap*rate+matched_debt*1e6)/ebita
             ev_ebita_source='Rapporterad EBITA R12; matchad Börsdata nettoskuld'
 st.markdown('### Finansiell översikt')
-st.caption('Börsvärde: '+str(info.get('_cap_source') or 'Ej verifierat')+' · Kurs × rapporterat aktieantal, inte Yahoo marketCap.')
+st.caption('Börsvärde: '+str(info.get('_cap_source') or 'Ej verifierat')+' · Leverantörens eget börsvärde, inte egen beräkning.')
 for cap_warning in info.get('_cap_warnings',[]):
     st.caption('Kapitalstruktur: '+cap_warning)
 st.caption('Börsdata R12 prioriteras för jämförbara uppgifter; årsbaserade reservvärden beräknas från matchade rapportdatum. R12 och kursbaserade värden har separata definitioner; leverantörsuppgifter är inte oberoende verifierade.')
