@@ -1221,6 +1221,12 @@ def borsapi_instrument_events(symbol,api_key,kind):
     try:
         response=requests.get('https://apiservice.borsdata.se/v1/'+paths[kind],
                               params={'authKey':api_key,'instList':instrument_id},timeout=15)
+        if response.status_code==429:
+            import time
+            retry_after=numeric(response.headers.get('Retry-After'))
+            time.sleep(min(15,max(1,retry_after if retry_after is not None else 10)))
+            response=requests.get('https://apiservice.borsdata.se/v1/'+paths[kind],
+                                  params={'authKey':api_key,'instList':instrument_id},timeout=15)
         if not response.ok: return [],'Börsdata HTTP '+str(response.status_code)
         payload=response.json()
         groups=payload.get('list') if isinstance(payload,dict) else None
@@ -1408,6 +1414,21 @@ def borsapi_debt_ebitda_map(api_key):
         result={str(row['i']):numeric(row.get('n')) for row in rows if isinstance(row,dict) and row.get('i') is not None}
         return result,'' if result else 'Tomt nyckeltalssvar'
     except Exception as exc: return {},type(exc).__name__
+
+def abb_r12_ebita(symbol, record, period):
+    if symbol!='ABB.ST' or str(period)[:10]!='2026-09-30' or record.get('currency')!='USD':
+        return None
+    # The 2025 and 2026 reports reconcile continuing operations on the same basis.
+    # Cross-check the provider's EBIT before applying the filings' amortization bridge.
+    ebit=5211+6047-4542
+    if bd_field(record,'operating_Income')!=ebit: return None
+    return {
+        'value':(ebit+149+185-139)*1e6,
+        'sources':(
+            'https://library.e.abb.com/public/add34d4881164f39abfd190711d92bea/ABB-Q3-2026-Financial-Information.pdf',
+            'https://library.e.abb.com/public/efa424a5e55545ef99275bfafc6ff638/ABB-Q4-2025-financial-information.pdf',
+        ),
+    }
 
 @st.cache_data(ttl=86400,show_spinner=False)
 def report_ebita_extract(website, company, period, currency):
@@ -1949,6 +1970,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     rdebt=ramount('net_Debt')
                     rsales=ramount('revenues')
                     rebita=ramount('ebita')
+                    filing=abb_r12_ebita(symbol,rec,rdate) if rebita is None else None
+                    if filing: rebita=filing['value']
                     if rebita is None and rebit is not None:
                         amort=ramount('amortization_Of_Intangibles')
                         if amort is not None: rebita=rebit+abs(amort)
@@ -1975,6 +1998,9 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                         r12_used=True
                         out['period']=str(rdate.date())
                         out['source']='Börsdata Pro+ R12 · matchad valuta och period'
+                        if filing:
+                            out['ebita_sources']=filing['sources']
+                            out['source']='ABB:s rapporter (beräknad EBITA) + Börsdata R12'
                         if rebita is None: out['missing'].append('R12: separat EBITA saknas.')
                         if rfcff is None: out['missing'].append('R12: FCFF saknar komplett underlag.')
             has_complete_model=earnings is not None and earnings_label!='EBIT' and fcff is not None and fcff>0 and debt is not None
@@ -3046,6 +3072,9 @@ if model_ebita is not None and model_currency==report_ccy and valuation_debt is 
     ev_ebita=(market_cap*model_rate+valuation_debt)/ebita if market_cap is not None and model_rate and ebita>0 else None
     ev_ebita_source='Värderingsmodell '+str(valuation_result.get('period') or '')
     st.caption('EBITA: '+ev_ebita_source)
+    if valuation_result.get('ebita_sources'):
+        st.markdown('EBITA = rapporterat EBIT plus förvärvsrelaterade avskrivningar. '+
+                    ' · '.join(f'[Källrapport {i}]({url})' for i,url in enumerate(valuation_result['ebita_sources'],1)))
 
 st.caption('Börsvärde: '+str(info.get('_cap_source') or 'Ej verifierat')+' · Leverantörens eget börsvärde, inte egen beräkning.')
 av_snapshot=info.get('_avanza_snapshot',{})
