@@ -337,6 +337,9 @@ def fetch(ticker):
     info['currency']='DKK' if ticker.endswith('.CO') else 'SEK' if ticker.endswith('.ST') else None
     instruments,_=borsapi_instruments(borsapi_key())
     identity,_=borsapi_instrument(ticker,borsapi_key())
+    known_currency=str(identity.get('stockPriceCurrency') or '').strip().upper()
+    if len(known_currency)==3 and known_currency.isalpha():
+        info['currency']=known_currency
     iid=str(identity.get('instrument_id') or '')
     for inst in instruments:
         if iid and str(inst.get('insId') or inst.get('insID') or inst.get('instrumentId') or '')==iid:
@@ -1208,6 +1211,30 @@ def borsapi_instrument(symbol,api_key):
     if len(indexed)!=1: return {},'Instrument-ID kunde inte matchas entydigt för noteringen'
     instrument_id,item=next(iter(indexed.items()))
     return {**item,'instrument_id':instrument_id},''
+
+@st.cache_data(ttl=1800,show_spinner=False)
+def borsapi_instrument_events(symbol,api_key,kind):
+    instrument,error=borsapi_instrument(symbol,api_key)
+    instrument_id=instrument.get('instrument_id')
+    if not instrument_id: return [],error
+    paths={'calendar':'instruments/report/calendar','insider':'holdings/insider'}
+    try:
+        response=requests.get('https://apiservice.borsdata.se/v1/'+paths[kind],
+                              params={'authKey':api_key,'instList':instrument_id},timeout=15)
+        if not response.ok: return [],'Börsdata HTTP '+str(response.status_code)
+        payload=response.json()
+        groups=payload.get('list') if isinstance(payload,dict) else None
+        if not isinstance(groups,list): return [],'Oväntat svarsformat från Börsdata.'
+        for group in groups:
+            if not isinstance(group,dict) or str(group.get('insId'))!=instrument_id: continue
+            if group.get('error'): return [],'Börsdata rapporterade ett fel för instrumentet.'
+            values=group.get('values')
+            if values is None: return [],''
+            if not isinstance(values,list): return [],'Oväntad lista från Börsdata.'
+            return [row for row in values if isinstance(row,dict)],''
+        return [],''
+    except (requests.RequestException,ValueError):
+        return [],'Börsdata kunde inte nås eller tolkas.'
 
 @st.cache_data(ttl=1800,show_spinner=False)
 def borsapi_reports(symbol,api_key):
@@ -2490,7 +2517,7 @@ with st.sidebar:
     st.caption(f'Ticker: {ticker or "–"}')
     if st.button('Uppdatera data', use_container_width=True):
         for loader in (borsapi_instruments,borsapi_instrument,borsapi_reports,borsapi_history,
-                       borsapi_r12_records,borsapi_market_cap_map,borsapi_debt_ebitda_map,
+                       borsapi_r12_records,borsapi_market_cap_map,borsapi_debt_ebitda_map,borsapi_instrument_events,
                        avanza_market_snapshot,extended_financials,long_history,ecb_exchange_rates,
                        trailing_dividend_yield,fetch,screener_snapshot,roic_company_data,
                        roic_quarterly_income,roic_annual_cashflow):
@@ -4495,31 +4522,38 @@ with four:
             else:
                 st.write('Aktien handlas över modellvärdet. Modellen ger inte stöd för köp till aktuell kurs.')
             st.caption('Bedömningen gäller modellens antaganden, inte en garanti för avkastning.')
-        st.markdown('#### Ägarstruktur och insidertransaktioner')
-        if st.button('Hämta ägar- och insideruppgifter',key='load_ownership'):
-            try:
-                obj=yf.Ticker(ticker)
-                for title,attribute in [('Större ägare','major_holders'),('Institutionella ägare','institutional_holders'),('Insidertransaktioner','insider_transactions')]:
-                    st.write('**'+title+'**')
-                    try:
-                        frame=getattr(obj,attribute)
-                        if isinstance(frame,pd.DataFrame) and not frame.empty:
-                            st.dataframe(frame,use_container_width=True)
-                        else: st.caption('Datakällan saknar uppgifter.')
-                    except Exception: st.caption('Uppgifterna kunde inte hämtas.')
-                st.caption('Källa: Börsdata/Avanza. Täckning för svenska insidertransaktioner är inte fullständig; kontrollera mot Finansinspektionens insynsregister.')
-            except Exception: st.info('Ägaruppgifter är inte tillgängliga just nu.')
-        st.caption('DCF och EV/EBITA viktas lika när båda kan beräknas. En ensam modell visas separat. Beräkningar är modellscenarier och rapportdata behöver verifieras.')
+        st.markdown('#### Insidertransaktioner')
+        if st.button('Hämta insidertransaktioner',key='load_ownership'):
+            records,error=borsapi_instrument_events(ticker,borsapi_key(),'insider')
+            if error:
+                st.warning(error)
+            elif records:
+                columns={'transactionDate':'Affärsdatum','ownerName':'Namn','ownerPosition':'Befattning',
+                         'shares':'Antal aktier','price':'Pris per aktie','amount':'Belopp','currency':'Valuta'}
+                trades=pd.DataFrame(records)
+                if 'transactionDate' in trades:
+                    trades=trades.sort_values('transactionDate',ascending=False)
+                st.dataframe(trades.reindex(columns=columns).rename(columns=columns).head(50),hide_index=True)
+                st.caption('Källa: Börsdata Pro+. Upp till 50 senaste registrerade transaktioner.')
+            else:
+                st.info('Börsdata har inga registrerade insidertransaktioner för noteringen.')
+        st.caption('DCF och EV/EBITA viktas lika när båda kan beräknas. En ensam modell visas separat.')
         with st.expander('Rapportkalender och rapportbevakning'):
             if st.button('Hämta rapportdatum',key='report_calendar_load'):
-                try:
-                    calendar=yf.Ticker(ticker).calendar
-                    if isinstance(calendar,dict) and calendar:
-                        st.dataframe(pd.DataFrame([{'Händelse':k,'Uppgift':str(x)} for k,x in calendar.items()]),hide_index=True)
-                    elif isinstance(calendar,pd.DataFrame) and not calendar.empty: st.dataframe(calendar)
-                    else: st.info('Inga rapportdatum tillgängliga.')
-                except Exception: st.info('Rapportkalendern kunde inte hämtas.')
-            st.caption('Börsdata/Avanza; datum kan ändras. Ingen automatisk avisering utanför appen.')
+                records,error=borsapi_instrument_events(ticker,borsapi_key(),'calendar')
+                if error:
+                    st.warning(error)
+                else:
+                    events=[]
+                    for record in records:
+                        published=pd.to_datetime(record.get('releaseDate'),errors='coerce',utc=True)
+                        if pd.notna(published) and published.date()>=dt.date.today():
+                            events.append({'Rapportdatum':published.date(),'Rapport':record.get('reportType')})
+                    if events:
+                        st.dataframe(pd.DataFrame(events).sort_values('Rapportdatum'),hide_index=True)
+                    else:
+                        st.info('Börsdata har inga kommande rapportdatum för noteringen.')
+            st.caption('Källa: Börsdata Pro+. Rapporterade datum kan ändras.')
         with st.expander('Portföljanalys'):
             st.caption('Ange innehav i SEK. Portföljens modellpotential beräknas endast för innehav med tillgängligt modellvärde och utan granskningsavvikelse.')
             holdings=st.data_editor(pd.DataFrame([{'Bolag':name,'Marknadsvärde SEK':0.0}]),num_rows='dynamic',key='portfolio_holdings',column_config={'Bolag':st.column_config.SelectboxColumn(options=sorted(ALL_COMPANIES)),'Marknadsvärde SEK':st.column_config.NumberColumn(min_value=0.0)},hide_index=True)
