@@ -122,6 +122,29 @@ class QualityTests(unittest.TestCase):
         self.assertNotIn("fcff",calc(income,cash,{**record,"cash_Flow_From_Operating_Activities":200},end,trailing=True))
         self.assertNotIn("ebita",calc(income.rename(index={"Amortization Of Intangibles Income Statement":"Amortization Cash Flow"}),cash,record,end,trailing=True))
 
+    def test_yahoo_reconciles_net_sales_without_overwriting_revenue(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        annual=load_function("comparable_yahoo_periods",ns)
+        fill=load_function("fill_matching_statement_periods",ns)
+        trailing=load_function("yahoo_r12_bridge",ns)
+        end=pd.Timestamp("2026-09-30")
+        primary=pd.DataFrame({end:[1100e6,1000e6,100e6]},index=["Total Revenue","Net Sales","Operating Income"])
+        income=pd.DataFrame({end:[1000e6,100e6,8e6]},index=["Total Revenue","Operating Income","Amortization Of Intangibles"])
+        cash=pd.DataFrame({end:[120e6,20e6,-24e6,-4e6]},index=["Operating Cash Flow","Depreciation And Amortization","Capital Expenditure","Change In Working Capital"])
+        record={"revenues":1100,"net_Sales":1000,"operating_Income":100,"cash_Flow_From_Operating_Activities":120}
+        self.assertEqual(list(annual(primary,income)),[end])
+        merged=fill(primary,income,annual(primary,income))
+        self.assertEqual(merged.at["Total Revenue",end],1100e6)
+        self.assertEqual(merged.at["Amortization Of Intangibles",end],8e6)
+        self.assertAlmostEqual(trailing(income,cash,record,end,trailing=True)["ebita"],108e6)
+        wrong=income.copy()
+        wrong.at["Operating Income",end]=90e6
+        self.assertTrue(annual(primary,wrong).empty)
+        self.assertEqual(trailing(wrong,cash,record,end,trailing=True),{})
+        self.assertEqual(trailing(income,cash,{**record,"net_Sales":900},end,trailing=True),{})
+
     def test_emission(self):
         calc = load_function("emission_adjustment", {})
         result = calc(100, 200, 10, 20, 500, 1000)
