@@ -4327,7 +4327,7 @@ with business_tab:
             ('Kundnytta','Flera sätt att handla',
              'Butikerna erbjuder vägledning, inspiration och lokal tillgång. E-handeln ger ett bredare sökbart sortiment och Bokus Play erbjuder digital läsning och lyssning.',brand),
             ('Konkurrensfördelar','Starkt butiksnät',
-             'Akademibokhandeln uppger 68 % andel i fysisk bokhandel. Nätet och varumärket ger räckvidd. Fördelen är starkast i fysisk handel. Bokus e-handel tappade trafik i Q3 2026.',quarter),
+             'Akademibokhandeln uppger 68 % andel i fysisk bokhandel. Nätet och varumärket ger räckvidd. Fördelen är starkast i fysisk handel.',brand),
             ('AI-risk','Måttlig risk',
              'AI-svar och nya sökvanor kan minska trafiken från sökmotorer till Bokus. Ledningen arbetar med synlighet i sök och AI-svar. Delårsrapporten visar lägre trafik, men särredovisar inte hur mycket av nedgången som beror på AI.',quarter),
             ('Prissättningskraft','Blandad',
