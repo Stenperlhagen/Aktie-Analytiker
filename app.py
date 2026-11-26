@@ -324,6 +324,8 @@ def fetch(ticker):
     info['_cap_source']=capitalization['source']
     info['_cap_warnings']=capitalization['warnings']
     info['_cap_verified']=capitalization['verified']
+    info['_preferred_cap']=capitalization.get('preferred_cap') if capitalization['verified'] else None
+    info['_common_cap']=capitalization.get('common_cap')
     info['marketCap']=capitalization['market_cap']
     quick['market_cap']=capitalization['market_cap']
     if capitalization['shares'] is not None:
@@ -1231,12 +1233,39 @@ def verified_capitalization(symbol,info,quick,fin,history):
         result['warnings'].append('Aktuell aktiekurs eller handelsvaluta saknas.')
         return result
     cap=price*shares
+    result['common_cap']=cap
+    result['preferred_cap']=0.0
+    instruments,_=borsapi_instruments(borsapi_key())
+    base=symbol.removesuffix('.ST').split('-')[0]
+    pref_symbols=set()
+    for inst in instruments:
+        for key in ('ticker','tickerSymbol','symbol','yahoo'):
+            raw=str(inst.get(key) or '').upper().removesuffix('.ST')
+            if raw in (base+' PREF',base+'-PREF',base+'-P',base+' PREF A',base+'-D',base+' D'):
+                pref_symbols.add(raw.replace(' ','-')+'.ST')
+    if symbol=='VOLO.ST': pref_symbols.add('VOLO-PREF.ST')
+    for pref_symbol in sorted(pref_symbols):
+        pref_shares=1603774 if symbol=='VOLO.ST' and pref_symbol=='VOLO-PREF.ST' and date=='2026-09-30' else None
+        if pref_shares is None:
+            result['warnings'].append('Separat aktieslag '+pref_symbol+' kräver verifierat aktieantal; totalt börsvärde spärrat.')
+            return result
+        pref_history,_=borsapi_history(pref_symbol,borsapi_key())
+        if pref_history.empty:
+            try: pref_history=yf.Ticker(pref_symbol).history(period='5d',auto_adjust=False)
+            except Exception: pref_history=pd.DataFrame()
+        if pref_history.empty or (pd.Timestamp.now().normalize()-pd.Timestamp(pref_history.index[-1]).tz_localize(None).normalize()).days>7:
+            result['warnings'].append('Aktuell preferensaktiekurs saknas; totalt börsvärde spärrat.')
+            return result
+        pref_price=numeric(pref_history.Close.iloc[-1])
+        if pref_price is None or pref_price<=0: return result
+        result['preferred_cap']+=pref_shares*pref_price
+    cap+=result['preferred_cap']
     if yahoo_cap and abs(cap/yahoo_cap-1)>0.08:
         notes.append('Yahoo-börsvärdet avviker över 8 % och används inte.')
     if yahoo_shares and abs(shares/yahoo_shares-1)>0.08:
         notes.append('Yahoo-aktieantalet avviker över 8 % och används inte.')
     if symbol=='VOLO.ST':
-        notes.append('Börsvärdet avser stamaktier; preferensaktier ingår inte.')
+        notes.append('Stamaktier och preferensaktier värderas separat och summeras.')
     if symbol.endswith(('-A.ST','-B.ST','-C.ST')) or symbol in ('VOLO.ST','SAMPO-SDB.ST'):
         notes.append('Olika aktieslag kan ha olika kurser: värdet är en approximation.')
     result.update(market_cap=cap,source=source+' '+date,warnings=notes,verified=True)
@@ -1898,7 +1927,9 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
             if use_ebit:
                 out['assumptions'].pop('EV/EBITA',None)
                 out['assumptions']['EV/EBIT']=effective_multiple
-            multiple_value=comparable_ev_ebita(earnings,debt,shares,effective_multiple,fx)
+            preferred_market=info.get('_preferred_cap')
+            adjusted_debt=debt+preferred_market/fx if debt is not None and preferred_market is not None and fx and fx>0 else None
+            multiple_value=comparable_ev_ebita(earnings,adjusted_debt,shares,effective_multiple,fx)
             if multiple_value is not None: out['models']['EV/EBIT' if use_ebit else 'EV/EBITA']=multiple_value
             else: out['missing'].append('EV/EBITA: jämförbar EBITA, nettoskuld, aktier eller valuta')
             if fcff is not None and fcff>0 and debt is not None and shares and shares>0 and fx and fx>0:
@@ -1906,10 +1937,10 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 def ev(growth):
                     flows=[fcff*(1+growth)**t for t in range(1,6)]
                     return sum(v/(1+rate)**t for t,v in enumerate(flows,1))+flows[-1]*1.02/(rate-0.02)/(1+rate)**5
-                dcf=(ev(g/100)-debt)*fx/shares
+                dcf=(ev(g/100)-adjusted_debt)*fx/shares if adjusted_debt is not None else 0
                 if dcf>0: out['models']['DCF']=dcf
                 if price and price>0:
-                    market_ev=price*shares/fx+debt
+                    market_ev=price*shares/fx+adjusted_debt if adjusted_debt is not None else float('inf')
                     lo,hi=-0.5,0.5
                     if ev(lo)<=market_ev<=ev(hi):
                         for _ in range(60):
@@ -2054,6 +2085,10 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
     if out.get('audit'):
         out['missing'].extend(out['audit'])
         if target is not None: out['unreviewed_target']=target
+    if not info.get('_cap_verified'):
+        out['target']=None
+        target=None
+        out['models']={}
     if target is not None and price is not None and price>0:
         out['upside']=(target/price-1)*100
         out['buy_limit']=target*0.8
@@ -2302,10 +2337,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v45-capitalization':
+if st.session_state.get('screener_model_version')!='unified-v46-share-classes':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v45-capitalization'
+    st.session_state['screener_model_version']='unified-v46-share-classes'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -2656,7 +2691,7 @@ valuation_fx=valuation_inputs.get('Valutakurs')
 valuation_shares=valuation_inputs.get('Antal aktier')
 valuation_price=valuation_result.get('price')
 if all(x is not None for x in (valuation_earnings,valuation_debt,valuation_fx,valuation_shares,valuation_price)) and valuation_earnings>0 and valuation_fx>0 and valuation_shares>0 and valuation_price>0:
-    ev_ebita=(valuation_price*valuation_shares/valuation_fx+valuation_debt)/valuation_earnings
+    ev_ebita=(market_cap/valuation_fx+valuation_debt)/valuation_earnings if market_cap is not None else None
 if valuation_earnings is not None:
     ebita=valuation_earnings
     st.caption('EBITA: värderingsunderlag '+str(valuation_result.get('period') or 'okänd period')+' · '+str(valuation_result.get('source') or 'okänd källa'))
@@ -2762,7 +2797,7 @@ if ticker=='WBGR-B.ST' and quote_ccy=='SEK' and (pd.Timestamp.now()-pd.Timestamp
     roe_overview=-20
     opcf=-82e6
     netdebt=72e6
-    market_cap=valuation_price*175988388 if valuation_price is not None else market_cap
+    # Market capitalization remains governed by the shared capitalization check.
     pe=valuation_price/(-1.00) if valuation_price is not None else None
     valuation_result['pe_zero']=False
     st.caption('Wästbygg: rapporterade R12-värden per 2026-09-30. [Delårsrapport](https://storage.mfn.se/483f4127-3e38-4f38-8898-fd6d6f348c61/delarsrapport-q3-2026-sv.pdf). Aktieantal 175 988 388 och nettoskuld 72 M inkluderar genomförd emission.')
