@@ -3044,6 +3044,23 @@ if report_fallback and ev_ebita is not None:
 elif ev_ebita is not None and ev_ebita_source.startswith('Börsdata årsrapport '):
     ebita_period_label=ev_ebita_source.split()[2][:4]
 ev_ebita_label='EV/EBITA'+(' ('+ebita_period_label+')' if ebita_period_label else '')
+def reported_operating_metrics(record, report_currency, trade_currency, market_cap):
+    if not record or str(record.get('currency') or '').upper()!=report_currency:
+        return {}
+    def amount(field):
+        value=bd_field(record,field)
+        return value*1e6 if value is not None else None
+    ebit=amount('operating_Income')
+    debt=amount('net_Debt')
+    fx=fx_rate(trade_currency,report_currency) if market_cap is not None else None
+    enterprise_value=market_cap*fx+debt if fx and debt is not None else None
+    return {
+        'ebit':ebit,
+        'net_debt':debt,
+        'free_cash_flow':amount('free_Cash_Flow'),
+        'ev_ebit':enterprise_value/ebit if enterprise_value is not None and ebit and ebit>0 else None,
+    }
+
 overview_items = [
     ('Börsvärde',show(market_cap/1e9,' mdkr',2) if market_cap is not None and quote_ccy=='SEK' else (show(market_cap/1e9,' md '+(quote_ccy or ''),2) if market_cap is not None else 'Saknas')),
     ('Aktiekurs ('+str(quote_ccy or '–')+')',show(valuation_price,'',2)),
@@ -3228,6 +3245,28 @@ if overview_category in ('Fastigheter','Försäkring','Forskningsbolag','Läkeme
     else:
         overview_items=common+[money_metric('Omsättning',revenue),money_metric('Operativt kassaflöde',opcf),money_metric('Investeringar',sector_metric(cash,['Capital Expenditure'])),money_metric('Nettoskuld',sector_metric(balance,['Net Debt'])),money_metric('Nettoresultat',net_income),money_metric('Kassa',liquid),overview_items[-1]]
     st.caption('Sektoranpassade nyckeltal. Specialiserade rapportfält visas endast när de finns; belopp kan avse olika rapportperioder.')
+
+if overview_category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
+    fiscal_label=str(report_ccy or 'okänd valuta')
+    for index in (2,5,7):
+        label,value=overview_items[index]
+        suffix=' M'+fiscal_label
+        if value.endswith(suffix):
+            overview_items[index]=(label.replace(' (LTM/helår)','')+' (M'+fiscal_label+')',value[:-len(suffix)])
+    if bd_overview and bd_overview_period:
+        reported=reported_operating_metrics(bd_overview[0],report_ccy,quote_ccy,market_cap)
+        actual_ebit=reported.get('ebit')
+        actual_multiple=reported.get('ev_ebit')
+        if ebita is None and actual_ebit is not None:
+            overview_items[5]=('EBIT (R12, M'+fiscal_label+')',show(actual_ebit/1e6,'',0))
+        if ev_ebita is None and actual_multiple is not None:
+            overview_items[9]=('EV/EBIT (R12)',show(actual_multiple,'×',1))
+        for label,key in (('Fritt kassaflöde','free_cash_flow'),('Nettoskuld','net_debt')):
+            amount=reported.get(key)
+            if amount is not None:
+                overview_items.append((label+' (M'+fiscal_label+')',show(amount/1e6,'',0)))
+        if reported.get('free_cash_flow') is not None:
+            st.caption('Fritt kassaflöde: Börsdata R12 '+bd_overview_period+'. DCF använder separat beräknat FCFF.')
 
 for start in range(0,len(overview_items),4):
     cols=st.columns(4)
