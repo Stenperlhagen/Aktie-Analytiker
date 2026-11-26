@@ -117,6 +117,24 @@ if __name__=='__main__':
     globals().update({name:lru_cache(maxsize=512)(adapter) if name not in ('verified_capitalization','borsapi_annual_frames') else adapter for name,adapter in production_adapters.items()})
     globals()['ecb_exchange_rates']=lru_cache(maxsize=1)(ecb_exchange_rates)
     ALL_COMPANIES={name:sym for name,sym in ALL_COMPANIES.items() if sym not in {'FNOX.ST','COALA.ST','ADDV-B.ST','ADDV-A.ST'}}
+    if '--probe' in sys.argv:
+        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-A.ST','TRUE-B.ST'):
+            key=borsapi_key()
+            info,hist,fin,cash,balance,quick,errors=fetch(symbol)
+            annual,_=borsapi_reports(symbol,key)
+            trailing=borsapi_r12_records(symbol,key)
+            model=valuation_engine(symbol,info,fin,cash,balance,quick,hist)
+            annual_records=annual.get('periods',[])
+            print(symbol,'annual',len(annual_records),'R12',len(trailing),'prices',len(hist),
+                  'report currency',info.get('financialCurrency'),'listing currency',info.get('currency'),
+                  'EPS',info.get('trailingEps'),'P/E',model.get('pe_ttm'),
+                  'market cap present',info.get('_cap_verified'),'profile',model.get('profile'),
+                  'inputs',model.get('inputs'),'issues',model.get('missing'),'provider status',errors,
+                  flush=True)
+            if symbol=='ABB.ST':
+                for period,records in (('annual',annual_records),('R12',trailing)):
+                    print(period,'response fields', sorted(records[0]) if records else [],flush=True)
+        sys.exit(0)
     rows=[]
     failures=[]
     for symbol in dict.fromkeys(ALL_COMPANIES.values()):
