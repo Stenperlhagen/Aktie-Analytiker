@@ -260,25 +260,39 @@ def avanza_market_snapshot(symbol):
         headers={'Accept':'application/json','User-Agent':'EquityLab market data'}
         with requests.Session() as session:
             session.headers.update(headers)
-            response=session.post(root+'/_api/search/filtered-search',json={'query':isin,'searchFilter':{'types':['STOCK']},'pagination':{'from':0,'size':50}},timeout=12)
-            response.raise_for_status()
+            # The authenticated registry is discovery only: always revalidate the actual detail response.
+            import json
+            from pathlib import Path
             ids=set()
-            def visit(hit,kind=None):
-                if not isinstance(hit,dict): return
-                kind=str(hit.get('type') or hit.get('instrumentType') or kind or '').upper()
-                if kind and kind!='STOCK': return
-                for field in ('topHits','hits'):
-                    for child in hit.get(field) or []: visit(child,kind)
-                if isinstance(hit.get('instrument'),dict): visit(hit['instrument'],kind)
-                path=urllib.parse.urlsplit(str(hit.get('path') or '')).path
-                match=re.search(r'(?:^|/)(?:om-aktien[.]html|stock)/([0-9]+)(?:/|$)',path)
-                if match: ids.add(match.group(1))
-                if kind=='STOCK' or hit.get('tickerSymbol'):
-                    for field in ('orderBookId','orderbookId','id'):
-                        value=str(hit.get(field) or '')
-                        if value.isdigit(): ids.add(value)
-            for hit in response.json().get('hits') or []: visit(hit)
-            if len(ids)>10: return {},'Avanza: för många kandidater'
+            try:
+                entries=json.loads(Path(__file__).with_name('avanza-registry.json').read_text(encoding='utf-8'))['listings']
+                entry=entries.get(symbol,{})
+                candidate=str(entry.get('orderbook_id') or '')
+                if (candidate.isdigit() and entry.get('isin')==isin and
+                    norm(entry.get('ticker'))==ticker and entry.get('currency')==currency and entry.get('market_code')==market):
+                    ids.add(candidate)
+            except (OSError,ValueError,KeyError,TypeError):
+                pass
+            if not ids:
+                response=session.post(root+'/_api/search/filtered-search',json={'query':isin,'searchFilter':{'types':['STOCK']},'pagination':{'from':0,'size':50}},timeout=12)
+                response.raise_for_status()
+                ids=set()
+                def visit(hit,kind=None):
+                    if not isinstance(hit,dict): return
+                    kind=str(hit.get('type') or hit.get('instrumentType') or kind or '').upper()
+                    if kind and kind!='STOCK': return
+                    for field in ('topHits','hits'):
+                        for child in hit.get(field) or []: visit(child,kind)
+                    if isinstance(hit.get('instrument'),dict): visit(hit['instrument'],kind)
+                    path=urllib.parse.urlsplit(str(hit.get('path') or '')).path
+                    match=re.search(r'(?:^|/)(?:om-aktien[.]html|stock)/([0-9]+)(?:/|$)',path)
+                    if match: ids.add(match.group(1))
+                    if kind=='STOCK' or hit.get('tickerSymbol'):
+                        for field in ('orderBookId','orderbookId','id'):
+                            value=str(hit.get(field) or '')
+                            if value.isdigit(): ids.add(value)
+                for hit in response.json().get('hits') or []: visit(hit)
+                if len(ids)>10: return {},'Avanza: för många kandidater'
             matches=[]
             for iid in sorted(ids):
                 response=session.get(root+'/_api/market-guide/stock/'+iid,timeout=12)
