@@ -1114,17 +1114,13 @@ def borsapi_reports(symbol,api_key):
     """Rapporter via dokumenterat Börsdata API, bara med entydigt matchat instrument."""
     instruments,error=borsapi_instruments(api_key)
     if error: return {},error
-    requested=symbol.removesuffix('.ST').removesuffix('.CO').upper()
-    def normalize(s): return re.sub(r'[^A-Z0-9]','',str(s).upper().removesuffix('.ST').removesuffix('.CO'))
-    matches=[]
-    for inst in instruments:
-        if not isinstance(inst,dict): continue
-        candidates=[inst.get(k) for k in ('ticker','tickerSymbol','symbol','shortName','stockSymbol','yahoo')]
-        if normalize(requested) in [normalize(c) for c in candidates if c]:
-            matches.append(inst)
+    requested=symbol.strip().upper()
+    matches=[inst for inst in instruments if isinstance(inst,dict) and
+             str(inst.get('yahoo') or '').strip().upper()==requested]
     ids={str(x.get('insId') or x.get('insID') or x.get('instrumentId') or '') for x in matches}
     ids.discard('')
-    if len(ids)!=1: return {},'Instrument-ID kunde inte matchas entydigt'
+    if len(matches)!=1 or len(ids)!=1:
+        return {},'Instrument-ID kunde inte matchas entydigt för exakt notering'
     instrument_id=next(iter(ids))
     try:
         response=requests.get(
