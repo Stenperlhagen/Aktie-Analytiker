@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install pandas yfinance
+      - run: pip install pandas requests pypdf
       - run: python valuation_audit.py
         env:
           ROIC_API_KEY: ${{ secrets.ROIC_API_KEY }}
@@ -26,3 +26,17 @@ jobs:
         with:
           name: valuation-audit
           path: valuation-audit.csv
+  live-coverage:
+    if: github.ref == 'refs/heads/repair/live-valuation-audit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas requests pypdf
+      - run: python valuation_audit.py
+        env:
+          EQUITYLAB_LIVE_AUDIT: '1'
+          BORSAPI_API_KEY: ${{ secrets.BORSAPI_API_KEY }}
