@@ -344,14 +344,14 @@ def yahoo_annual_statements(symbol,trade_currency,report_currency):
         statements.append(pd.DataFrame())
     return tuple(statements)
 
-def yahoo_r12_bridge(income, cash, record, period):
+def yahoo_r12_bridge(income, cash, record, period, trailing=False):
     """Return only explicit components from four exact quarterly periods.
     Independently reconcile quarterly flows to Börsdata R12 before using them.
     All statement values are in original reporting currency, not millions.
     """
     end=pd.Timestamp(period).normalize()
     if not end.is_month_end: return {}
-    dates=pd.DatetimeIndex([end-pd.offsets.MonthEnd(3*i) for i in range(4)])
+    dates=pd.DatetimeIndex([end] if trailing else [end-pd.offsets.MonthEnd(3*i) for i in range(4)])
     def total(frame, labels):
         if not dates.isin(frame.columns).all(): return None
         for label in labels:
@@ -366,10 +366,11 @@ def yahoo_r12_bridge(income, cash, record, period):
         return abs(value-reference)<=max(0.5e6,0.02*max(abs(value),abs(reference)))
     revenue=total(income,['Total Revenue'])
     ebit=total(income,['Operating Income'])
-    if not (matches(revenue,'revenues') and matches(ebit,'operating_Income')): return {}
+    operating_revenue=total(income,['Operating Revenue'])
+    if not ((matches(revenue,'revenues') or matches(operating_revenue,'net_Sales')) and matches(ebit,'operating_Income')): return {}
     result={}
     explicit=total(income,['EBITA'])
-    amort=total(income,['Amortization Of Intangibles','Amortization Of Intangible Assets'])
+    amort=total(income,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'])
     if explicit is not None:
         result['ebita']=explicit
     elif amort is not None:
@@ -377,7 +378,7 @@ def yahoo_r12_bridge(income, cash, record, period):
     ocf=total(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'])
     if not matches(ocf,'cash_Flow_From_Operating_Activities'): return result
     if 'ebita' not in result:
-        amort=total(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'])
+        amort=total(cash,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'])
         if amort is not None:
             result['ebita']=bd_field(record,'operating_Income')*1e6+abs(amort)
     da=total(cash,['Depreciation And Amortization','Depreciation Amortization Depletion'])
@@ -398,13 +399,26 @@ def matched_yahoo_r12(symbol, trade_currency, report_currency, record, period):
             str(profile.get('currency') or '').upper()!=trade_currency or
             str(profile.get('financialCurrency') or '').upper()!=report_currency):
             return {}
-        frames=[]
-        for attribute in ('quarterly_income_stmt','quarterly_cashflow'):
-            frame=getattr(listing,attribute).copy()
-            frame.columns=pd.to_datetime(frame.columns,errors='coerce',utc=True).tz_localize(None).normalize()
-            frame=frame.loc[:,frame.columns.notna() & ~frame.columns.duplicated(keep=False)]
-            frames.append(frame)
-        return yahoo_r12_bridge(*frames,record,period)
+        def frames(attributes):
+            result=[]
+            for attribute in attributes:
+                try:
+                    frame=getattr(listing,attribute).copy()
+                    frame.columns=pd.to_datetime(frame.columns,errors='coerce',utc=True).tz_localize(None).normalize()
+                    frame=frame.loc[:,frame.columns.notna() & ~frame.columns.duplicated(keep=False)]
+                except Exception:
+                    frame=pd.DataFrame()
+                result.append(frame)
+            return result
+        result=yahoo_r12_bridge(*frames(('quarterly_income_stmt','quarterly_cashflow')),record,period)
+        if not all(key in result for key in ('ebita','fcff')):
+            # Yahoo exposes separately dated TTM statements. Reconcile the
+            # complete trailing flows independently; never sum a TTM column
+            # with quarterly observations or accept an undated TTM label.
+            ttm=yahoo_r12_bridge(*frames(('ttm_income_stmt','ttm_cashflow')),record,period,trailing=True)
+            for key,value in ttm.items():
+                result.setdefault(key,value)
+        return result
     except Exception:
         return {}
 
@@ -509,7 +523,7 @@ def fetch(ticker):
     if not fin.empty:
         newest=max(fin.columns)
         has_ebita=any(row in fin.index and numeric(fin.at[row,newest]) is not None
-                      for row in ('EBITA','Amortization Of Intangibles'))
+                      for row in ('EBITA','Amortization Of Intangibles','Amortization Of Intangibles Income Statement'))
         has_fcff_inputs=all(row in cash.index and newest in cash.columns and numeric(cash.at[row,newest]) is not None
                             for row in ('Capital Expenditure','Depreciation And Amortization','Change In Working Capital'))
         if not (has_ebita and has_fcff_inputs):
@@ -2139,9 +2153,9 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 earnings=row(fin,['EBITA'],period)
                 if earnings is None:
                     ebit=row(fin,['Operating Income','EBIT'],period)
-                    amort=row(fin,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+                    amort=row(fin,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
                     if amort is None and period in cash.columns:
-                        amort=row(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+                        amort=row(cash,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
                     if ebit is not None:
                         earnings=ebit+abs(amort) if amort is not None else ebit
                         earnings_label='EBITA (beräknad)' if amort is not None else 'EBIT'
@@ -2194,7 +2208,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     # Preserve matched evidence even if a separate annual model has more complete inputs.
                     if rccy==report and rebit is not None and rsales is not None and rsales>0 and rebita is not None:
                         out['r12_ebita_evidence']={'value':rebita,'period':str(rdate.date()),'currency':rccy,
-                                                   'net_debt':rdebt,'source':'Bolagsrapport (avstämd)' if filing else 'Yahoo Finance (avstämda kvartal)' if bridge.get('ebita') is not None else 'Börsdata Pro+',
+                                                   'net_debt':rdebt,'source':'Bolagsrapport (avstämd)' if filing else 'Yahoo Finance (avstämd R12)' if bridge.get('ebita') is not None else 'Börsdata Pro+',
                                                    'sources':filing['sources'] if filing else ()}
                     # Do not discard a usable annual EBITA or FCFF model for an incomplete R12 bundle.
                     rda=ramount('depreciation_And_Amortization')
@@ -2216,7 +2230,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                         out['period']=str(rdate.date())
                         out['source']='Börsdata Pro+ R12 · matchad valuta och period'
                         if bridge:
-                            out['source']+=' + Yahoo Finance (avstämda kvartalsrapporter)'
+                            out['source']+=' + Yahoo Finance (avstämd R12)'
                         if filing:
                             out['ebita_sources']=filing['sources']
                             if filing.get('fcff_note'): out['fcff_note']=filing['fcff_note']
@@ -2687,7 +2701,7 @@ def growth_stability(fin):
         rev=get(p,['Total Revenue','Operating Revenue'])
         ebit=get(p,['Operating Income','EBIT'])
         ebita=get(p,['EBITA'])
-        amort=get(p,['Amortization Of Intangibles','Amortization Of Intangible Assets'])
+        amort=get(p,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'])
         if ebita is None and ebit is not None and amort is not None: ebita=ebit+abs(amort)
         rows.append({'date':str(p)[:10],'revenue':rev,'ebita':ebita,'ebit':ebit})
     def stats(key):
@@ -3100,7 +3114,7 @@ if valuation_earnings is not None:
 elif ebita is None and fin is not None and not fin.empty:
     for period in fin.columns:
         operating=_annual_balance_value(fin,['Operating Income','EBIT'],period)
-        amort=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+        amort=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
         if operating is not None and amort is not None:
             ebita=operating+abs(amort)
             break
@@ -3142,8 +3156,8 @@ if ev_ebita is None and report_ccy and quote_ccy and market_cap is not None and 
         annual_ebita=_annual_balance_value(fin,['EBITA'],period)
         if annual_ebita is None:
             operating=_annual_balance_value(fin,['Operating Income','EBIT'],period)
-            amort=_annual_balance_value(fin,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
-            if amort is None: amort=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+            amort=_annual_balance_value(fin,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
+            if amort is None: amort=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
             if amort is None:
                 total_da=_annual_balance_value(cash,['Depreciation And Amortization','Depreciation Amortization Depletion'],period)
                 depreciation=_annual_balance_value(cash,['Depreciation','Depreciation And Depletion'],period)
@@ -3255,8 +3269,8 @@ if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade lä
         ed=_annual_balance_value(fin,['EBITDA'],period)
         if ed is None and e is not None and da is not None: ed=e+abs(da)
         ea=_annual_balance_value(fin,['EBITA'],period)
-        am=_annual_balance_value(fin,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
-        if am is None: am=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+        am=_annual_balance_value(fin,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
+        if am is None: am=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
         if ea is None and e is not None and am is not None: ea=e+abs(am)
         if netdebt_ebitda is None and d is not None and ed is not None and ed>0:
             netdebt_ebitda=d/ed
