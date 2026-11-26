@@ -1501,8 +1501,21 @@ def abb_r12_ebita(symbol, record, period):
     # Cross-check the provider's EBIT before applying the filings' amortization bridge.
     ebit=5211+6047-4542
     if bd_field(record,'operating_Income')!=ebit: return None
+    # R12 = nine months 2026 + full year 2025 - nine months 2025.
+    pretax=5136+6219-4653
+    income_tax=1309+1570-1278
+    depreciation=659+813-592
+    capex=668+1001-592
+    working_capital=(sum((-590,353,-1318,1115,35))
+                     +sum((-222,151,132,147,119))
+                     -sum((-237,193,-118,-51,-73)))
     return {
         'value':(ebit+149+185-139)*1e6,
+        'fcff':(ebit*(1-income_tax/pretax)+depreciation-capex+working_capital)*1e6,
+        'fcff_tax_rate':income_tax/pretax,
+        'fcff_note':('ABB R12: EBIT efter effektiv rapporterad skatt plus avskrivningar, minus rapporterade '
+                     'investeringar och inklusive kassaflödeseffekten från kundfordringar, kontraktsposter, '
+                     'lager, leverantörsskulder och upplupna skulder.'),
         'sources':(
             'https://library.e.abb.com/public/add34d4881164f39abfd190711d92bea/ABB-Q3-2026-Financial-Information.pdf?x-sign=xpMrnYUNrRJKXQMj4lDEpt3f7IHZrlyzvLhtzo3uzoWAIMRqxmBMRfDrtfGHxH6G',
             'https://library.e.abb.com/public/efa424a5e55545ef99275bfafc6ff638/ABB-Q4-2025-financial-information.pdf',
@@ -2063,8 +2076,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     rda=ramount('depreciation_And_Amortization')
                     rcapex=ramount('capital_Expenditure')
                     rwc=ramount('change_In_Working_Capital')
-                    rfcff=None
-                    if all(v is not None for v in (rebit,rda,rcapex,rwc)):
+                    rfcff=filing.get('fcff') if filing else None
+                    if rfcff is None and all(v is not None for v in (rebit,rda,rcapex,rwc)):
                         rfcff=rebit*(1-0.206)+rda-abs(rcapex)+rwc
                     preserves_models=(earnings is None or earnings_label=='EBIT' or rebita is not None) and (
                         fcff is None or fcff<=0 or (rfcff is not None and rfcff>0))
@@ -2079,6 +2092,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                         out['source']='Börsdata Pro+ R12 · matchad valuta och period'
                         if filing:
                             out['ebita_sources']=filing['sources']
+                            out['fcff_note']=filing['fcff_note']
+                            out['fcff_tax_rate']=filing['fcff_tax_rate']
                             out['source']='ABB:s rapporter (beräknad EBITA) + Börsdata R12'
                         if rebita is None: out['missing'].append('R12: separat EBITA saknas.')
                         if rfcff is None: out['missing'].append('R12: FCFF saknar komplett underlag.')
