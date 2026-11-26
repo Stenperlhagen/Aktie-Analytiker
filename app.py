@@ -1617,10 +1617,22 @@ def abb_r12_ebita(symbol, record, period):
         # Allow only rounding differences between the two published datasets.
         if sales is None or ebit is None or abs(sales-expected_sales)>0.6 or abs(ebit-expected_ebit)>0.6:
             return None
-        return {
-            'value':reported_ebita*1e6,
-            'sources':(url,),
-        }
+        result={'value':reported_ebita*1e6,'sources':(url,)}
+        # Addtech Q2 2026/27, pp. 16-17: R12 reported EBITDA, EBIT,
+        # pre-tax/after-tax profit, net non-current-asset investments and WC.
+        # Acquisition flows are excluded from this historical organic FCFF bridge.
+        if symbol=='ADDT-B.ST':
+            ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+            if ocf is not None and abs(ocf-2982)<=1:
+                tax_rate=(3064-2357)/3064
+                result.update(
+                    fcff=(3288*(1-tax_rate)+(4374-3288)-192-310)*1e6,
+                    fcff_tax_rate=tax_rate,
+                    fcff_note=('Addtech R12: EBIT efter rapporterad effektiv skatt, plus EBITDA minus EBIT, '
+                               'minus nettoinvesteringar i anläggningstillgångar och rörelsekapitalets kassaflöde. '
+                               'Historiskt FCFF före förvärv; framtida förvärv, leasing och minoritetsintressen '
+                               'måste beaktas separat i en normaliserad prognos.'))
+        return result
     if symbol!='ABB.ST' or str(period)[:10]!='2026-09-30' or record.get('currency')!='USD':
         return None
     # The 2025 and 2026 reports reconcile continuing operations on the same basis.
@@ -1987,88 +1999,11 @@ def render_biotech_scenario(ticker,category,valuation):
         except (ValueError,TypeError,OverflowError) as exc: st.error(str(exc))
 
 def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
-    # ROIC primary for matching annual statements; never mix currencies or periods.
-    primary_source=info.get('_report_source','Börsdata/Avanza')
-    key=roic_key() if use_roic else ''
-    if key:
-        try:
-            data,_=roic_company_data(symbol,key)
-            income=data.get('income',[])
-            balances=data.get('balance',[])
-            def field(record,keys):
-                return val(record,*keys)
-            imap={'Total Revenue':('is_sales_revenue_turnover','revenue','total_revenue'),
-                  'Operating Income':('is_operating_income','operating_income','ebit'),
-                  'EBITA':('is_ebita','ebita'),
-                  'Amortization Of Intangibles':('is_amortization_of_intangibles','amortization_of_intangibles'),
-                  'Net Income Common Stockholders':('net_income_common_stockholders','is_net_income_common_stockholders'),
-                  'Interest Expense':('is_interest_expense','interest_expense')}
-            bmap={'Total Debt':('bs_total_debt','total_debt','totalDebt'),
-                  'Cash And Cash Equivalents':('bs_cash_and_cash_equivalents','cash_and_cash_equivalents'),
-                  'Net Debt':('bs_net_debt','net_debt'),
-                  'Common Stock Equity':('bs_common_stock_equity','common_stock_equity')}
-            if income and balances:
-                ccy=income[0].get('currency')
-                paired=[]
-                for inc in income:
-                    for bal in balances:
-                        if ccy and inc.get('currency')==ccy and bal.get('currency')==ccy and inc.get('period_end_date')==bal.get('period_end_date'):
-                            paired.append((inc,bal))
-                if paired:
-                    fi={pd.Timestamp(i['period_end_date']):{k:field(i,v) for k,v in imap.items()} for i,b in paired}
-                    ba={pd.Timestamp(b['period_end_date']):{k:field(b,v) for k,v in bmap.items()} for i,b in paired}
-                    rf=pd.DataFrame(fi).dropna(how='all')
-                    rb=pd.DataFrame(ba).dropna(how='all')
-                    if not rf.empty and not rb.empty:
-                        latest_period=max(rf.columns)
-                        usable=any(k in rf.index and numeric(rf.at[k,latest_period]) is not None for k in ('EBITA','Operating Income'))
-                        debt_ok=('Net Debt' in rb.index and numeric(rb.at['Net Debt',latest_period]) is not None) or all(k in rb.index and numeric(rb.at[k,latest_period]) is not None for k in ('Total Debt','Cash And Cash Equivalents'))
-                        if usable and debt_ok and (fin.empty or latest_period>=max(pd.Timestamp(p) for p in fin.columns)):
-                            if info.get('financialCurrency')==ccy:
-                                rf=rf.combine_first(fin.reindex(columns=rf.columns))
-                                rb=rb.combine_first(balance.reindex(columns=rb.columns))
-                                primary_source='ROIC.ai + Börsdata/Avanza (matchad period och valuta)'
-                            else:
-                                cash=pd.DataFrame()
-                                primary_source='ROIC.ai'
-                            fin,balance=rf,rb
-                            info=dict(info,financialCurrency=ccy)
-        except Exception:
-            primary_source='Börsdata/Avanza (ROIC ej tillgänglig)'
-
-    # Börsdata annual reports take precedence when matched by date and original currency.
-    if use_roic:
-        try:
-            bd,error=borsapi_reports(symbol,borsapi_key())
-            records=[r for r in bd.get('periods',[]) if isinstance(r,dict) and str(r.get('period'))=='5']
-            records=[r for r in records if r.get('currency') and (r.get('report_End_Date') or r.get('reportEndDate'))]
-            records.sort(key=lambda r:pd.Timestamp(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
-            if records:
-                ccy=str(records[0]['currency']).upper()
-                fi,ba,cf={},{},{}
-                for record in records:
-                    if str(record['currency']).upper()!=ccy: continue
-                    date=pd.Timestamp(record.get('report_End_Date') or record.get('reportEndDate')).normalize()
-                    def amount(key):
-                        value=bd_field(record,key)
-                        return value*1e6 if value is not None else None
-                    fi[date]={'EBITA':amount('ebita'),'Amortization Of Intangibles':amount('amortization_Of_Intangibles'),'Total Revenue':amount('revenues'),'Operating Income':amount('operating_Income'),'Pretax Income':amount('profit_Before_Tax'),'Net Income Common Stockholders':amount('profit_To_Equity_Holders')}
-                    ba[date]={'Net Debt':amount('net_Debt'),'Cash And Cash Equivalents':amount('cash_And_Equivalents'),'Stockholders Equity':amount('total_Equity')}
-                    cf[date]={'Operating Cash Flow':amount('cash_Flow_From_Operating_Activities'),'Capital Expenditure':amount('capital_Expenditure'),'Depreciation And Amortization':amount('depreciation_And_Amortization'),'Change In Working Capital':amount('change_In_Working_Capital'),'Free Cash Flow':amount('free_Cash_Flow')}
-                rf,rb,rc=pd.DataFrame(fi).dropna(how='all'),pd.DataFrame(ba).dropna(how='all'),pd.DataFrame(cf).dropna(how='all')
-                latest=max(fi)
-                if not rf.empty and not rb.empty and numeric(fi[latest]['Operating Income']) is not None and numeric(ba[latest]['Net Debt']) is not None and (fin.empty or latest>=max(pd.Timestamp(p) for p in fin.columns)):
-                    if info.get('financialCurrency')==ccy:
-                        rf=rf.combine_first(fin.reindex(columns=rf.columns))
-                        rb=rb.combine_first(balance.reindex(columns=rb.columns))
-                        rc=rc.combine_first(cash.reindex(columns=rf.columns))
-                        primary_source='Börsdata Pro+ (primär) + kompletterande matchad rapportdata'
-                    else:
-                        primary_source='Börsdata Pro+ (primär)'
-                    fin,balance,cash=rf,rb,rc
-                    info=dict(info,financialCurrency=ccy)
-        except Exception:
-            pass
+    # fetch() is the sole annual-statement adapter. Its Börsdata-first frames
+    # already contain only date/currency/financial-anchor matched Yahoo supplements.
+    # Never re-fetch or override these statements with unverified ROIC data.
+    primary_source=info.get('_report_source','Rapportkälla ej angiven')
+    # The legacy use_roic flag now controls optional live R12 retrieval only.
 
     category=valuation_category(symbol,info)
     profile=operating_valuation_profile(symbol,info)
@@ -2302,6 +2237,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
             if (preferred is not None and preferred>0) or symbol=='VOLO.ST':
                 audit.append('Preferenskapital: marknadsvärde och rättigheter måste verifieras innan stamaktievärdet kan användas som köpsignal')
             if symbol=='BOL.ST': audit.append('Nexa-förvärv: kontrollera status, finansiering och pro forma kassaflöden innan riktkurs används')
+            if symbol=='ADDT-B.ST' and r12_used and out.get('fcff_note'):
+                audit.append('Addtech: historiskt FCFF före förvärv; verifiera leasing, minoritetsintressen och framtida förvärvsfinansiering innan signal används')
             out['audit']=audit
             out['inputs']={earnings_label:earnings,'Nettoskuld':debt,'Antal aktier':shares,'FCFF':fcff,'Valutakurs':fx}
             # Preserve operating inputs if later replaced by a P/E reserve.
