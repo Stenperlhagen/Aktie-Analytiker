@@ -230,6 +230,53 @@ def roic_annual_cashflow(identifier, api_key):
     except Exception as exc: return [],type(exc).__name__
 
 @st.cache_data(ttl=1800,show_spinner=False)
+def avanza_market_snapshot(symbol):
+    """Experimental read-only cross-check. Never assume search result ordering or units."""
+    root='https://www.avanza.se'
+    ticker=symbol.removesuffix('.ST').removesuffix('.CO').replace('-',' ').upper()
+    norm=lambda x: re.sub(r'[^A-Z0-9]','',str(x or '').upper())
+    currency='DKK' if symbol.endswith('.CO') else 'SEK' if symbol.endswith('.ST') else None
+    try:
+        headers={'Accept':'application/json','User-Agent':'EquityLab market data'}
+        with requests.Session() as session:
+            response=session.post(root+'/_api/search/filtered-search',json={'query':ticker,'searchFilter':{'types':['STOCK']},'pagination':{'from':0,'size':20}},headers=headers,timeout=8)
+            response.raise_for_status()
+            hits=response.json().get('hits',[])
+            matches={}
+            for hit in hits:
+                inst=hit.get('instrument',hit)
+                if not isinstance(inst,dict): continue
+                if norm(inst.get('tickerSymbol') or inst.get('symbol'))!=norm(ticker): continue
+                iid=str(inst.get('id') or inst.get('orderbookId') or '')
+                if iid.isdigit(): matches[iid]=inst
+            if len(matches)!=1: return {},'Avanza: ingen entydig tickermatch'
+            iid=next(iter(matches))
+            response=session.get(root+'/_api/market-guide/stock/'+iid,headers=headers,timeout=8)
+            response.raise_for_status()
+            data=response.json()
+        listing=data.get('listing',{})
+        quote=data.get('quote',{})
+        if norm(listing.get('tickerSymbol') or listing.get('symbol'))!=norm(ticker):
+            return {},'Avanza: aktieslag kunde inte bekräftas'
+        ccy=listing.get('currency') or quote.get('currency')
+        if ccy!=currency: return {},'Avanza: handelsvaluta kunde inte bekräftas'
+        price=numeric(quote.get('last'))
+        if price is None: price=numeric(quote.get('lastPrice'))
+        fundamental=data.get('keyIndicators') or data.get('fundamental') or {}
+        raw=fundamental.get('marketCapital') or fundamental.get('marketCap')
+        cap=None
+        # Accept explicit units only; never infer millions from magnitude.
+        if isinstance(raw,dict):
+            unit=str(raw.get('unit') or '').upper()
+            amount=numeric(raw.get('value'))
+            if amount is not None and raw.get('currency')==ccy:
+                if unit in ('MILLION','MILLIONS','MSEK','MDKK'): cap=amount*1e6
+                elif unit in ('ABSOLUTE','SEK','DKK'): cap=amount
+        return {'price':price,'market_cap':cap,'currency':ccy,'id':iid,'url':root+'/aktier/om-aktien.html/'+iid},''
+    except Exception as exc:
+        return {},'Avanza: '+type(exc).__name__
+
+@st.cache_data(ttl=1800,show_spinner=False)
 def fetch(ticker):
     """Hämta varje datatyp oberoende så ett fel inte slår ut hela analysen."""
     obj = yf.Ticker(ticker)
@@ -337,6 +384,21 @@ def fetch(ticker):
         capitalization['source']='Börsdata börsvärde saknas'
         capitalization['warnings'].append(bd_cap_error or 'KPI 50 saknas för instrumentet; ingen Yahoo-reserv.')
 
+    avanza,avanza_error=avanza_market_snapshot(ticker)
+    info['_avanza_snapshot']=avanza
+    if avanza_error: errors['Avanza']=avanza_error
+    av_price=avanza.get('price')
+    primary_price=val(info,'currentPrice','regularMarketPrice') or val(quick,'last_price')
+    if av_price is not None and av_price>0 and primary_price and primary_price>0 and abs(av_price/primary_price-1)>0.05:
+        capitalization['warnings'].append('Avanza-kursen avviker över 5 %; kontrollera kursdatum och aktieslag.')
+    av_cap=avanza.get('market_cap')
+    bd_cap=capitalization.get('market_cap')
+    if av_cap is not None and av_cap>0 and bd_cap and bd_cap>0 and abs(av_cap/bd_cap-1)>0.05:
+        capitalization['warnings'].append('Avanza och Börsdata avviker över 5 % i börsvärde; definition och aktieslag måste kontrolleras.')
+        capitalization['verified']=False
+        capitalization['market_cap']=None
+    if avanza and av_cap is None:
+        errors['Avanza börsvärde']='Börsvärde saknar uttrycklig enhet eller valuta i API-svaret.'
     info['_cap_source']=capitalization['source']
     info['_cap_warnings']=capitalization['warnings']
     info['_cap_verified']=capitalization['verified']
@@ -2363,10 +2425,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v47-borsdata-kpi50':
+if st.session_state.get('screener_model_version')!='unified-v48-avanza-crosscheck':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v47-borsdata-kpi50'
+    st.session_state['screener_model_version']='unified-v48-avanza-crosscheck'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -2917,6 +2979,9 @@ if ebita is None and valuation_result.get('category') in ('Rörelsedrivande bola
             ev_ebita_source='Rapporterad EBITA R12; matchad Börsdata nettoskuld'
 st.markdown('### Finansiell översikt')
 st.caption('Börsvärde: '+str(info.get('_cap_source') or 'Ej verifierat')+' · Leverantörens eget börsvärde, inte egen beräkning.')
+av_snapshot=info.get('_avanza_snapshot',{})
+if av_snapshot:
+    st.caption('Avanza kontrollkälla: '+show(av_snapshot.get('price'),' '+str(av_snapshot.get('currency') or ''),2)+' · Börsvärde '+show(av_snapshot['market_cap']/1e9,' md',2) if av_snapshot.get('market_cap') is not None else 'Avanza: börsvärde ännu inte verifierat.')
 for cap_warning in info.get('_cap_warnings',[]):
     st.caption('Kapitalstruktur: '+cap_warning)
 st.caption('Börsdata R12 prioriteras för jämförbara uppgifter; årsbaserade reservvärden beräknas från matchade rapportdatum. R12 och kursbaserade värden har separata definitioner; leverantörsuppgifter är inte oberoende verifierade.')
