@@ -306,6 +306,18 @@ def yahoo_annual_statements(symbol,trade_currency,report_currency):
         statements.append(pd.DataFrame())
     return tuple(statements)
 
+def comparable_yahoo_periods(primary,secondary):
+    accepted=[]
+    for period in primary.columns.intersection(secondary.columns):
+        anchors=[]
+        for line in ('Total Revenue','Operating Income'):
+            if line not in primary.index or line not in secondary.index: continue
+            left,right=numeric(primary.at[line,period]),numeric(secondary.at[line,period])
+            if left is not None and right is not None:
+                anchors.append(abs(left-right)<=0.02*max(abs(left),abs(right)))
+        if anchors and all(anchors): accepted.append(period)
+    return pd.DatetimeIndex(accepted)
+
 def fill_matching_statement_periods(primary,secondary,periods):
     periods=periods.intersection(secondary.columns)
     if periods.empty: return primary
@@ -400,7 +412,7 @@ def fetch(ticker):
         if not (has_ebita and has_fcff_inputs):
             supplemental=yahoo_annual_statements(ticker,info.get('currency'),info.get('financialCurrency'))
             if supplemental:
-                periods=fin.columns
+                periods=comparable_yahoo_periods(fin,supplemental[0])
                 combined=tuple(fill_matching_statement_periods(primary,secondary,periods)
                                for primary,secondary in zip((fin,cash,balance),supplemental))
                 if any(not enriched.equals(primary) for enriched,primary in zip(combined,(fin,cash,balance))):
