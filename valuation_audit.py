@@ -83,6 +83,8 @@ def tests():
     assert not unverified.get('models')
     assert any('Börsvärde ej verifierat' in msg for msg in unverified.get('audit',[]))
     assert abs(v['inputs']['FCFF']-61.46e6)<1
+    assert v['operating_inputs']==v['inputs']
+    assert v['operating_period']==str(p)[:10]
     assert abs(v['target']-sum(v['models'].values())/len(v['models']))<1e-8
     assert valuation_category('AAK.ST')=='Rörelsedrivande bolag'
     assert operating_valuation_profile('AAK.ST')=='Livsmedelsproduktion'
@@ -150,7 +152,7 @@ if __name__=='__main__':
     globals()['ecb_exchange_rates']=lru_cache(maxsize=1)(ecb_exchange_rates)
     ALL_COMPANIES={name:sym for name,sym in ALL_COMPANIES.items() if sym not in {'FNOX.ST','COALA.ST','ADDV-B.ST','ADDV-A.ST'}}
     if '--probe' in sys.argv:
-        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-A.ST','TRUE-B.ST','BOKUS.ST'):
+        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-A.ST','TRUE-B.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST'):
             key=borsapi_key()
             info,hist,fin,cash,balance,quick,errors=fetch(symbol)
             annual,_=borsapi_reports(symbol,key)
@@ -164,6 +166,14 @@ if __name__=='__main__':
                   'report source',info.get('_report_source'),'market cap present',info.get('_cap_verified'),'profile',model.get('profile'),
                   'model names',list(model.get('models',{})),'issue count',len(model.get('missing',[])),'provider error labels',list(errors),
                   flush=True)
+            if symbol in ('ABB.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST'):
+                if trailing:
+                    record=trailing[0]
+                    period=str(record.get('report_End_Date') or record.get('reportEndDate'))[:10]
+                    matched=abb_r12_ebita(symbol,record,period)
+                    print(symbol,'official filing matched',bool(matched),'R12 period',period,
+                          'R12 reporting currency',record.get('currency'),'matched R12 EBITA evidence',bool(model.get('r12_ebita_evidence')),flush=True)
+                else: print(symbol,'no R12 record to reconcile',flush=True)
             if symbol=='ABB.ST':
                 for event_kind in ('calendar','insider'):
                     event_rows,event_error=borsapi_instrument_events(symbol,key,event_kind)
@@ -189,22 +199,26 @@ if __name__=='__main__':
             failures.append(symbol+': '+str(e))
             rows.append({'ticker':symbol,'missing':type(e).__name__+': '+str(e),'report_verified':False})
         if rows[-1].get('category'):
-            inputs=v.get('inputs',{})
+            inputs=v.get('operating_inputs',v.get('inputs',{}))
             earnings=inputs.get('EBITA')
             if earnings is None: earnings=inputs.get('EBITA (beräknad)')
             debt,fx,shares,price=(inputs.get('Nettoskuld'),inputs.get('Valutakurs'),inputs.get('Antal aktier'),v.get('price'))
             applicable=v.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag')
             multiple=(price*shares/fx+debt)/earnings if applicable and all(x is not None for x in (earnings,debt,fx,shares,price)) and min(earnings,fx,shares,price)>0 else None
-            rows[-1].update({'ebita':earnings,'ev_ebita':multiple,'ebita_status':'Ej tillämpligt' if not applicable else 'Saknas EBITA' if earnings is None else 'Saknas jämförbar EV/EBITA' if multiple is None else 'Underlag finns',
+            r12_evidence=v.get('r12_ebita_evidence') or {}
+            rows[-1].update({'r12_ebita_matched':bool(r12_evidence),'r12_ebita_source':r12_evidence.get('source'),
+                             'model_period':v.get('operating_period',v.get('period')),
+                             'ebita':earnings,'ev_ebita':multiple,'ebita_status':'Ej tillämpligt' if not applicable else 'Saknas EBITA' if earnings is None else 'Saknas jämförbar EV/EBITA' if multiple is None else 'Underlag finns',
                              'fcff_status':'Ej tillämpligt' if not applicable else 'Saknas FCFF' if numeric(inputs.get('FCFF')) is None else 'FCFF <= 0' if inputs['FCFF']<=0 else 'Underlag finns',
                              'dual_model_status':'Ej tillämpligt' if not applicable else 'Underlag finns' if {'EV/EBITA','DCF'}<=set(v.get('models',{})) and v.get('target') is not None else 'Ofullständig huvudmodell'})
-        print(symbol,'target present',bool(rows[-1].get('finite_positive_target')),rows[-1].get('ebita_status'),rows[-1].get('fcff_status'),rows[-1].get('dual_model_status'),flush=True)
+        print(symbol,'target present',bool(rows[-1].get('finite_positive_target')),rows[-1].get('ebita_status'),rows[-1].get('fcff_status'),rows[-1].get('dual_model_status'),'matched R12 EBITA',bool(rows[-1].get('r12_ebita_matched')),flush=True)
         pd.DataFrame(rows).to_csv('valuation-audit.csv',index=False)
     print('Total:',len(rows),'With target:',sum(r.get('target') is not None for r in rows))
 
     print('EBITA coverage:',pd.Series([r.get('ebita_status','Fel') for r in rows]).value_counts().to_dict(),flush=True)
     print('FCFF coverage:',pd.Series([r.get('fcff_status','Fel') for r in rows]).value_counts().to_dict(),flush=True)
     print('Dual model coverage:',pd.Series([r.get('dual_model_status','Fel') for r in rows]).value_counts().to_dict(),flush=True)
+    print('Matched R12 EBITA evidence (separate from model):',sum(bool(r.get('r12_ebita_matched')) for r in rows),flush=True)
     print('Execution failures:',len(failures),flush=True)
     if not any(row.get('annual_reports') for row in rows) or not any(row.get('price_history') for row in rows):
         raise AssertionError('No live annual reports or price history were loaded')
