@@ -67,6 +67,21 @@ def avanza_market_snapshot(symbol):
 def verified_capitalization(symbol,info,quick,fin,history):
     return {'market_cap':None,'shares':None,'source':'Offline audit','warnings':[],'verified':False}
 def tests():
+    # Registry is a checked-in set of independently observed Avanza listing identities,
+    # never a substitute for fresh detail validation in production.
+    registry_path=pathlib.Path(__file__).with_name('avanza-registry.json')
+    if registry_path.exists():
+        import json
+        registry=json.loads(registry_path.read_text(encoding='utf-8'))['listings']
+        assert set(registry)==set(ALL_COMPANIES.values()), 'Avanza registry does not cover active universe'
+        assert len({r['orderbook_id'] for r in registry.values()})==len(registry)
+        for symbol,r in registry.items():
+            assert str(r['orderbook_id']).isdigit()
+            assert re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]',r['isin'])
+            assert re.sub(r'[^A-Z0-9]','',r['ticker'].upper())==re.sub(r'[^A-Z0-9]','',symbol.rsplit('.',1)[0].upper())
+            assert r['currency']==('EUR' if symbol=='VSURE.ST' else 'DKK' if symbol.endswith('.CO') else 'SEK')
+            assert r['market_code']==('FNSE' if symbol in ('BOKUS.ST','SUS.ST','SES.ST') else 'XCSE' if symbol.endswith('.CO') else 'XSTO')
+        print('Avanza registry coverage:',len(registry),'of',len(set(ALL_COMPANIES.values())))
     assert abs(comparable_ev_ebita(245e6,1331e6,79406571,12,1)-20.263)<0.01
     assert comparable_ev_ebita(100,None,10,12,1) is None
     assert comparable_ev_ebita(100,1300,10,12,1) is None
