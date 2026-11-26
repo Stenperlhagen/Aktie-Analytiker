@@ -143,6 +143,28 @@ def tests():
     assert abb_r12_ebita('BOKUS.ST',{**bokus,'revenues':2000},'2026-09-30') is None
     assert abb_r12_ebita('BOKUS.ST',bokus,'2026-06-30') is None
     assert abb_r12_ebita('BOKUS-OTHER.ST',bokus,'2026-09-30') is None
+    addtech={'currency':'SEK','revenues':23493,'operating_Income':3288,'cash_Flow_From_Operating_Activities':2982}
+    add=abb_r12_ebita('ADDT-B.ST',addtech,'2026-09-30')
+    assert add['value']==3888e6
+    assert abs(add['fcff']-(3288*(2357/3064)+1086-192-310)*1e6)<1
+    assert abs(add['fcff_tax_rate']-707/3064)<1e-10
+    assert 'fcff' not in abb_r12_ebita('ADDT-B.ST',{**addtech,'cash_Flow_From_Operating_Activities':3500},'2026-09-30')
+    assert 'fcff' not in abb_r12_ebita('ADDT-B.ST',{k:v for k,v in addtech.items() if k!='cash_Flow_From_Operating_Activities'},'2026-09-30')
+    assert abb_r12_ebita('ADDT-B.ST',addtech,'2026-06-30') is None
+    # No secondary provider may replace the annual frames passed by fetch().
+    original_roic=roic_company_data
+    original_reports=borsapi_reports
+    def forbidden(*args):
+        raise AssertionError('valuation_engine must not re-query annual statements')
+    try:
+        globals()['roic_company_data']=forbidden
+        globals()['borsapi_reports']=forbidden
+        preserved=valuation_engine('VOLO-TEST.ST',info,fin,cash,balance,{},pd.DataFrame())
+        assert preserved['operating_inputs']==v['operating_inputs']
+        assert preserved['target']==v['target']
+    finally:
+        globals()['roic_company_data']=original_roic
+        globals()['borsapi_reports']=original_reports
     supplemental=pd.DataFrame({p:[200,20],q:[175,18]},index=['Operating Income','Capital Expenditure'])
     merged=fill_matching_statement_periods(fin,supplemental,fin.columns)
     assert merged.at['Operating Income',p]==90e6
