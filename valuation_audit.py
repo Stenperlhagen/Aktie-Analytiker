@@ -35,7 +35,7 @@ def borsapi_key():
     # CI does not have Streamlit Secrets. Do not require credentials for mathematical tests.
     return os.environ.get('BORSAPI_API_KEY','').strip()
 
-production_adapters={name:globals()[name] for name in ('borsapi_instruments','borsapi_instrument','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_market_cap_map','avanza_market_snapshot','verified_capitalization')}
+production_adapters={name:globals()[name] for name in ('borsapi_instruments','borsapi_instrument','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_r12_response','borsapi_market_cap_map','avanza_market_snapshot','verified_capitalization')}
 
 def borsapi_instrument(symbol, api_key):
     return {},'Offline audit'
@@ -125,7 +125,7 @@ if __name__=='__main__':
     if not borsapi_key():
         print('Live coverage requires BORSAPI_API_KEY.',file=sys.stderr)
         sys.exit(2)
-    globals().update({name:lru_cache(maxsize=512)(adapter) if name not in ('verified_capitalization','borsapi_annual_frames','request_borsdata') else adapter for name,adapter in production_adapters.items()})
+    globals().update({name:lru_cache(maxsize=512)(adapter) if name not in ('verified_capitalization','borsapi_annual_frames') else adapter for name,adapter in production_adapters.items()})
     globals()['ecb_exchange_rates']=lru_cache(maxsize=1)(ecb_exchange_rates)
     ALL_COMPANIES={name:sym for name,sym in ALL_COMPANIES.items() if sym not in {'FNOX.ST','COALA.ST','ADDV-B.ST','ADDV-A.ST'}}
     if '--probe' in sys.argv:
