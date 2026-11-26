@@ -14,13 +14,13 @@ st.markdown('''<style>.block-container{max-width:1300px;padding-top:2rem}div[dat
 # Swedish large-cap-oriented starter universe. Entries are not asserted to be an exhaustive, live Nasdaq classification.
 GROUPS={
 'Industri': {'ABB':'ABB.ST','Addtech B':'ADDT-B.ST','AFRY':'AFRY.ST','Alfa Laval':'ALFA.ST','Assa Abloy B':'ASSA-B.ST','Atlas Copco A':'ATCO-A.ST','Atlas Copco B':'ATCO-B.ST','Beijer Ref B':'BEIJ-B.ST','Bravida':'BRAV.ST','Bufab':'BUFAB.ST','Epiroc A':'EPI-A.ST','Indutrade':'INDT.ST','Lifco B':'LIFCO-B.ST','Nibe B':'NIBE-B.ST','Saab B':'SAAB-B.ST','Sandvik':'SAND.ST','Securitas B':'SECU-B.ST','Skanska B':'SKA-B.ST','Sweco B':'SWEC-B.ST','Trelleborg B':'TREL-B.ST','Volvo B':'VOLV-B.ST','Volvo A':'VOLV-A.ST','Munters':'MTRS.ST','Mycronic':'MYCR.ST','Loomis':'LOOMIS.ST','NCC B':'NCC-B.ST','Peab B':'PEAB-B.ST','SKF B':'SKF-B.ST','Systemair':'SYSR.ST','Lindab':'LIAB.ST','Alimak':'ALIG.ST','Clas Ohlson B':'CLAS-B.ST','AQ Group':'AQ.ST','Beijer Alma B':'BEIA-B.ST'},
-'Bank och finans': {'Investor B':'INVE-B.ST','Investor A':'INVE-A.ST','Industrivärden C':'INDU-C.ST','SEB A':'SEB-A.ST','Handelsbanken A':'SHB-A.ST','Swedbank A':'SWED-A.ST','Nordea':'NDA-SE.ST','Avanza':'AZA.ST','Nordnet':'SAVE.ST','EQT':'EQT.ST','Latour B':'LATO-B.ST','Lundbergföretagen B':'LUND-B.ST','Kinnevik B':'KINV-B.ST','Bure Equity':'BURE.ST','Sampo':'SAMPO-SDB.ST','Storskogen B':'STOR-B.ST'},
+'Bank och finans': {'Investor B':'INVE-B.ST','Investor A':'INVE-A.ST','Industrivärden C':'INDU-C.ST','SEB A':'SEB-A.ST','Handelsbanken A':'SHB-A.ST','Swedbank A':'SWED-A.ST','Nordea':'NDA-SE.ST','Avanza':'AZA.ST','Nordnet':'SAVE.ST','EQT':'EQT.ST','Latour B':'LATO-B.ST','Lundbergföretagen B':'LUND-B.ST','Kinnevik B':'KINV-B.ST','Bure Equity':'BURE.ST','Sampo':'SAMPO-SEK.ST','Storskogen B':'STOR-B.ST'},
 'Fastigheter': {'Balder B':'BALD-B.ST','Castellum':'CAST.ST','Catena':'CATE.ST','Fabege':'FABG.ST','Sagax B':'SAGA-B.ST','Wallenstam B':'WALL-B.ST','Wihlborgs':'WIHL.ST','Hufvudstaden A':'HUFV-A.ST','Atrium Ljungberg B':'ATRLJ-B.ST','Pandox B':'PNDX-B.ST','NP3 Fastigheter':'NP3.ST','Hemnet':'HEM.ST','Corem B':'CORE-B.ST'},
 'Teknik och telekom': {'Ericsson B':'ERIC-B.ST','Hexagon B':'HEXA-B.ST','Tele2 B':'TEL2-B.ST','Telia':'TELIA.ST','Sinch':'SINCH.ST','Truecaller B':'TRUE-B.ST','Vitec B':'VIT-B.ST','Addnode B':'ANOD-B.ST','Lagercrantz B':'LAGR-B.ST','HMS Networks':'HMS.ST','Yubico':'YUBICO.ST'},
 'Hälsovård': {'AstraZeneca':'AZN.ST','Getinge B':'GETI-B.ST','Sobi':'SOBI.ST','Elekta B':'EKTA-B.ST','Sectra B':'SECT-B.ST','BioArctic B':'BIOA-B.ST','Camurus':'CAMX.ST','Bonesupport':'BONEX.ST','Vitrolife':'VITR.ST','Medicover B':'MCOV-B.ST','AddLife B':'ALIF-B.ST'},
 'Konsument och övrigt': {'H&M B':'HM-B.ST','Evolution':'EVO.ST','Essity B':'ESSITY-B.ST','Axfood':'AXFO.ST','AAK':'AAK.ST','Electrolux B':'ELUX-B.ST','Husqvarna B':'HUSQ-B.ST','Thule':'THULE.ST','Dometic':'DOM.ST','Scandic Hotels':'SHOT.ST','SkiStar B':'SKIS-B.ST','Betsson B':'BETS-B.ST','Embracer B':'EMBRAC-B.ST','Autoliv':'ALIV-SDB.ST','Bilia A':'BILI-A.ST','New Wave B':'NEWA-B.ST','Mips':'MIPS.ST'},
 'Material och skog': {'Boliden':'BOL.ST','SSAB B':'SSAB-B.ST','SCA B':'SCA-B.ST','Holmen B':'HOLM-B.ST','Billerud':'BILL.ST','Stora Enso R':'STE-R.ST','Gränges':'GRNG.ST','Hexpol B':'HPOL-B.ST','Alleima':'ALLEI.ST','Lundin Mining':'LUMI.ST'},
-'Övriga bolag': {'Volati AB':'VOLO.ST','Salix Group':'SALIX.ST','Röko':'ROKO.ST','Asker Healthcare':'ASKER.ST','Verisure':'VSURE.ST','Paradox Interactive':'PDX.ST'}
+'Övriga bolag': {'Volati AB':'VOLO.ST','Salix Group':'SALIX.ST','Röko':'ROKO-B.ST','Asker Healthcare':'ASKER.ST','Verisure':'VSURE.ST','Paradox Interactive':'PDX.ST'}
 }
 CAT={n:(t,g) for g,items in GROUPS.items() for n,t in items.items()}
 
@@ -233,49 +233,73 @@ def roic_annual_cashflow(identifier, api_key):
 
 @st.cache_data(ttl=1800,show_spinner=False)
 def avanza_market_snapshot(symbol):
-    """Experimental read-only cross-check. Never assume search result ordering or units."""
+    """Discover by Börsdata ISIN; verify exact orderbook identity before using quotes."""
+    import unicodedata
+    import time
     root='https://www.avanza.se'
-    ticker=symbol.removesuffix('.ST').removesuffix('.CO').replace('-',' ').upper()
-    norm=lambda x: re.sub(r'[^A-Z0-9]','',str(x or '').upper())
-    currency='DKK' if symbol.endswith('.CO') else 'SEK' if symbol.endswith('.ST') else None
+    norm=lambda x: re.sub(r'[^A-Z0-9]','',unicodedata.normalize('NFKD',str(x or '').upper()))
+    identity,error=borsapi_instrument(symbol,borsapi_key())
+    isin=str(identity.get('isin') or '').upper()
+    if not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]',isin):
+        return {},'Avanza: verifierad Börsdata-ISIN saknas'
+    ticker=norm(symbol.rsplit('.',1)[0])
+    # Exchange announcements corroborate these exceptions to suffix-based defaults.
+    # BOKUS/SUS/SES: Nasdaq First North; VSURE: XSTO trading currency EUR.
+    market='FNSE' if symbol in ('BOKUS.ST','SUS.ST','SES.ST') else 'XCSE' if symbol.endswith('.CO') else 'XSTO' if symbol.endswith('.ST') else None
+    currency='EUR' if symbol=='VSURE.ST' else 'DKK' if symbol.endswith('.CO') else 'SEK' if symbol.endswith('.ST') else None
+    bd_currency=str(identity.get('stockPriceCurrency') or '').upper()
+    if not market or not currency or (bd_currency and bd_currency!=currency):
+        return {},'Avanza: handelsvaluta eller handelsplats ej bekräftad'
+    def venue(x):
+        n=norm(x)
+        if n in ('XSTO','STOCKHOLMSBORSEN','NASDAQSTOCKHOLM','STOCKHOLM'): return 'XSTO'
+        if n in ('FNSE','FIRSTNORTHSTOCKHOLM','FIRSTNORTHSWEDEN','NASDAQFIRSTNORTHGROWTHMARKET'): return 'FNSE'
+        if n in ('XCSE','KOPENHAMNSBORSEN','NASDAQCOPENHAGEN','COPENHAGEN'): return 'XCSE'
+        return None
     try:
         headers={'Accept':'application/json','User-Agent':'EquityLab market data'}
         with requests.Session() as session:
-            response=session.post(root+'/_api/search/filtered-search',json={'query':ticker,'searchFilter':{'types':['STOCK']},'pagination':{'from':0,'size':20}},headers=headers,timeout=8)
+            session.headers.update(headers)
+            response=session.post(root+'/_api/search/filtered-search',json={'query':isin,'searchFilter':{'types':['STOCK']},'pagination':{'from':0,'size':50}},timeout=12)
             response.raise_for_status()
-            hits=response.json().get('hits',[])
-            matches={}
-            for hit in hits:
-                inst=hit.get('instrument',hit)
-                if not isinstance(inst,dict): continue
-                if norm(inst.get('tickerSymbol') or inst.get('symbol'))!=norm(ticker): continue
-                iid=str(inst.get('id') or inst.get('orderbookId') or '')
-                if iid.isdigit(): matches[iid]=inst
-            if len(matches)!=1: return {},'Avanza: ingen entydig tickermatch'
-            iid=next(iter(matches))
-            response=session.get(root+'/_api/market-guide/stock/'+iid,headers=headers,timeout=8)
-            response.raise_for_status()
-            data=response.json()
-        listing=data.get('listing',{})
-        quote=data.get('quote',{})
-        if norm(listing.get('tickerSymbol') or listing.get('symbol'))!=norm(ticker):
-            return {},'Avanza: aktieslag kunde inte bekräftas'
-        ccy=listing.get('currency') or quote.get('currency')
-        if ccy!=currency: return {},'Avanza: handelsvaluta kunde inte bekräftas'
+            ids=set()
+            def visit(hit,kind=None):
+                if not isinstance(hit,dict): return
+                kind=str(hit.get('type') or hit.get('instrumentType') or kind or '').upper()
+                if kind and kind!='STOCK': return
+                for field in ('topHits','hits'):
+                    for child in hit.get(field) or []: visit(child,kind)
+                if isinstance(hit.get('instrument'),dict): visit(hit['instrument'],kind)
+                path=urllib.parse.urlsplit(str(hit.get('path') or '')).path
+                match=re.search(r'(?:^|/)(?:om-aktien[.]html|stock)/([0-9]+)(?:/|$)',path)
+                if match: ids.add(match.group(1))
+                if kind=='STOCK' or hit.get('tickerSymbol'):
+                    for field in ('orderBookId','orderbookId','id'):
+                        value=str(hit.get(field) or '')
+                        if value.isdigit(): ids.add(value)
+            for hit in response.json().get('hits') or []: visit(hit)
+            if len(ids)>10: return {},'Avanza: för många kandidater'
+            matches=[]
+            for iid in sorted(ids):
+                response=session.get(root+'/_api/market-guide/stock/'+iid,timeout=12)
+                if response.status_code==404: continue
+                response.raise_for_status()
+                data=response.json()
+                listing=data.get('listing') or {}
+                markets={venue(listing.get(k)) for k in ('marketPlaceCode','marketPlaceName')}-{None}
+                if (str(data.get('orderbookId'))==iid and str(data.get('isin') or '').upper()==isin and
+                    norm(listing.get('tickerSymbol'))==ticker and listing.get('currency')==currency and markets=={market}):
+                    matches.append((iid,data))
+        if len(matches)!=1: return {},'Avanza: ingen entydig fyrfältsmatch'
+        iid,data=matches[0]
+        quote=data.get('quote') or {}
         price=numeric(quote.get('last'))
         if price is None: price=numeric(quote.get('lastPrice'))
-        fundamental=data.get('keyIndicators') or data.get('fundamental') or {}
-        raw=fundamental.get('marketCapital') or fundamental.get('marketCap')
-        cap=None
-        # Accept explicit units only; never infer millions from magnitude.
-        if isinstance(raw,dict):
-            unit=str(raw.get('unit') or '').upper()
-            amount=numeric(raw.get('value'))
-            if amount is not None and raw.get('currency')==ccy:
-                if unit in ('MILLION','MILLIONS','MSEK','MDKK'): cap=amount*1e6
-                elif unit in ('ABSOLUTE','SEK','DKK'): cap=amount
-        if price is not None and price<=0: price=None
-        return {'price':price,'market_cap':cap,'currency':ccy,'id':iid,'url':root+'/aktier/om-aktien.html/'+iid},''
+        timestamp=numeric(quote.get('updated'))
+        # Require explicit recent millisecond quote timestamp; identity alone is not a live price.
+        if price is None or price<=0 or timestamp is None or not 0<=time.time()-timestamp/1000<=7*86400:
+            price=None
+        return {'price':price,'market_cap':None,'currency':currency,'id':iid,'isin':isin,'market':market,'verified':True,'url':root+'/aktier/om-aktien.html/'+iid},''
     except Exception as exc:
         return {},'Avanza: '+type(exc).__name__
 
@@ -451,8 +475,9 @@ def fetch(ticker):
             info['longName']=inst.get('name') or inst.get('longName') or ticker
             info['website']=inst.get('url') or inst.get('website')
             break
-    av,_=avanza_market_snapshot(ticker)
-    if not info.get('currentPrice') and av.get('price') and av.get('currency')==info.get('currency'):
+    av,av_error=avanza_market_snapshot(ticker)
+    if av_error: errors['Avanza']=av_error
+    if not info.get('currentPrice') and av.get('verified') and av.get('price') and av.get('currency')==info.get('currency'):
         info['currentPrice']=av['price']
         info['_price_source']='Avanza (reserv)'
     records,r12_error=borsapi_r12_response(ticker,borsapi_key())
@@ -1248,7 +1273,7 @@ st.caption('Automatisk bolagsöversikt · Svenska börsbolag · Egna rapporter �
 ADDITIONAL_COMPANIES = {
     'Bokusgruppen AB':'BOKUS.ST',
     'Attendo':'ATT.ST',
-    'Humana':'HUM.ST',
+     # Humana delisted 2026-10-27: https://www.mfn.se/a/humana/avnotering-av-humana
     'Byggmax':'BMAX.ST',
     'Rusta':'RUSTA.ST',
     'RevolutionRace':'RVRC.ST',
@@ -1265,7 +1290,7 @@ ADDITIONAL_COMPANIES = {
     'Fortnox':'FNOX.ST','Garo':'GARO.ST','Hansa Biopharma':'HNSA.ST',
     'Heba B':'HEBA-B.ST','Hexpol B':'HPOL-B.ST','Instalco':'INSTAL.ST',
     'Inwido':'INWI.ST','Karnov Group':'KAR.ST','Knowit':'KNOW.ST',
-    'Lime Technologies':'LIME.ST','Maha Energy':'MAHA-A.ST','Medcap':'MCAP.ST',
+    'Lime Technologies':'LIME.ST','Keo Capital':'KEOC.ST','Medcap':'MCAP.ST',
     'Midsona B':'MSON-B.ST','MilDef Group':'MILDEF.ST','Momentum Group B':'MMGR-B.ST',
     'Nelly Group':'NELLY.ST','Nolato B':'NOLA-B.ST','OEM International B':'OEM-B.ST',
     'Scandi Standard':'SCST.ST','Scandic Hotels':'SHOT.ST','Scandinavian Enviro Systems':'SES.ST',
@@ -1273,7 +1298,7 @@ ADDITIONAL_COMPANIES = {
     'SinterCast':'SINT.ST','Sleep Cycle':'SLEEP.ST','Softronic B':'SOF-B.ST',
     'Solid Försäkring':'SFAB.ST','Stillfront Group':'SF.ST','Storytel B':'STORY-B.ST',
     'Studsvik':'SVIK.ST','Surgical Science':'SUS.ST','SynAct Pharma':'SYNACT.ST',
-    'Avarda Bank':'AVARDA.ST','Tobii Dynavox':'TDVOX.ST','Troax Group':'TROAX.ST',
+    'Avarda Bank':'AVARDA.ST','Dynavox Group':'DYVOX.ST','Troax Group':'TROAX.ST',
     'Cynca Nordic':'CYNCA.ST','VBG Group B':'VBG-B.ST','Volati AB':'VOLO.ST',
     'Wästbygg Gruppen B':'WBGR-B.ST','XANO Industri B':'XANO-B.ST'
 }
@@ -1287,7 +1312,7 @@ INVESTMENT_TICKERS={
     'KINV-B.ST','BURE.ST','EQT.ST'
 }
 BANK_TICKERS={'SEB-A.ST','SHB-A.ST','SWED-A.ST','NDA-SE.ST','AZA.ST','SAVE.ST','AVARDA.ST'}
-INSURANCE_TICKERS={'SAMPO-SDB.ST','SFAB.ST'}
+INSURANCE_TICKERS={'SAMPO-SEK.ST','SFAB.ST'}
 PROPERTY_TICKERS={
     'BALD-B.ST','CAST.ST','CATE.ST','FABG.ST','SAGA-B.ST','WALL-B.ST',
     'WIHL.ST','HUFV-A.ST','ATRLJ-B.ST','PNDX-B.ST','NP3.ST','CORE-B.ST',
@@ -1542,7 +1567,7 @@ def verified_capitalization(symbol,info,quick,fin,history):
         notes.append('Tidigare aktieantal avviker över 8 % och används inte.')
     if symbol=='VOLO.ST':
         notes.append('Stamaktier och preferensaktier värderas separat och summeras.')
-    if symbol.endswith(('-A.ST','-B.ST','-C.ST')) or symbol in ('VOLO.ST','SAMPO-SDB.ST'):
+    if symbol.endswith(('-A.ST','-B.ST','-C.ST')) or symbol in ('VOLO.ST','SAMPO-SEK.ST'):
         notes.append('Olika aktieslag kan ha olika kurser: värdet är en approximation.')
     result.update(market_cap=cap,source=source+' '+date,warnings=notes,verified=True)
     return result
@@ -1709,12 +1734,12 @@ VALUATION_PROFILES={
 }
 PROFILE_TICKERS={
     'Tillverkningsindustri':{'ATCO-A.ST','ATCO-B.ST','AQ.ST'},
-    'Industrikonglomerat':{'VOLO.ST','STOR-B.ST','ROKO.ST'},
+    'Industrikonglomerat':{'VOLO.ST','STOR-B.ST','ROKO-B.ST'},
     'Förvärvsbolag':{'SALIX.ST','INDT.ST','ADDT-B.ST','LIFCO-B.ST','LAGR-B.ST','BERG-B.ST','BEIA-B.ST','OEM-B.ST','MMGR-B.ST','ADDV-B.ST','ALIF-B.ST','MCAP.ST'},
     'IT-konsulter':{'AFRY.ST','SWEC-B.ST','KNOW.ST','SOF-B.ST'},
     'Bygg och installation':{'BRAV.ST','SKA-B.ST','NCC-B.ST','PEAB-B.ST','INSTAL.ST','WBGR-B.ST','LIND-B.ST','LIAB.ST','CYNCA.ST'},
     'Logistik och transport':{'VOLV-B.ST','VOLV-A.ST','LOOMIS.ST','ELAN-B.ST','CTT.ST'},
-    'Teknik och mjukvara':{'VIT-B.ST','ANOD-B.ST','HMS.ST','SINCH.ST','TRUE-B.ST','YUBICO.ST','PDX.ST','SF.ST','STORY-B.ST','LIME.ST','FNOX.ST','SLEEP.ST','TDVOX.ST','ERIC-B.ST','TEL2-B.ST','TELIA.ST','HEXA-B.ST','SECT-B.ST','EMBRAC-B.ST'},
+    'Teknik och mjukvara':{'VIT-B.ST','ANOD-B.ST','HMS.ST','SINCH.ST','TRUE-B.ST','YUBICO.ST','PDX.ST','SF.ST','STORY-B.ST','LIME.ST','FNOX.ST','SLEEP.ST','DYVOX.ST','ERIC-B.ST','TEL2-B.ST','TELIA.ST','HEXA-B.ST','SECT-B.ST','EMBRAC-B.ST'},
     'Hälsovård och medicinteknik':{'AZN.ST','GETI-B.ST','SOBI.ST','EKTA-B.ST','BIOA-B.ST','CAMX.ST','BONEX.ST','VITR.ST','MCOV-B.ST','ASKER.ST','ARJO-B.ST','ACE.ST','BACTI-B.ST','HNSA.ST','SEZI.ST','SUS.ST','SYNACT.ST','COALA.ST'},
     'Konsumentvaror och detaljhandel':{'HM-B.ST','ESSITY-B.ST','AXFO.ST','ELUX-B.ST','HUSQ-B.ST','THULE.ST','DOM.ST','SHOT.ST','SKIS-B.ST','BETS-B.ST','BILI-A.ST','NEWA-B.ST','BOKUS.ST','BMAX.ST','RUSTA.ST','RVRC.ST','BHG.ST','BOOZT.ST','CLA-B.ST','DUNI.ST','FOI-B.ST','NELLY.ST','SCST.ST','MSON-B.ST','EVO.ST','CLAS-B.ST','ACAD.ST','VSURE.ST','KAR.ST'}
 }
@@ -1784,7 +1809,7 @@ PROFILE_BY_SYMBOL.update({
     'STG.CO':'Konsumentvaror och detaljhandel',
     'SSAB-B.ST':'Stålindustri',
     'SECU-B.ST':'Säkerhetstjänster',
-    'MAHA-A.ST':'Energi – prospektering och produktion',
+    'KEOC.ST':'Finansiella tjänster',
     'SES.ST':'Energi – prospektering och produktion',
 })
 
@@ -1827,7 +1852,7 @@ ADDITIONAL_GROUP_FALLBACK={
     'FOI-B.ST':'Konsument och övrigt','NELLY.ST':'Konsument och övrigt',
     'SCST.ST':'Konsument och övrigt','MSON-B.ST':'Konsument och övrigt',
     'STG.CO':'Konsument och övrigt','KAR.ST':'Teknik och telekom',
-    'MAHA-A.ST':'Material och skog','SES.ST':'Material och skog',
+    'KEOC.ST':'Bank och finans','SES.ST':'Material och skog',
     'SVIK.ST':'Industri','CTT.ST':'Industri','ELAN-B.ST':'Industri',
     'ENGCON-B.ST':'Industri','GARO.ST':'Industri','INSTAL.ST':'Industri',
     'INWI.ST':'Industri','MILDEF.ST':'Industri','NOLA-B.ST':'Industri',
@@ -1844,7 +1869,7 @@ ADDITIONAL_GROUP_FALLBACK={
     'KNOW.ST':'Teknik och telekom','LIME.ST':'Teknik och telekom',
     'SOF-B.ST':'Teknik och telekom','SLEEP.ST':'Teknik och telekom',
     'STORY-B.ST':'Teknik och telekom','SF.ST':'Teknik och telekom',
-    'TDVOX.ST':'Teknik och telekom','BERG-B.ST':'Industri',
+    'DYVOX.ST':'Teknik och telekom','BERG-B.ST':'Industri',
     'MMGR-B.ST':'Industri','OEM-B.ST':'Industri','SDIP-B.ST':'Industri'
 }
 KNOWN_GROUP_BY_TICKER.update(ADDITIONAL_GROUP_FALLBACK)
@@ -1858,7 +1883,8 @@ def comparable_ev_ebita(ebita_amount,net_debt_amount,share_count,multiple,fx):
 
 def valuation_category(symbol, info=None):
     """Konservativ kategorisering: särskilda affärsmodeller kräver andra metoder."""
-    if symbol in ('MAHA-A.ST','SES.ST'): return 'Energi – prospektering och produktion'
+    if symbol=='KEOC.ST': return 'Bank / finansiella tjänster'
+    if symbol=='SES.ST': return 'Energi – prospektering och produktion'
     if symbol=='HEM.ST': return 'Rörelsedrivande bolag'
     if symbol=='EQT.ST': return 'Kapitalförvaltare'
     if symbol in INVESTMENT_TICKERS: return 'Investmentbolag / kapitalförvaltning'
