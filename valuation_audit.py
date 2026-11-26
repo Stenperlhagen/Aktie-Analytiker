@@ -125,7 +125,7 @@ if __name__=='__main__':
     if not borsapi_key():
         print('Live coverage requires BORSAPI_API_KEY.',file=sys.stderr)
         sys.exit(2)
-    globals().update({name:lru_cache(maxsize=512)(adapter) if name not in ('verified_capitalization','borsapi_annual_frames') else adapter for name,adapter in production_adapters.items()})
+    globals().update({name:lru_cache(maxsize=512)(adapter) if name not in ('verified_capitalization','borsapi_annual_frames','request_borsdata') else adapter for name,adapter in production_adapters.items()})
     globals()['ecb_exchange_rates']=lru_cache(maxsize=1)(ecb_exchange_rates)
     ALL_COMPANIES={name:sym for name,sym in ALL_COMPANIES.items() if sym not in {'FNOX.ST','COALA.ST','ADDV-B.ST','ADDV-A.ST'}}
     if '--probe' in sys.argv:
