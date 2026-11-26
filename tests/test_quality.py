@@ -24,9 +24,11 @@ class QualityTests(unittest.TestCase):
 
     def test_dividend_yield(self):
         records=[{'currency':'SEK','dividend':0.11}]
-        calc=load_function("trailing_dividend_yield",{"borsapi_key":lambda:'fixture',"borsapi_r12_records":lambda *args:records,"bd_field":lambda r,k:r.get(k)})
+        calc=load_function("trailing_dividend_yield",{"borsapi_key":lambda:'fixture',"borsapi_r12_records":lambda *args:records,"bd_field":lambda r,k:r.get(k),"fx_rate":lambda source,dest:1 if source==dest else 11 if source=="EUR" and dest=="SEK" else None})
         self.assertAlmostEqual(calc("STOR-B.ST",11.10),0.11/11.10*100)
         records[0]['currency']='EUR'
+        self.assertAlmostEqual(calc("STOR-B.ST",11.10),0.11*11/11.10*100)
+        records[0]['currency']='XXX'
         self.assertIsNone(calc("STOR-B.ST",11.10))
         self.assertIsNone(calc("STOR-B.ST", 0))
         self.assertIsNone(calc("STOR-B.ST", -1))
