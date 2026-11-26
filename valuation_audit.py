@@ -1,4 +1,6 @@
 import ast
+import re
+import sys
 import pathlib
 import csv
 import math
@@ -12,7 +14,7 @@ from functools import lru_cache
 
 # Load exact production definitions without executing Streamlit UI.
 tree=ast.parse(pathlib.Path('app.py').read_text(encoding='utf-8'))
-names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
+names={'borsapi_instruments','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_debt_ebitda_map','bd_field','report_ebita_extract','emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
 nodes=[]
 for node in tree.body:
     if isinstance(node,ast.FunctionDef) and node.name in names:
@@ -25,12 +27,15 @@ for node in tree.body:
 exec(compile(ast.Module(body=nodes,type_ignores=[]),'app.py','exec'))
 fx_rate=lru_cache(maxsize=128)(fx_rate)
 roic_company_data=lru_cache(maxsize=256)(roic_company_data)
+production_adapters={name:globals()[name] for name in ('borsapi_instruments','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_debt_ebitda_map','bd_field','report_ebita_extract')}
 def roic_key():
     return os.environ.get('ROIC_API_KEY','').strip()
 
+LIVE=False
+
 def borsapi_key():
     # CI does not have Streamlit Secrets. Do not require credentials for mathematical tests.
-    return os.environ.get('BORSAPI_API_KEY','').strip()
+    return os.environ.get('BORSAPI_API_KEY','').strip() if LIVE else ''
 
 def borsapi_reports(symbol, api_key):
     # Deterministic offline fallback; integration is tested separately.
@@ -87,6 +92,11 @@ def tests():
 
 if __name__=='__main__':
     tests()
+    if '--live' in sys.argv:
+        LIVE=True
+        if not borsapi_key(): raise SystemExit('Authenticated audit requires BORSAPI_API_KEY')
+        globals().update({name:lru_cache(maxsize=512)(fn) if name!='bd_field' else fn for name,fn in production_adapters.items()})
+        print('Authenticated Börsdata production adapters enabled',flush=True)
     rows=[]
     failures=[]
     for symbol in dict.fromkeys(ALL_COMPANIES.values()):
@@ -111,10 +121,16 @@ if __name__=='__main__':
             applicable=v.get('category')=='Rörelsedrivande bolag'
             multiple=(price*shares/fx+debt)/earnings if applicable and all(x is not None for x in (earnings,debt,fx,shares,price)) and min(earnings,fx,shares,price)>0 else None
             rows[-1].update({'ebita':earnings,'ev_ebita':multiple,'ebita_status':'Ej tillämpligt' if not applicable else 'Saknas EBITA' if earnings is None else 'Saknas jämförbar EV/EBITA' if multiple is None else 'Underlag finns'})
+        if rows[-1].get('category'):
+            models=v.get('models',{})
+            rows[-1].update({'report_source':info.get('_report_source'),'price_source':info.get('_price_source'),'fcff':v.get('inputs',{}).get('FCFF'),'dual_model':all(k in models for k in ('EV/EBITA','DCF')),'annual_available':not fin.empty,'price_available':not hist.empty})
         print(symbol,rows[-1].get('target'),rows[-1].get('ebita_status'),flush=True)
         pd.DataFrame(rows).to_csv('valuation-audit.csv',index=False)
     print('Total:',len(rows),'With target:',sum(r.get('target') is not None for r in rows))
 
     print('EBITA coverage:',pd.Series([r.get('ebita_status','Fel') for r in rows]).value_counts().to_dict(),flush=True)
+    print('FCFF available:',sum(r.get('fcff') is not None for r in rows),flush=True)
+    print('Dual model available:',sum(bool(r.get('dual_model')) for r in rows),flush=True)
+    print('Report sources:',pd.Series([r.get('report_source') or 'Not recorded' for r in rows]).value_counts().to_dict(),flush=True)
     print('Execution failures:',len(failures),flush=True)
     if failures: raise AssertionError('; '.join(failures))
