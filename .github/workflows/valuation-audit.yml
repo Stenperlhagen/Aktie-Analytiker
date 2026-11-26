@@ -17,10 +17,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install pandas yfinance
+      - run: pip install pandas yfinance requests pypdf
       - run: python valuation_audit.py
         env:
           ROIC_API_KEY: ${{ secrets.ROIC_API_KEY }}
+      - name: Run authenticated recovery audit
+        run: python valuation_audit.py --live
+        env:
+          BORSAPI_API_KEY: ${{ secrets.BORSAPI_API_KEY }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
