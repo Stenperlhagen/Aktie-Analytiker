@@ -7,7 +7,7 @@ import requests
 import urllib.parse
 import datetime as dt
 import pandas as pd
-import yfinance as yf
+import re
 from functools import lru_cache
 
 # Load exact production definitions without executing Streamlit UI.
@@ -46,6 +46,14 @@ def borsapi_r12_records(symbol, api_key):
     # Offline audit: R12 endpoint is unavailable without credentials.
     return []
 
+def borsapi_instruments(api_key):
+    return [],'Offline audit'
+def borsapi_market_cap_map(api_key):
+    return {},'Offline audit'
+def avanza_market_snapshot(symbol):
+    return {},'Offline audit'
+def verified_capitalization(symbol,info,quick,fin,history):
+    return {'market_cap':None,'shares':None,'source':'Offline audit','warnings':[],'verified':False}
 def tests():
     assert abs(comparable_ev_ebita(245e6,1331e6,79406571,12,1)-20.263)<0.01
     assert comparable_ev_ebita(100,None,10,12,1) is None
@@ -104,7 +112,7 @@ if __name__=='__main__':
                 if v.get('price') and v['price']>0:
                     assert abs(v['buy_limit']-v['target']*.8)<1e-7, 'Inconsistent buy limit'
                     assert abs(v['upside']-(v['target']/v['price']-1)*100)<1e-7, 'Inconsistent upside'
-            rows.append({'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Yahoo Finance – not independently verified'),'fetch_errors':str(list(errors)),'report_verified':False,'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
+            rows.append({'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Offline audit – not independently verified'),'fetch_errors':str(list(errors)),'report_verified':False,'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
         except Exception as e:
             failures.append(symbol+': '+str(e))
             rows.append({'ticker':symbol,'missing':type(e).__name__+': '+str(e),'report_verified':False})
