@@ -1680,6 +1680,28 @@ def render_biotech_scenario(ticker,category,valuation):
             st.caption('Manuellt scenario, inte en automatisk fundamental riktkurs. Nettolikvid ska inte dubbelräknas i nettokassan.')
         except (ValueError,TypeError,OverflowError) as exc: st.error(str(exc))
 
+def bokus_q3_2026_bridge(record,as_of=None):
+    """Manually reconciled public report, not a synthetic API field. Expires after 150 days."""
+    period='2026-09-30'
+    today=pd.Timestamp(as_of if as_of is not None else pd.Timestamp.now()).normalize()
+    if not 0<=(today-pd.Timestamp(period)).days<=150: return None
+    if str(record.get('report_End_Date') or record.get('reportEndDate') or '')[:10]!=period: return None
+    if str(record.get('currency') or '').upper()!='SEK': return None
+    sales=bd_field(record,'revenues')
+    ebit=bd_field(record,'operating_Income')
+    if sales is None or abs(sales-2210.3)>=2 or ebit is None or abs(ebit-106.7)>=1: return None
+    # Issuer's Q3 2026 report pp. 1, 11, 15, 16, 18, 26.
+    # The alternative-key-ratio note provides the operating-lease effect and net debt excluding it.
+    # Keep operating leases as expenses in both valuation methods.
+    lease_da=148.1e6
+    lease_cost=156.3e6
+    reported_ebita=152.6e6
+    return {'period':period,'source':'https://storage.mfn.se/81dda649-d26e-4ccd-9dfe-bcc080ed3b11/bokusgruppen-ab-publ-delarsrapport-januari-september-2026.pdf',
+            'sales':2210.3e6,'reported_ebita':reported_ebita,'reported_ebita_net_debt':(188.4+143.2+132.5-11.1)*1e6,
+            'model_ebita':reported_ebita+lease_da-lease_cost,'model_net_debt':187.7e6,'shares':16292424,
+            'fcff':(106.7e6+lease_da-lease_cost)*(1-0.206)+(201.9e6-lease_da)-26.1e6-13.2e6-4.7e6,
+            'fcff_note':'R12 historisk FCFF, antagen skatt 20,6 %. Operationell leasing behandlas som rörelsekostnad i EBITA och FCFF; motsvarande leasingskuld exkluderas från modellens nettoskuld. Exkl. rörelseförvärv.'}
+
 def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
     # ROIC primary for matching annual statements; never mix currencies or periods.
     primary_source=info.get('_report_source','Börsdata/Avanza')
@@ -1962,32 +1984,20 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 out['source']='https://investors.boliden.com/sites/boliden-ir/files/pr/202610291842-1.pdf'
                 out['pe_ttm']=price/50.25 if price and price>0 else None
                 out['missing'].append('Boliden: separat immateriell avskrivning och normaliserat FCFF behöver verifieras; DCF är preliminär')
-            # Source-backed supplemental snapshot: Bokusgruppen Q3 2026, pp. 1, 11, 15, 18, 26.
-            # Lease treatment is consistent across the two models: operating leases treated as expenses.
-            if symbol=='BOKUS.ST' and report=='SEK' and currency=='SEK' and 0<=(pd.Timestamp.now().normalize()-pd.Timestamp('2026-09-30')).days<=150:
-                # Only use if the live R12 identity, reporting period and revenue/EBIT agree.
-                recs=borsapi_r12_records(symbol,borsapi_key()) if use_roic else []
-                rec=recs[0] if recs else {}
-                end=str(rec.get('report_End_Date') or rec.get('reportEndDate') or '')[:10]
-                live_rev=bd_field(rec,'revenues') if rec else None
-                live_ebit=bd_field(rec,'operating_Income') if rec else None
-                if end=='2026-09-30' and str(rec.get('currency') or '').upper()=='SEK' and live_rev is not None and abs(live_rev-2210.3)<2 and live_ebit is not None and abs(live_ebit-106.7)<1:
-                    reported_ebita=152.6e6
-                    lease_da=148.1e6
-                    lease_cost=156.3e6
-                    earnings=reported_ebita+lease_da-lease_cost
+            # Supplement only the matching R12 period, verified against the issuer's report.
+            if symbol=='BOKUS.ST' and report=='SEK' and currency=='SEK' and use_roic:
+                recs=borsapi_r12_records(symbol,borsapi_key())
+                supplement=bokus_q3_2026_bridge(recs[0] if recs else {})
+                if supplement:
+                    earnings=supplement['model_ebita']
                     earnings_label='EBITA (beräknad)'
-                    debt=187.7e6
-                    shares=16292424
+                    debt=supplement['model_net_debt']
+                    shares=supplement['shares']
                     fx=1.0
-                    fcff=(106.7e6+lease_da-lease_cost)*(1-0.206)+(201.9e6-lease_da)-26.1e6-13.2e6-4.7e6
+                    fcff=supplement['fcff']
                     r12_used=True
-                    r12_sales=2210.3e6
-                    out['period']='2026-09-30'
-                    out['source']='https://storage.mfn.se/81dda649-d26e-4ccd-9dfe-bcc080ed3b11/bokusgruppen-ab-publ-delarsrapport-januari-september-2026.pdf'
-                    out['reported_ebita']=reported_ebita
-                    out['reported_ebita_net_debt']=453.0e6
-                    out['fcff_note']='R12 FCFF, historiskt utgångsvärde, beräknat med antagen skatt 20,6 %. Operationell leasing behandlas som rörelsekostnad i EBITA och FCFF; motsvarande leasingskuld exkluderas från modellens nettoskuld. Exkl. rörelseförvärv.'
+                    r12_sales=supplement['sales']
+                    out.update({k:supplement[k] for k in ('period','source','reported_ebita','reported_ebita_net_debt','fcff_note')})
                     out['missing']=[x for x in out['missing'] if not x.startswith('R12:')]
             # Kontrollera enheter och kapitalstruktur för ALLA bolag, inte bara specialfallen.
             market_cap=val(info,'marketCap') or val(quick,'market_cap')
