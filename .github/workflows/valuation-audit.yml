@@ -25,7 +25,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install pandas requests pypdf
+      - run: pip install pandas requests pypdf yfinance
       - name: Inspect live fields for representative listings
         env:
           BORSAPI_API_KEY: ${{ secrets.BORSAPI_API_KEY }}
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install pandas requests pypdf
+      - run: pip install pandas requests pypdf yfinance
       - run: python valuation_audit.py
       - name: Check live coverage when configured
         env:
