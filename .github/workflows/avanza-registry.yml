@@ -40,6 +40,8 @@ jobs:
               value = norm(value)
               if value in {'STOCKHOLM','NASDAQSTOCKHOLM','NASDAQOMXSTOCKHOLM','OMXSTOCKHOLM','XSTO','STOCKHOLMSBORSEN','NASDAQSTOCKHOLMLARGECAP','NASDAQSTOCKHOLMMIDCAP','NASDAQSTOCKHOLMSMALLCAP','NASDAQOMXSTOCKHOLMLARGECAP','NASDAQOMXSTOCKHOLMMIDCAP','NASDAQOMXSTOCKHOLMSMALLCAP'}:
                   return 'XSTO'
+              if value in {'FNSE','FIRSTNORTHSTOCKHOLM','FIRSTNORTHSWEDEN','NASDAQFIRSTNORTHGROWTHMARKET'}:
+                  return 'FNSE'
               if value in {'COPENHAGEN','NASDAQCOPENHAGEN','NASDAQOMXCOPENHAGEN','OMXCOPENHAGEN','XCSE','KOPENHAMN'}:
                   return 'XCSE'
               return None
@@ -74,12 +76,23 @@ jobs:
               try:
                   matches = [x for x in instruments if str(x.get('yahoo') or '').upper() == symbol.upper()]
                   if len(matches) != 1:
+                      row['catalog_diagnostics']=[{k:x.get(k) for k in ('insId','name','ticker','yahoo','isin','stockPriceCurrency','marketId')} for x in instruments if norm(str(x.get('ticker') or ''))==norm(symbol.rsplit('.',1)[0]) or str(x.get('yahoo') or '').upper()==symbol.upper()][:10]
                       raise ValueError('Börsdata listing not unique')
                   ref = matches[0]
                   isin = str(ref.get('isin') or '').upper()
                   if not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]', isin):
                       raise ValueError('Börsdata ISIN missing')
                   expected_currency, expected_market = {'ST':('SEK','XSTO'),'CO':('DKK','XCSE')}[symbol.rsplit('.',1)[1]]
+                  # Venue/currency exceptions confirmed in issuer and exchange notices.
+                  # https://view.news.eu.nasdaq.com/view?id=b29dda465d7daa8759d2a679fdf7701ba&lang=en&src=rss
+                  # https://view.news.eu.nasdaq.com/view?id=b653256112bd393e4faaf75ae85df2f1d&lang=en&src=micro
+                  # https://view.news.eu.nasdaq.com/view?id=be12ca027b0588df3190bec12e55ea277&lang=en&src=listed
+                  # https://view.news.eu.nasdaq.com/view?id=ba6e3784a0a87d647ff64ae777897c4d2&lang=en&src=listed
+                  if symbol in ('BOKUS.ST','SUS.ST','SES.ST'): expected_market='FNSE'
+                  if symbol=='VSURE.ST': expected_currency='EUR'
+                  bd_currency=str(ref.get('stockPriceCurrency') or '').upper()
+                  if bd_currency and bd_currency!=expected_currency:
+                      raise ValueError('Börsdata currency conflicts with exchange listing')
                   ticker = norm(symbol.rsplit('.',1)[0])
                   row.update(isin=isin,borsdata_id=ref.get('insId'),expected_currency=expected_currency,expected_market=expected_market)
                   search = session.post(root+'/_api/search/filtered-search',json={'query':isin,'searchFilter':{'types':['STOCK']},'pagination':{'from':0,'size':50}},timeout=12)
@@ -123,7 +136,7 @@ jobs:
                   row['error']=type(e).__name__
               rows.append(row)
               if row.get('error') in ('HTTP 403','HTTP 429'): break
-              print(symbol,'verified' if row['verified'] else row.get('error','unknown'),'hits',row.get('search_hit_count'),'candidates',row.get('candidate_count'),'observed',json.dumps(row.get('observed',[])[:2],ensure_ascii=False),'sample',json.dumps(row.get('search_sample',[]),ensure_ascii=False),flush=True)
+              print(symbol,'verified' if row['verified'] else row.get('error','unknown'),'hits',row.get('search_hit_count'),'candidates',row.get('candidate_count'),'observed',json.dumps(row.get('observed',[])[:2],ensure_ascii=False),'sample',json.dumps(row.get('search_sample',[]),ensure_ascii=False),'catalog',json.dumps(row.get('catalog_diagnostics',[]),ensure_ascii=False),flush=True)
               time.sleep(.35)
           done={r['symbol'] for r in rows}
           rows.extend({'symbol':s,'verified':False,'error':'Not attempted after provider access restriction'} for s in symbols if s not in done)
