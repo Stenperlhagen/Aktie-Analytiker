@@ -1559,6 +1559,23 @@ def borsapi_debt_ebitda_map(api_key):
     except Exception as exc: return {},type(exc).__name__
 
 def abb_r12_ebita(symbol, record, period):
+    # Curated company filings, keyed by exact reporting period and listing.
+    # Bokusgruppen Q3 2026, pages 1, 15, 16, 18 and 28: reported R12 EBITA
+    # includes amortisation of both internally developed and acquired intangibles.
+    if symbol=='BOKUS.ST':
+        if str(period)[:10]!='2026-09-30' or record.get('currency')!='SEK':
+            return None
+        # Match consolidated R12 revenue and EBIT independently, allowing only
+        # rounding to the nearest MSEK, before supplementing provider data.
+        sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        if sales is None or ebit is None or abs(sales-2210.3)>0.6 or abs(ebit-106.7)>0.6:
+            return None
+        return {
+            'value':152.6e6,
+            'sources':('https://storage.mfn.se/81dda649-d26e-4ccd-9dfe-bcc080ed3b11/bokusgruppen-ab-publ-delarsrapport-januari-september-2026.pdf',),
+            'fcff_note':'Bokusgruppen: rapporterad R12 EBITA. FCFF från rapporten kräver separat kontroll av IFRS 16, leasingskulder och framtida ersättningsinvesteringar.',
+        }
     if symbol!='ABB.ST' or str(period)[:10]!='2026-09-30' or record.get('currency')!='USD':
         return None
     # The 2025 and 2026 reports reconcile continuing operations on the same basis.
@@ -2154,9 +2171,9 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                             out['source']+=' + Yahoo Finance (avstämda kvartalsrapporter)'
                         if filing:
                             out['ebita_sources']=filing['sources']
-                            out['fcff_note']=filing['fcff_note']
-                            out['fcff_tax_rate']=filing['fcff_tax_rate']
-                            out['source']='ABB:s rapporter (beräknad EBITA) + Börsdata R12'
+                            if filing.get('fcff_note'): out['fcff_note']=filing['fcff_note']
+                            if filing.get('fcff_tax_rate') is not None: out['fcff_tax_rate']=filing['fcff_tax_rate']
+                            out['source']+=' + bolagsrapport (avstämd EBITA)'
                         if rebita is None: out['missing'].append('R12: separat EBITA saknas.')
                         if rfcff is None: out['missing'].append('R12: FCFF saknar komplett underlag.')
             has_complete_model=earnings is not None and earnings_label!='EBIT' and fcff is not None and fcff>0 and debt is not None
