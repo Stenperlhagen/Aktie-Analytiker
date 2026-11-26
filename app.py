@@ -320,6 +320,15 @@ def fetch(ticker):
             errors['Rapportvaluta']=type(exc).__name__+': '+str(exc)[:180]
     for label,frame in [('Resultaträkning',fin),('Balansräkning',balance),('Kassaflöde',cash),('Kurshistorik',history)]:
         if frame.empty: errors.setdefault(label,'Datakällan returnerade tom tabell.')
+    capitalization=verified_capitalization(ticker,info,quick,fin,history)
+    info['_cap_source']=capitalization['source']
+    info['_cap_warnings']=capitalization['warnings']
+    info['_cap_verified']=capitalization['verified']
+    info['marketCap']=capitalization['market_cap']
+    quick['market_cap']=capitalization['market_cap']
+    if capitalization['shares'] is not None:
+        info['sharesOutstanding']=capitalization['shares']
+        quick['shares']=capitalization['shares']
     return info or {}, history, fin, cash, balance, quick or {}, errors
 
 @st.cache_data(ttl=3600,show_spinner=False)
@@ -1184,6 +1193,55 @@ def borsapi_r12_records(symbol,api_key):
         return sorted([r for r in records if isinstance(r,dict) and (r.get('report_End_Date') or r.get('reportEndDate'))],key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
     except Exception: return []
 
+def verified_capitalization(symbol,info,quick,fin,history):
+    """Börsvärde = aktuell aktiekurs × rapporterat aktieantal, aldrig okontrollerad Yahoo marketCap."""
+    price=val(info,'currentPrice','regularMarketPrice') or val(quick,'last_price')
+    if price is None and history is not None and not history.empty:
+        price=numeric(history['Close'].iloc[-1])
+    yahoo_cap=val(info,'marketCap') or val(quick,'market_cap')
+    yahoo_shares=val(info,'sharesOutstanding') or val(quick,'shares')
+    shares=source=date=None
+    notes=[]
+    # Verifierade rapporterade antal, inklusive aktuella emissioner och aktieslag.
+    known={
+        'VOLO.ST':(VOLATI_Q3_2026['ordinary_shares'],'2026-09-30','Volati Q3: stamaktier'),
+        'AAK.ST':(259708000,'2026-09-30','AAK Q3: aktier'),
+        'BOL.ST':(283962452,'2026-09-30','Boliden Q3: utestående aktier'),
+        'WBGR-B.ST':(175988388,'2026-09-30','Wästbygg Q3: efter emission')
+    }
+    if symbol in known:
+        n,d,label=known[symbol]
+        if 0<=(pd.Timestamp.now().normalize()-pd.Timestamp(d)).days<=180:
+            shares,date,source=float(n),d,label
+    if shares is None and borsapi_key():
+        for record in borsapi_r12_records(symbol,borsapi_key()):
+            d=str(record.get('report_End_Date') or record.get('reportEndDate') or '')[:10]
+            try: age=(pd.Timestamp.now().normalize()-pd.Timestamp(d)).days
+            except (ValueError,TypeError): continue
+            n=bd_field(record,'number_Of_Shares')
+            if 0<=age<=180 and n is not None and 0<n<1000000:
+                shares,date,source=n*1e6,d,'Börsdata R12: rapporterat aktieantal'
+                break
+    result={'market_cap':None,'shares':shares,'source':source or 'Aktuellt aktieantal ej verifierat',
+            'warnings':[],'verified':False}
+    if shares is None:
+        result['warnings'].append('Ingen kontrollerbar aktiestock: Yahoo-börsvärde underkänns.')
+        return result
+    if price is None or price<=0 or not (info.get('currency') or quick.get('currency')):
+        result['warnings'].append('Aktuell aktiekurs eller handelsvaluta saknas.')
+        return result
+    cap=price*shares
+    if yahoo_cap and abs(cap/yahoo_cap-1)>0.08:
+        notes.append('Yahoo-börsvärdet avviker över 8 % och används inte.')
+    if yahoo_shares and abs(shares/yahoo_shares-1)>0.08:
+        notes.append('Yahoo-aktieantalet avviker över 8 % och används inte.')
+    if symbol=='VOLO.ST':
+        notes.append('Börsvärdet avser stamaktier; preferensaktier ingår inte.')
+    if symbol.endswith(('-A.ST','-B.ST','-C.ST')) or symbol in ('VOLO.ST','SAMPO-SDB.ST'):
+        notes.append('Olika aktieslag kan ha olika kurser: värdet är en approximation.')
+    result.update(market_cap=cap,source=source+' '+date,warnings=notes,verified=True)
+    return result
+
 @st.cache_data(ttl=21600,show_spinner=False)
 def borsapi_debt_ebitda_map(api_key):
     if not api_key: return {},'API-nyckel saknas'
@@ -1928,6 +1986,10 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
             capital_flags.append('Aktuellt aktieantal avviker från senaste årsbalans; kontrollera emissionslikvid och aktuell nettoskuld')
     if symbol=='WBGR-B.ST':
         capital_flags.append('Wästbygg: nyemissioner 2025–2026 och teckningsoptioner; verifiera registrerat aktieantal, emissionslikvid, nettoskuld och potentiell utspädning innan riktkurs används')
+    if not info.get('_cap_verified'):
+        capital_flags.append('Börsvärde ej verifierat: riktkurs och signal kräver granskning.')
+    for note in info.get('_cap_warnings',[]):
+        if 'avviker' in note: capital_flags.append('Kapitalstruktur: '+note)
     if capital_flags:
         out.setdefault('audit',[]).extend(capital_flags)
     if symbol=='WBGR-B.ST':
@@ -2240,10 +2302,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v44':
+if st.session_state.get('screener_model_version')!='unified-v45-capitalization':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v44'
+    st.session_state['screener_model_version']='unified-v45-capitalization'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -2422,9 +2484,8 @@ sales_growth_pct = _annual_growth(sales_history)*100 if len(sales_history)>=2 an
 netdebt_ebitda = netdebt/ebitda if netdebt is not None and ebitda is not None and ebitda>0 else None
 shares_count = val(info,'sharesOutstanding')
 if shares_count is None: shares_count=val(quick,'shares')
-market_cap = val(info,'marketCap')
-if market_cap is None: market_cap=val(quick,'market_cap')
-if market_cap is None and shares_count is not None and price is not None: market_cap=shares_count*price
+# No unverified Yahoo market capitalization is allowed back into financial ratios.
+market_cap = val(info,'marketCap') if info.get('_cap_verified') else None
 quote_ccy = info.get('currency') or quick.get('currency')
 report_ccy = info.get('financialCurrency')
 _roic_data, _roic_error = {}, None
@@ -2794,6 +2855,9 @@ if ebita is None and valuation_result.get('category') in ('Rörelsedrivande bola
             ev_ebita=(market_cap*rate+matched_debt*1e6)/ebita
             ev_ebita_source='Rapporterad EBITA R12; matchad Börsdata nettoskuld'
 st.markdown('### Finansiell översikt')
+st.caption('Börsvärde: '+str(info.get('_cap_source') or 'Ej verifierat')+' · Kurs × rapporterat aktieantal, inte Yahoo marketCap.')
+for cap_warning in info.get('_cap_warnings',[]):
+    st.caption('Kapitalstruktur: '+cap_warning)
 st.caption('Börsdata R12 prioriteras för jämförbara uppgifter; årsbaserade reservvärden beräknas från matchade rapportdatum. R12 och kursbaserade värden har separata definitioner; leverantörsuppgifter är inte oberoende verifierade.')
 if report_fallback:
     st.caption('Rapporterad EBITA R12, SEK, '+report_fallback[0]+' – [Delårsrapport]('+report_fallback[1]+')')
@@ -3001,7 +3065,7 @@ for start in range(0,len(overview_items),4):
     cols=st.columns(4)
     for col,(label,value) in zip(cols,overview_items[start:start+4]):
         if label=='Börsvärde' and market_cap is not None:
-            col.metric('Börsvärde (md '+(quote_ccy or '–')+')',show(market_cap/1e9,'',1))
+            col.metric('Börsvärde (md '+(quote_ccy or '–')+')',show(market_cap/1e9,'',2))
         elif label.startswith(('Omsättning (','EBITA (','Operativt kassaflöde','Nettovinst')) and isinstance(value,str) and value.endswith(' M'):
             col.metric(label+' (M)',value[:-2])
         else:
