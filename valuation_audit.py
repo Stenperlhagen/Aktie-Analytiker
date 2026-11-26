@@ -138,6 +138,12 @@ def tests():
     bokus={'currency':'SEK','revenues':2210.3,'operating_Income':106.7}
     official=abb_r12_ebita('BOKUS.ST',bokus,'2026-09-30')
     assert official['value']==152.6e6 and 'fcff' not in official
+    bokus_full={**bokus,'cash_Flow_From_Operating_Activities':268.6,'net_Debt':453.0}
+    bokus_bridge=abb_r12_ebita('BOKUS.ST',bokus_full,'2026-09-30')
+    assert abs(bokus_bridge['fcff']-(106.7*(1-18.5/105.3)+201.9-26.1-13.2-4.7)*1e6)<1
+    assert abs(bokus_bridge['fcff_tax_rate']-18.5/105.3)<1e-10
+    assert 'fcff' not in abb_r12_ebita('BOKUS.ST',{**bokus_full,'net_Debt':177.3},'2026-09-30')
+    assert 'fcff' not in abb_r12_ebita('BOKUS.ST',{**bokus_full,'cash_Flow_From_Operating_Activities':194.0},'2026-09-30')
     assert abb_r12_ebita('BOKUS.ST',{**bokus,'currency':'EUR'},'2026-09-30') is None
     assert abb_r12_ebita('BOKUS.ST',{**bokus,'operating_Income':100},'2026-09-30') is None
     assert abb_r12_ebita('BOKUS.ST',{**bokus,'revenues':2000},'2026-09-30') is None

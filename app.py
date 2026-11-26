@@ -1632,6 +1632,23 @@ def abb_r12_ebita(symbol, record, period):
                                'minus nettoinvesteringar i anläggningstillgångar och rörelsekapitalets kassaflöde. '
                                'Historiskt FCFF före förvärv; framtida förvärv, leasing och minoritetsintressen '
                                'måste beaktas separat i en normaliserad prognos.'))
+        # Bokusgruppen Q3 2026, pp. 15, 16 and 18, R12 original SEK.
+        # Net debt includes finance and operating lease liabilities. Do not
+        # pair lease-inclusive earnings with a lease-excluded provider debt.
+        if symbol=='BOKUS.ST':
+            ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+            net_debt=bd_field(record,'net_Debt')
+            lease_inclusive_debt=188.4+143.2+132.5-11.1
+            if (ocf is not None and abs(ocf-268.6)<=0.6 and
+                net_debt is not None and abs(net_debt-lease_inclusive_debt)<=0.6):
+                tax_rate=18.5/105.3
+                result.update(
+                    fcff=(106.7*(1-tax_rate)+201.9-26.1-13.2-4.7)*1e6,
+                    fcff_tax_rate=tax_rate,
+                    fcff_note=('Bokusgruppen R12: EBIT efter effektiv rapporterad skatt, plus av- och nedskrivningar, '
+                               'minus materiella och immateriella investeringar samt rörelsekapitalets kassaflödeseffekt. '
+                               'Historiskt kassaflöde före förvärv och leasingamortering; framtida leasinginvesteringar '
+                               'måste normaliseras separat. Nettoskuld inklusive leasing är avstämd.'))
         return result
     if symbol!='ABB.ST' or str(period)[:10]!='2026-09-30' or record.get('currency')!='USD':
         return None
@@ -2237,6 +2254,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
             if (preferred is not None and preferred>0) or symbol=='VOLO.ST':
                 audit.append('Preferenskapital: marknadsvärde och rättigheter måste verifieras innan stamaktievärdet kan användas som köpsignal')
             if symbol=='BOL.ST': audit.append('Nexa-förvärv: kontrollera status, finansiering och pro forma kassaflöden innan riktkurs används')
+            if symbol=='BOKUS.ST' and r12_used and out.get('fcff_note'):
+                audit.append('Bokusgruppen: historiskt FCFF före leasingamortering; normalisera framtida nyttjanderättsinvesteringar före köp-/säljsignal')
             if symbol=='ADDT-B.ST' and r12_used and out.get('fcff_note'):
                 audit.append('Addtech: historiskt FCFF före förvärv; verifiera leasing, minoritetsintressen och framtida förvärvsfinansiering innan signal används')
             out['audit']=audit
