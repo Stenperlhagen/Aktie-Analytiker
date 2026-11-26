@@ -3,10 +3,7 @@ from streamlit.testing.v1 import AppTest
 
 class AppSmokeTest(unittest.TestCase):
     def test_startup_without_company(self):
-        from unittest.mock import patch
-        import yfinance as yf
-        with patch.object(yf, "Ticker", side_effect=RuntimeError("Offline smoke test")):
-            app = AppTest.from_file("app.py", default_timeout=30).run()
+        app = AppTest.from_file("app.py", default_timeout=30).run()
         self.assertFalse(app.exception, str(app.exception))
         self.assertTrue(any(x.label == "Sök eller välj bolag" for x in app.selectbox))
         self.assertTrue(any("Störst kurspotential" in x.value for x in app.subheader))
