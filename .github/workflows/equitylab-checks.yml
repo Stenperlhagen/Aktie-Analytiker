@@ -30,7 +30,7 @@ jobs:
               'competitor configuration': "PEER_UNIVERSE={" in source,
               'valuation categories': "def valuation_category(" in source,
               'reverse DCF': "Reverse DCF" in source,
-              'free data fallback': "annual_income=obj.income_stmt" in source,
+              'Borsdata primary reports and Avanza cross-check': "borsapi_annual_frames(ticker,borsapi_key())" in source and "avanza_market_snapshot(ticker)" in source and "import requests, feedparser, yfinance" not in source,
               'valuation screener': "def screener_snapshot(symbol):" in source,
           }
           for name, ok in checks.items():
