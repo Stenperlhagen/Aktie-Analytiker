@@ -17,7 +17,7 @@ tree=ast.parse(pathlib.Path('app.py').read_text(encoding='utf-8'))
 names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
 live=os.environ.get('EQUITYLAB_LIVE_AUDIT')=='1'
 if live:
-    names.update({'borsapi_reports','borsapi_instruments','borsapi_history','borsapi_r12_records','borsapi_annual_frames','borsapi_market_cap_map','avanza_market_snapshot','verified_capitalization','bd_field','report_ebita_extract'})
+    names.update({'bokus_q3_2026_bridge','borsapi_reports','borsapi_instruments','borsapi_history','borsapi_r12_records','borsapi_annual_frames','borsapi_market_cap_map','avanza_market_snapshot','verified_capitalization','bd_field','report_ebita_extract'})
 nodes=[]
 for node in tree.body:
     if isinstance(node,ast.FunctionDef) and node.name in names:
