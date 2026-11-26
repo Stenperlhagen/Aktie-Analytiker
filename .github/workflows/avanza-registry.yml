@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install pandas yfinance requests
+      - run: pip install pandas yfinance requests pypdf
       - name: Verify listings against authenticated Börsdata instrument catalog
         env:
           BORSAPI_API_KEY: ${{ secrets.BORSAPI_API_KEY }}
