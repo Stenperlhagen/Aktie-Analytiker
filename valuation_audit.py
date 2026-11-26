@@ -15,7 +15,7 @@ from functools import lru_cache
 
 # Load exact production definitions without executing Streamlit UI.
 tree=ast.parse(pathlib.Path('app.py').read_text(encoding='utf-8'))
-names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_market_cap_map','bd_field','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
+names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_market_cap_map','bd_field','reported_operating_metrics','trailing_dividend_yield','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
 nodes=[]
 for node in tree.body:
     if isinstance(node,ast.FunctionDef) and node.name in names:
@@ -104,6 +104,12 @@ def tests():
     recovered=valuation_engine('VOLO-TEST.ST',{**info,'sector':'Industrials'},fin,cash,balance,{},pd.DataFrame(),use_roic=False)
     assert recovered.get('target') is not None
     assert 'VOLV-A.ST' not in ALL_COMPANIES.values() and 'VOLV-B.ST' in ALL_COMPANIES.values()
+    reported={'currency':'SEK','operating_Income':100,'net_Debt':50,'free_Cash_Flow':20}
+    assert reported_operating_metrics(reported,'SEK','SEK',950e6)=={
+        'ebit':100e6,'net_debt':50e6,'free_cash_flow':20e6,'ev_ebit':10.0,
+    }
+    assert reported_operating_metrics(reported,'USD','SEK',950e6)=={}
+    assert reported_operating_metrics({**reported,'operating_Income':-100},'SEK','SEK',950e6)['ev_ebit'] is None
     print('Mathematical regression tests passed')
 
 if __name__=='__main__':
@@ -128,6 +134,8 @@ if __name__=='__main__':
             print(symbol,'annual',len(annual_records),'R12',len(trailing),'prices',len(hist),
                   'report currency',info.get('financialCurrency'),'listing currency',info.get('currency'),
                   'EPS',info.get('trailingEps'),'P/E',model.get('pe_ttm'),
+                  'dividend yield',trailing_dividend_yield(symbol,info.get('currentPrice')),
+                  'reported operating metrics',reported_operating_metrics(trailing[0] if trailing else {},info.get('financialCurrency'),info.get('currency'),info.get('marketCap')),
                   'market cap present',info.get('_cap_verified'),'profile',model.get('profile'),
                   'inputs',model.get('inputs'),'issues',model.get('missing'),'provider status',errors,
                   flush=True)
