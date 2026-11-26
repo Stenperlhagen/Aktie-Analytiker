@@ -27,13 +27,15 @@ jobs:
           python-version: '3.11'
       - run: pip install pandas requests pypdf
       - name: Inspect live fields for representative listings
+        if: ${{ github.event.repository.private == true }}
         env:
           BORSAPI_API_KEY: ${{ secrets.BORSAPI_API_KEY }}
         run: |
           if [ -n "$BORSAPI_API_KEY" ]; then
             python valuation_audit.py --live --probe
           else
-            echo '::notice::Live provider probe skipped because BORSAPI_API_KEY is unavailable.'
+            echo '::error::Live provider probe requires BORSAPI_API_KEY.'
+            exit 1
           fi
   audit:
     needs: provider-probe
@@ -46,17 +48,22 @@ jobs:
           python-version: '3.11'
       - run: pip install pandas requests pypdf
       - run: python valuation_audit.py
+      - name: Public repository only runs mathematical checks
+        if: ${{ github.event.repository.private != true }}
+        run: echo '::notice::Live licensed data is not tested in public CI.'
       - name: Check live coverage when configured
+        if: ${{ github.event.repository.private == true }}
         env:
           BORSAPI_API_KEY: ${{ secrets.BORSAPI_API_KEY }}
         run: |
           if [ -n "$BORSAPI_API_KEY" ]; then
             python valuation_audit.py --live
           else
-            echo '::notice::Live coverage skipped because BORSAPI_API_KEY is unavailable.'
+            echo '::error::Live coverage requires BORSAPI_API_KEY.'
+            exit 1
           fi
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ always() && github.event.repository.private == true }}
         with:
           name: valuation-audit
           path: valuation-audit.csv
