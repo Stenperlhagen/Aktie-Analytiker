@@ -1560,21 +1560,27 @@ def borsapi_debt_ebitda_map(api_key):
 
 def abb_r12_ebita(symbol, record, period):
     # Curated company filings, keyed by exact reporting period and listing.
-    # Bokusgruppen Q3 2026, pages 1, 15, 16, 18 and 28: reported R12 EBITA
-    # includes amortisation of both internally developed and acquired intangibles.
-    if symbol=='BOKUS.ST':
+    # R12 consolidated net sales, EBIT and separately reported EBITA, all MSEK.
+    # Source pages are 1 (Bravida, Instalco), 11 and 14 (Addtech),
+    # and 1, 15, 16, 18 and 28 (Bokusgruppen).
+    filings={
+        'BOKUS.ST':(2210.3,106.7,152.6,'https://storage.mfn.se/81dda649-d26e-4ccd-9dfe-bcc080ed3b11/bokusgruppen-ab-publ-delarsrapport-januari-september-2026.pdf'),
+        'BRAV.ST':(29614,1996,1996,'https://www.bravida.se/4aa4cd/contentassets/9f029b25d6b5454f975af1a2bbb580f6/en-bravidainterimreportjulyseptember2026.pdf'),
+        'ADDT-B.ST':(23493,3288,3888,'https://attachment.news.eu.nasdaq.com/aefe28c8ca9dfc813d7f28af3fed5608b'),
+        'INSTAL.ST':(14604,859,1001,'https://attachment.news.eu.nasdaq.com/a5d3d52407b7880f8e086d9e3715ee809'),
+    }
+    if symbol in filings:
         if str(period)[:10]!='2026-09-30' or record.get('currency')!='SEK':
             return None
-        # Match consolidated R12 revenue and EBIT independently, allowing only
-        # rounding to the nearest MSEK, before supplementing provider data.
+        expected_sales, expected_ebit, reported_ebita, url=filings[symbol]
         sales=bd_field(record,'revenues')
         ebit=bd_field(record,'operating_Income')
-        if sales is None or ebit is None or abs(sales-2210.3)>0.6 or abs(ebit-106.7)>0.6:
+        # Allow only rounding differences between the two published datasets.
+        if sales is None or ebit is None or abs(sales-expected_sales)>0.6 or abs(ebit-expected_ebit)>0.6:
             return None
         return {
-            'value':152.6e6,
-            'sources':('https://storage.mfn.se/81dda649-d26e-4ccd-9dfe-bcc080ed3b11/bokusgruppen-ab-publ-delarsrapport-januari-september-2026.pdf',),
-            'fcff_note':'Bokusgruppen: rapporterad R12 EBITA. FCFF från rapporten kräver separat kontroll av IFRS 16, leasingskulder och framtida ersättningsinvesteringar.',
+            'value':reported_ebita*1e6,
+            'sources':(url,),
         }
     if symbol!='ABB.ST' or str(period)[:10]!='2026-09-30' or record.get('currency')!='USD':
         return None
@@ -3246,7 +3252,7 @@ if model_ebita is not None and model_currency==report_ccy and valuation_debt is 
     ev_ebita_source='Värderingsmodell '+str(valuation_result.get('period') or '')
     st.caption('EBITA: '+ev_ebita_source)
     if valuation_result.get('ebita_sources'):
-        st.markdown('EBITA = rapporterat EBIT plus förvärvsrelaterade avskrivningar. '+
+        st.markdown('Rapporterad eller avstämd EBITA enligt källrapport. '+
                     ' · '.join(f'[Källrapport {i}]({url})' for i,url in enumerate(valuation_result['ebita_sources'],1)))
 
 st.caption('Börsvärde: '+str(info.get('_cap_source') or 'Ej verifierat')+' · Leverantörens eget börsvärde, inte egen beräkning.')
