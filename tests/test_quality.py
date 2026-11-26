@@ -104,6 +104,24 @@ class QualityTests(unittest.TestCase):
         self.assertNotIn("ebita",calc(income.drop(index="Amortization Of Intangibles"),cash,record,periods[0]))
         self.assertNotIn("fcff",calc(income,cash.drop(index="Change In Working Capital"),record,periods[0]))
 
+    def test_yahoo_trailing_bridge_requires_dated_and_reconciled_flows(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("yahoo_r12_bridge",ns)
+        end=pd.Timestamp("2026-09-30")
+        income=pd.DataFrame({end:[1010e6,1000e6,100e6,8e6]},index=["Total Revenue","Operating Revenue","Operating Income","Amortization Of Intangibles Income Statement"])
+        cash=pd.DataFrame({end:[120e6,20e6,-24e6,-4e6]},index=["Operating Cash Flow","Depreciation And Amortization","Capital Expenditure","Change In Working Capital"])
+        record={"revenues":1100,"net_Sales":1000,"operating_Income":100,"cash_Flow_From_Operating_Activities":120}
+        self.assertEqual(calc(income,cash,record,end),{})
+        result=calc(income,cash,record,end,trailing=True)
+        self.assertAlmostEqual(result["ebita"],108e6)
+        self.assertAlmostEqual(result["fcff"],71.4e6)
+        self.assertEqual(calc(income,cash,record,end-pd.offsets.MonthEnd(3),trailing=True),{})
+        self.assertEqual(calc(income,cash,{**record,"net_Sales":900},end,trailing=True),{})
+        self.assertNotIn("fcff",calc(income,cash,{**record,"cash_Flow_From_Operating_Activities":200},end,trailing=True))
+        self.assertNotIn("ebita",calc(income.rename(index={"Amortization Of Intangibles Income Statement":"Amortization Cash Flow"}),cash,record,end,trailing=True))
+
     def test_emission(self):
         calc = load_function("emission_adjustment", {})
         result = calc(100, 200, 10, 20, 500, 1000)
