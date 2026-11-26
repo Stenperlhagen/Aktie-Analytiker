@@ -167,6 +167,19 @@ def tests():
     assert 'fcff' not in abb_r12_ebita('BRAV.ST',{**brav,'cash_Flow_From_Operating_Activities':1453},'2026-09-30')
     assert abb_r12_ebita('BRAV.ST',{**brav,'currency':'EUR'},'2026-09-30') is None
     assert abb_r12_ebita('BRAV.ST',brav,'2026-06-30') is None
+    instal={'currency':'SEK','revenues':14705,'net_Sales':14604,'operating_Income':858,
+            'cash_Flow_From_Operating_Activities':723,'net_Debt':4724}
+    instal_bridge=abb_r12_ebita('INSTAL.ST',instal,'2026-09-30')
+    assert instal_bridge['value']==1001e6
+    assert abs(instal_bridge['fcff']-(859*0.794+572-151-226)*1e6)<1
+    assert abb_r12_ebita('INSTAL.ST',{**instal,'revenues':14604},'2026-09-30')['value']==1001e6
+    assert abb_r12_ebita('INSTAL.ST',{**instal,'revenues':14900},'2026-09-30') is None
+    assert abb_r12_ebita('INSTAL.ST',{**instal,'net_Sales':14000},'2026-09-30') is None
+    assert abb_r12_ebita('INSTAL.ST',{**instal,'operating_Income':850},'2026-09-30') is None
+    assert abb_r12_ebita('INSTAL.ST',instal,'2026-06-30') is None
+    assert abb_r12_ebita('INSTAL.ST',{**instal,'currency':'EUR'},'2026-09-30') is None
+    assert 'fcff' not in abb_r12_ebita('INSTAL.ST',{**instal,'net_Debt':3846},'2026-09-30')
+    assert 'fcff' not in abb_r12_ebita('INSTAL.ST',{**instal,'cash_Flow_From_Operating_Activities':800},'2026-09-30')
     # No secondary provider may replace the annual frames passed by fetch().
     original_roic=roic_company_data
     original_reports=borsapi_reports
@@ -278,3 +291,13 @@ if __name__=='__main__':
     if not any(row.get('finite_positive_target') for row in rows):
         raise AssertionError('No live valuation produced a target')
     if failures: raise AssertionError('; '.join(failures))
+    # Successful execution is not equivalent to complete valuation coverage.
+    expected=set(ALL_COMPANIES.values())
+    actual={r['ticker'] for r in rows}
+    assert actual==expected and len(rows)==len(expected), 'Incomplete active universe audit'
+    missing_targets=[r['ticker'] for r in rows if not r.get('finite_positive_target')]
+    missing_dual=[r['ticker'] for r in rows if r.get('dual_model_status') not in ('Ej tillämpligt','Underlag finns')]
+    print('Publication coverage gate:', 'PASS' if not missing_targets and not missing_dual else 'NOT READY',flush=True)
+    print('Missing positive targets:',len(missing_targets),'Missing applicable dual models:',len(missing_dual),flush=True)
+    if '--require-complete' in sys.argv and (missing_targets or missing_dual):
+        raise AssertionError('Publication coverage gate failed: incomplete targets or applicable dual models')
