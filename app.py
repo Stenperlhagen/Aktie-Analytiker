@@ -1896,17 +1896,23 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                         if hit and hit.get('currency')==rccy and hit.get('period')==str(rdate.date()):
                             rebita=numeric(hit.get('value'))
                     # Do not discard a usable annual EBITA or FCFF model for an incomplete R12 bundle.
-                    preserves_models=(earnings is None or earnings_label=='EBIT' or rebita is not None) and (fcff is None or fcff<=0)
+                    # A real, explicitly populated R12 bridge may replace annual cash flow.
+                    rda=ramount('depreciation_And_Amortization')
+                    rcap=ramount('capital_Expenditure')
+                    rwc=ramount('change_In_Working_Capital')
+                    rfcff=(rebit*(1-0.206)+abs(rda)-abs(rcap)+rwc) if all(x is not None for x in (rebit,rda,rcap,rwc)) else None
+                    preserves_models=(earnings is None or earnings_label=='EBIT' or rebita is not None) and (fcff is None or fcff<=0 or (rfcff is not None and rfcff>0))
                     if preserves_models and rccy and rccy==report and (not common or rdate>=pd.Timestamp(common[0])) and rebit is not None and rdebt is not None and rsales is not None and rsales>0:
                         earnings=rebita if rebita is not None else rebit
                         earnings_label='EBITA' if rebita is not None else 'EBIT'
                         debt=rdebt
-                        fcff=None
+                        fcff=rfcff
                         r12_sales=rsales
                         r12_used=True
                         out['period']=str(rdate.date())
                         out['source']='Börsdata Pro+ R12 · matchad valuta och period'
-                        out['missing'].append('R12: FCFF saknar komplett underlag.' if rebita is not None else 'R12: separat EBITA och FCFF saknar komplett underlag; EBIT används separat.')
+                        if rebita is None: out['missing'].append('R12: separat EBITA saknas; EBIT används endast separat.')
+                        if fcff is None: out['missing'].append('R12: FCFF saknar komplett underlag.')
             if symbol=='VOLO.ST':
                 currency=currency or 'SEK'
                 out['currency']=currency
@@ -1956,6 +1962,33 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 out['source']='https://investors.boliden.com/sites/boliden-ir/files/pr/202610291842-1.pdf'
                 out['pe_ttm']=price/50.25 if price and price>0 else None
                 out['missing'].append('Boliden: separat immateriell avskrivning och normaliserat FCFF behöver verifieras; DCF är preliminär')
+            # Source-backed supplemental snapshot: Bokusgruppen Q3 2026, pp. 1, 11, 15, 18, 26.
+            # Lease treatment is consistent across the two models: operating leases treated as expenses.
+            if symbol=='BOKUS.ST' and report=='SEK' and currency=='SEK' and 0<=(pd.Timestamp.now().normalize()-pd.Timestamp('2026-09-30')).days<=150:
+                # Only use if the live R12 identity, reporting period and revenue/EBIT agree.
+                recs=borsapi_r12_records(symbol,borsapi_key()) if use_roic else []
+                rec=recs[0] if recs else {}
+                end=str(rec.get('report_End_Date') or rec.get('reportEndDate') or '')[:10]
+                live_rev=bd_field(rec,'revenues') if rec else None
+                live_ebit=bd_field(rec,'operating_Income') if rec else None
+                if end=='2026-09-30' and str(rec.get('currency') or '').upper()=='SEK' and live_rev is not None and abs(live_rev-2210.3)<2 and live_ebit is not None and abs(live_ebit-106.7)<1:
+                    reported_ebita=152.6e6
+                    lease_da=148.1e6
+                    lease_cost=156.3e6
+                    earnings=reported_ebita+lease_da-lease_cost
+                    earnings_label='EBITA (beräknad)'
+                    debt=187.7e6
+                    shares=16292424
+                    fx=1.0
+                    fcff=(106.7e6+lease_da-lease_cost)*(1-0.206)+(201.9e6-lease_da)-26.1e6-13.2e6-4.7e6
+                    r12_used=True
+                    r12_sales=2210.3e6
+                    out['period']='2026-09-30'
+                    out['source']='https://storage.mfn.se/81dda649-d26e-4ccd-9dfe-bcc080ed3b11/bokusgruppen-ab-publ-delarsrapport-januari-september-2026.pdf'
+                    out['reported_ebita']=reported_ebita
+                    out['reported_ebita_net_debt']=453.0e6
+                    out['fcff_note']='R12 FCFF, historiskt utgångsvärde, beräknat med antagen skatt 20,6 %. Operationell leasing behandlas som rörelsekostnad i EBITA och FCFF; motsvarande leasingskuld exkluderas från modellens nettoskuld. Exkl. rörelseförvärv.'
+                    out['missing']=[x for x in out['missing'] if not x.startswith('R12:')]
             # Kontrollera enheter och kapitalstruktur för ALLA bolag, inte bara specialfallen.
             market_cap=val(info,'marketCap') or val(quick,'market_cap')
             audit=[]
@@ -2956,6 +2989,12 @@ if ebita is None and valuation_result.get('category') in ('Rörelsedrivande bola
         if matched_debt is not None and rate and market_cap is not None and ebita>0:
             ev_ebita=(market_cap*rate+matched_debt*1e6)/ebita
             ev_ebita_source='Rapporterad EBITA R12; matchad Börsdata nettoskuld'
+if valuation_result.get('reported_ebita') is not None and report_ccy=='SEK' and quote_ccy=='SEK':
+    ebita=valuation_result['reported_ebita']
+    if market_cap is not None and market_cap>0:
+        ev_ebita=(market_cap+valuation_result['reported_ebita_net_debt'])/ebita
+        ev_ebita_source='Bolagets R12 EBITA och nettoskuld inkl. leasing, 2026-09-30'
+    st.caption('Rapporterad EBITA inklusive IFRS 16; värderingen använder en separat leasingjusterad beräkning. [Delårsrapport]('+valuation_result['source']+')')
 st.markdown('### Finansiell översikt')
 st.caption('Börsvärde: '+str(info.get('_cap_source') or 'Ej verifierat')+' · Leverantörens eget börsvärde, inte egen beräkning.')
 av_snapshot=info.get('_avanza_snapshot',{})
