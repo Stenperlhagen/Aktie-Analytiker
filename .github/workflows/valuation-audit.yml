@@ -14,6 +14,24 @@ on:
     - cron: '17 3 * * *'
   workflow_dispatch:
 jobs:
+  provider-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas requests pypdf
+      - name: Inspect live fields for representative listings
+        env:
+          BORSAPI_API_KEY: ${{ secrets.BORSAPI_API_KEY }}
+        run: |
+          if [ -n "$BORSAPI_API_KEY" ]; then
+            python valuation_audit.py --live --probe
+          else
+            echo '::notice::Live provider probe skipped because BORSAPI_API_KEY is unavailable.'
+          fi
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 40
