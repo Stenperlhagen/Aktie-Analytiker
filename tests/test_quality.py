@@ -77,6 +77,15 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(calc(income,prices,"SEK","SEK",{period:pd.Timestamp("2025-08-20")}),[20])
         self.assertEqual(calc(income,prices,"SEK","SEK",{}),[])
 
+    def test_overview_money_displays_stockholm_amounts_in_sek(self):
+        ns={"math":math}
+        load_function("numeric",ns)
+        load_function("show",ns)
+        metric=load_function("overview_money_metric",ns)
+        self.assertEqual(metric("Omsättning",36_962e6,"USD","SEK",10),("Omsättning (MSEK)","369 620"))
+        self.assertEqual(metric("EBITA",6_911e6,"USD","SEK",None),("EBITA (MUSD)","6 911"))
+        self.assertEqual(metric("Kassa",0,"SEK","SEK",1),("Kassa (MSEK)","0"))
+
     def test_emission(self):
         calc = load_function("emission_adjustment", {})
         result = calc(100, 200, 10, 20, 500, 1000)
