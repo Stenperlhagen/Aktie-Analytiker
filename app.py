@@ -4317,7 +4317,29 @@ with business_tab:
     except Exception: research_model='openai/gpt-oss-120b'
     research={}
     research_error=''
-    if research_key:
+    if ticker=='BOKUS.ST':
+        annual='https://www.bokusgruppen.com/files/mfn/reports/2026-03-26/bokusgruppen-ab-publ-ars-och-hallbarhetsredovisning-2025.pdf'
+        quarter='https://www.bokusgruppen.com/investerare/rapporter/2026/bokusgruppen-ab-publ-delarsrapport-januariseptember-2026/'
+        brand='https://www.bokusgruppen.com/varumarken/akademibokhandeln/'
+        assessments=[
+            ('Affärsmodell','Detaljhandel och abonnemang',
+             'Bokusgruppen säljer böcker och kompletterande produkter via Akademibokhandelns butiker och e-handel samt via Bokus. Bokussegmentet omfattar också Bokus Play, BTJ och Pen Store.',quarter),
+            ('Kundnytta','Flera sätt att handla',
+             'Butikerna erbjuder vägledning, inspiration och lokal tillgång. E-handeln ger ett bredare sökbart sortiment och Bokus Play erbjuder digital läsning och lyssning.',brand),
+            ('Konkurrensfördelar','Starkt butiksnät',
+             'Akademibokhandeln uppger 68 % andel i fysisk bokhandel. Nätet och varumärket ger räckvidd. Fördelen är starkast i fysisk handel. Bokus e-handel tappade trafik i Q3 2026.',quarter),
+            ('AI-risk','Måttlig risk',
+             'AI-svar och nya sökvanor kan minska trafiken från sökmotorer till Bokus. Ledningen arbetar med synlighet i sök och AI-svar. Delårsrapporten visar lägre trafik, men särredovisar inte hur mycket av nedgången som beror på AI.',quarter),
+            ('Prissättningskraft','Blandad',
+             'Koncernens omsättning ökade 10,5 % i Q3 2026 medan bruttomarginalen föll från 46,5 till 44,7 %. Bolaget kopplar marginalpressen till större andel företags- och onlineförsäljning. Kvartalet ger begränsat stöd för uthållig prissättningskraft.',quarter),
+            ('Kundlojalitet','Stor medlemsbas',
+             'Akademibokhandelns Vänner har enligt bolaget över 2,3 miljoner medlemmar. Det ger en direkt kundkanal. Medlemsantalet visar räckvidd, medan återköpsgrad och aktivitet behövs för att bedöma hur stark lojaliteten är.',brand),
+            ('Kund- och leverantörsberoende','Väsentliga förlagsrelationer',
+             'Årsredovisningen beskriver en bred leverantörsbas men följer särskilt upp de förlag som tillsammans står för 70 % av försäljningsvolymen. Det visar att relationer med större förlag är viktiga. Underlaget kvantifierar varken exponeringen mot det största förlaget eller den största kunden.',annual),
+            ('Efterfrågan om 15+ år','Uthållig kategori, osäkra kanaler',
+             'Läsning, utbildning och presenter ger flera användningsområden för böcker. För Bokusgruppen avgörs det långsiktiga utfallet av hur väl butikernas kundrelationer går att omsätta i lönsam försäljning när kunder byter format och sökkanaler. Pen Store breddar sortimentet, medan julhandeln fortsatt väger tungt för resultatet.',quarter),
+        ]
+    elif research_key:
         with st.spinner('Analyserar bolagets rapporter och marknad...'):
             research_profile=str(verified[0] if verified else description or '')
             research_website=str(verified[1] if verified else info.get('website') or '')
@@ -4338,7 +4360,7 @@ with business_tab:
             research,research_error=qualitative_research(ticker,str(info.get('longName') or name or ticker),research_website,research_profile,str(max(periods)) if len(periods) else '',research_model,research_key,sector_context)
 
     else: research_error='GROQ_API_KEY saknas i Streamlit Secrets.'
-    for label in ['Kundnytta','Konkurrensfördelar','AI-risk','Prissättningskraft','Kundlojalitet','Kund- och leverantörsberoende','Efterfrågan om 15+ år']:
+    for label in ([] if ticker=='BOKUS.ST' else ['Kundnytta','Konkurrensfördelar','AI-risk','Prissättningskraft','Kundlojalitet','Kund- och leverantörsberoende','Efterfrågan om 15+ år']):
         row=research.get(label)
         if row:
             add_quality(label,row['status'],row['reason']+' Tillförlitlighet: '+row['confidence'].lower()+'.',('Bolagsprofil' if row['url']=='profile' else row['url']))
@@ -4424,8 +4446,15 @@ with business_tab:
     colors={'Stark':'#15803D','Låg risk':'#15803D','Blandad':'#B8860B','Måttlig risk':'#B8860B','Svag':'#DC2626','Hög risk':'#DC2626','Positiv historik':'#15803D','Låg nettoskuld':'#15803D','Positiv kassakonvertering':'#15803D','Negativ historik':'#DC2626','Hög nettoskuld':'#DC2626','Svag kassakonvertering':'#DC2626','Blandad historik':'#B8860B','Måttlig nettoskuld':'#B8860B','Måttlig kassakonvertering':'#B8860B'}
     for label,status,reason,source in assessments:
         color=colors.get(status,'#64748B')
-        st.markdown(f'<div style="padding:12px 0;border-bottom:1px solid rgba(148,163,184,.25)"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><b>{html.escape(label)}</b><b style="color:{color}">{html.escape(status)}</b></div><div style="font-size:14px;margin-top:5px">{html.escape(reason)}</div><div style="font-size:11px;opacity:.7;margin-top:4px">{html.escape(source)}</div></div>',unsafe_allow_html=True)
+        source_markup=html.escape(source)
+        if source.startswith('https://'):
+            source_markup=f'<a href="{html.escape(source,quote=True)}" target="_blank" rel="noopener noreferrer">Källa</a>'
+        st.markdown(f'<div style="padding:12px 0;border-bottom:1px solid rgba(148,163,184,.25)"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><b>{html.escape(label)}</b><b style="color:{color}">{html.escape(status)}</b></div><div style="font-size:14px;margin-top:5px">{html.escape(reason)}</div><div style="font-size:11px;opacity:.7;margin-top:4px">{source_markup}</div></div>',unsafe_allow_html=True)
     st.markdown('**Samlad bedömning**')
+    if ticker=='BOKUS.ST':
+        st.write('Akademibokhandelns butiksnät och medlemsbas är gruppens tydligaste uthålliga styrkor. '
+                 'För 15-årsbedömningen väger den organiska utvecklingen i Bokus e-handel, bruttomarginalen '
+                 'och avkastningen på förvärv tyngre än koncernens redovisade försäljningstillväxt i ett enskilt kvartal.')
     measured=[(label,status) for label,status,_,_ in assessments if status in colors]
     if measured:
         st.write('Rapporterade indikatorer: '+ '; '.join(label+' – '+status.lower() for label,status in measured)+'.')
