@@ -157,6 +157,16 @@ def tests():
     assert 'fcff' not in abb_r12_ebita('ADDT-B.ST',{**addtech,'cash_Flow_From_Operating_Activities':3500},'2026-09-30')
     assert 'fcff' not in abb_r12_ebita('ADDT-B.ST',{k:v for k,v in addtech.items() if k!='cash_Flow_From_Operating_Activities'},'2026-09-30')
     assert abb_r12_ebita('ADDT-B.ST',addtech,'2026-06-30') is None
+    brav={'currency':'SEK','revenues':29614,'operating_Income':1996,
+          'cash_Flow_From_Operating_Activities':2411,'net_Debt':2564}
+    brav_bridge=abb_r12_ebita('BRAV.ST',brav,'2026-09-30')
+    assert brav_bridge['value']==1996e6
+    assert abs(brav_bridge['fcff']-(2724-(1996-158)*0.206)*1e6)<1
+    assert brav_bridge['fcff_tax_rate']==0.206
+    assert 'fcff' not in abb_r12_ebita('BRAV.ST',{**brav,'net_Debt':1115},'2026-09-30')
+    assert 'fcff' not in abb_r12_ebita('BRAV.ST',{**brav,'cash_Flow_From_Operating_Activities':1453},'2026-09-30')
+    assert abb_r12_ebita('BRAV.ST',{**brav,'currency':'EUR'},'2026-09-30') is None
+    assert abb_r12_ebita('BRAV.ST',brav,'2026-06-30') is None
     # No secondary provider may replace the annual frames passed by fetch().
     original_roic=roic_company_data
     original_reports=borsapi_reports
