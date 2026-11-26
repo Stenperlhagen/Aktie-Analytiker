@@ -42,6 +42,24 @@ class QualityTests(unittest.TestCase):
         for args in [(0,200,10,12,1),(100,None,10,12,1),(100,200,0,12,1),(100,200,10,12,0)]:
             self.assertIsNone(calc(*args))
 
+    def test_bokus_report_bridge(self):
+        import re
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        bridge=load_function("bokus_q3_2026_bridge",ns)
+        record={"report_End_Date":"2026-09-30","currency":"SEK","revenues":2210.3,"operating_Income":106.7}
+        result=bridge(record,as_of="2026-11-26")
+        self.assertAlmostEqual(result["reported_ebita"],152.6e6)
+        self.assertAlmostEqual(result["model_ebita"],144.4e6)
+        self.assertAlmostEqual(result["fcff"],88.009e6,places=3)
+        self.assertAlmostEqual(result["reported_ebita_net_debt"],453e6)
+        self.assertAlmostEqual(result["model_net_debt"],187.7e6)
+        self.assertIsNone(bridge({**record,"currency":"EUR"},as_of="2026-11-26"))
+        self.assertIsNone(bridge({**record,"revenues":1900},as_of="2026-11-26"))
+        self.assertIsNone(bridge({**record,"report_End_Date":"2026-06-30"},as_of="2026-11-26"))
+        self.assertIsNone(bridge(record,as_of="2027-03-01"))
+
     def test_emission(self):
         calc = load_function("emission_adjustment", {})
         result = calc(100, 200, 10, 20, 500, 1000)
