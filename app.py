@@ -2,7 +2,13 @@ import io, re, datetime as dt, urllib.parse, math
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import requests, feedparser, yfinance as yf
+import requests, feedparser
+
+# Disable all legacy provider calls, including optional tabs, until replaced.
+class DisabledMarketProvider:
+    def Ticker(self,*args,**kwargs):
+        raise RuntimeError('Datakälla avvecklad; uppgiften kräver Börsdata eller Avanza.')
+yf=DisabledMarketProvider()
 from pypdf import PdfReader
 from docx import Document
 
@@ -279,7 +285,6 @@ def avanza_market_snapshot(symbol):
 @st.cache_data(ttl=1800,show_spinner=False)
 def fetch(ticker):
     """Hämta varje datatyp oberoende så ett fel inte slår ut hela analysen."""
-    obj = yf.Ticker(ticker)
     errors = {}
     def attempt(label, getter, fallback):
         try:
@@ -321,50 +326,28 @@ def fetch(ticker):
             else: errors['Börsdata kurs']=bd_error
         except Exception as exc:
             errors['Börsdata adapter']=type(exc).__name__
-    primary_info = dict(info)
-    info = dict(attempt('Bolagsprofil', lambda: obj.info, {}) or {})
-    yahoo_currency = info.get('financialCurrency')
-    info.update(primary_info)
-    if history.empty:
-        history = attempt('Kurshistorik', lambda: obj.history(period='5y', auto_adjust=False), pd.DataFrame())
-        if not history.empty: info['_price_source']='Yahoo Finance (reserv)'
-    def annual_income_fallback():
-        annual_income=obj.income_stmt
-        return annual_income
-    def fill_report(primary, label, getter):
-        if not primary.empty and yahoo_currency != info.get('financialCurrency'):
-            return primary
-        # Yahoo supplies statement fields not exposed by the current Börsdata adapter.
-        secondary = attempt(label, getter, pd.DataFrame())
-        if primary.empty:
-            if primary_info.get('financialCurrency') and yahoo_currency != primary_info['financialCurrency']:
-                return primary
-            return secondary
-        return primary.combine_first(secondary.reindex(columns=primary.columns))
-    fin = fill_report(fin, 'Resultaträkning', annual_income_fallback)
-    cash = fill_report(cash, 'Kassaflöde', lambda: obj.cashflow)
-    balance = fill_report(balance, 'Balansräkning', lambda: obj.balance_sheet)
-    # Yahoo fast_info kan fungera även när den större bolagsprofilen blockeras.
-    for field in ('currency','last_price','market_cap','shares'):
-        if quick.get(field) is not None or info.get({'currency':'currency','last_price':'currentPrice','market_cap':'marketCap','shares':'sharesOutstanding'}[field]) is not None: continue
-        value=attempt('Snabbkursdata '+field,lambda field=field: obj.fast_info[field],None)
-        if value is not None: quick[field]=value
-    info=dict(info or {})
-    if not info.get('currency') and quick.get('currency'): info['currency']=quick['currency']
-    if not info.get('currency') and ticker.endswith('.ST'): info['currency']='SEK'  # Stockholm trading currency, not reporting currency
-    if not info.get('financialCurrency') and not fin.empty:
-        # Recover reporting currency from the same Yahoo annual financial series, not the exchange.
-        try:
-            period=pd.Timestamp(max(fin.columns)).strftime('%Y-%m-%d')
-            url='https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/'+urllib.parse.quote(ticker,safe='')
-            payload=obj._data.get(url=url,params={'symbol':ticker,'type':'annualTotalRevenue,annualOperatingIncome','period1':int((pd.Timestamp(period)-pd.Timedelta(days=370)).timestamp()),'period2':int((pd.Timestamp(period)+pd.Timedelta(days=2)).timestamp())},timeout=12).json()
-            currencies={str(item.get('currencyCode')).upper() for series in payload.get('timeseries',{}).get('result',[]) for field in ('annualTotalRevenue','annualOperatingIncome') for item in series.get(field,[]) if item and item.get('asOfDate')==period and item.get('currencyCode')}
-            if len(currencies)==1:
-                info['financialCurrency']=currencies.pop()
-                info['_report_currency_source']='Yahoo annual financial series '+period
-            else: errors['Rapportvaluta']='Ingen entydig valuta i finansiell serie för '+period
-        except Exception as exc:
-            errors['Rapportvaluta']=type(exc).__name__+': '+str(exc)[:180]
+    info['currency']='DKK' if ticker.endswith('.CO') else 'SEK' if ticker.endswith('.ST') else None
+    instruments,_=borsapi_instruments(borsapi_key())
+    identity,_=borsapi_reports(ticker,borsapi_key())
+    iid=str(identity.get('instrument_id') or '')
+    for inst in instruments:
+        if iid and str(inst.get('insId') or inst.get('insID') or inst.get('instrumentId') or '')==iid:
+            info['longName']=inst.get('name') or inst.get('longName') or ticker
+            info['website']=inst.get('url') or inst.get('website')
+            break
+    av,_=avanza_market_snapshot(ticker)
+    if not info.get('currentPrice') and av.get('price') and av.get('currency')==info.get('currency'):
+        info['currentPrice']=av['price']
+        info['_price_source']='Avanza (reserv)'
+    records=borsapi_r12_records(ticker,borsapi_key())
+    if records:
+        rec=records[0]
+        if str(rec.get('currency') or '').upper()==info.get('financialCurrency'):
+            for field,key in [('totalRevenue','revenues'),('ebitda','ebitda'),('operatingCashflow','cash_Flow_From_Operating_Activities')]:
+                n=bd_field(rec,key)
+                if n is not None: info[field]=n*1e6
+            eps=bd_field(rec,'earnings_Per_Share')
+            if eps is not None: info['trailingEps']=eps
     for label,frame in [('Resultaträkning',fin),('Balansräkning',balance),('Kassaflöde',cash),('Kurshistorik',history)]:
         if frame.empty: errors.setdefault(label,'Datakällan returnerade tom tabell.')
     capitalization=verified_capitalization(ticker,info,quick,fin,history)
@@ -382,7 +365,7 @@ def fetch(ticker):
         capitalization['market_cap']=None
         capitalization['verified']=False
         capitalization['source']='Börsdata börsvärde saknas'
-        capitalization['warnings'].append(bd_cap_error or 'KPI 50 saknas för instrumentet; ingen Yahoo-reserv.')
+        capitalization['warnings'].append(bd_cap_error or 'KPI 50 saknas för instrumentet; ingen extern reserv.')
 
     avanza,avanza_error=avanza_market_snapshot(ticker)
     info['_avanza_snapshot']=avanza
@@ -415,51 +398,24 @@ def fetch(ticker):
 def fx_rate(from_currency,to_currency):
     if not from_currency or not to_currency: return None
     if from_currency==to_currency: return 1.0
-    try:
-        pair=f"{from_currency}{to_currency}=X"
-        frame=yf.Ticker(pair).history(period='5d',auto_adjust=False)
-        if frame is None or frame.empty: return None
-        rate=numeric(frame['Close'].dropna().iloc[-1])
-        return rate if rate and rate>0 else None
-    except Exception:
-        return None
+    # No unverified exchange rate fallback.
+    return None
 
 @st.cache_data(ttl=86400,show_spinner=False)
-def trailing_dividend_yield(ticker, price):
-    """Faktiska kontantutdelningar senaste 365 dagarna, i aktiens handelsvaluta."""
-    if not isinstance(price,(int,float)) or price<=0: return None
-    try:
-        series=yf.Ticker(ticker).dividends
-        if series is None or series.empty: return None
-        dates=pd.to_datetime(series.index,utc=True)
-        cutoff=pd.Timestamp.now(tz='UTC')-pd.Timedelta(days=365)
-        paid=pd.to_numeric(series.loc[(dates>=cutoff)&(dates<=pd.Timestamp.now(tz='UTC'))],errors='coerce')
-        paid=paid[(paid>0)&paid.notna()]
-        if paid.empty: return None
-        value=float(paid.sum())/price*100
-        return value if 0<value<=30 else None
-    except Exception:
-        return None
+def trailing_dividend_yield(ticker,price):
+    if not price or price<=0: return None
+    records=borsapi_r12_records(ticker,borsapi_key())
+    if not records: return None
+    rec=records[0]
+    currency='DKK' if ticker.endswith('.CO') else 'SEK' if ticker.endswith('.ST') else None
+    if str(rec.get('currency') or '').upper()!=currency: return None
+    dividend=bd_field(rec,'dividend')
+    return dividend/price*100 if dividend is not None and dividend>=0 else None
 
-@st.cache_data(ttl=7200, show_spinner=False)
+@st.cache_data(ttl=7200,show_spinner=False)
 def extended_financials(ticker):
-    """Ytterligare offentligt tillgängliga serier, hämtade separat och cachade."""
-    obj = yf.Ticker(ticker)
-    result, errors = {}, {}
-    sources = {
-        'quarterly_income': lambda: obj.quarterly_income_stmt,
-        'quarterly_cash': lambda: obj.quarterly_cashflow,
-        'quarterly_balance': lambda: obj.quarterly_balance_sheet,
-        'valuation_history': lambda: obj.get_valuation_measures(freq='quarterly', periods=12),
-    }
-    for key, getter in sources.items():
-        try:
-            frame = getter()
-            result[key] = frame if isinstance(frame, pd.DataFrame) else pd.DataFrame()
-        except Exception as exc:
-            result[key] = pd.DataFrame()
-            errors[key] = f'{type(exc).__name__}: {str(exc)[:120]}'
-    return result, errors
+    # Unsupported series remain empty rather than using another provider silently.
+    return {k:pd.DataFrame() for k in ('quarterly_income','quarterly_cash','quarterly_balance','valuation_history')},{'Rapportserier':'Kvartalsserier behöver separat Börsdata-adapter.'}
 
 # Jämförelsebolag och dataladdare för Investeringsanalys.
 # Definitionerna måste finnas innan fliken använder dem.
@@ -471,7 +427,7 @@ PEER_UNIVERSE={
 @st.cache_data(ttl=21600,show_spinner=False)
 def peer_snapshot(symbol):
     try:
-        p=yf.Ticker(symbol).info or {}
+        p,_,_,_,_,_,_=fetch(symbol)
         pe=numeric(p.get('trailingPE'))
         margin=numeric(p.get('operatingMargins'))
         growth=numeric(p.get('revenueGrowth'))
@@ -844,9 +800,7 @@ def long_history(symbol):
     except Exception:
         pass
     try:
-        frame=yf.Ticker(symbol).history(period='10y',auto_adjust=False)
-        frame.attrs['source']='Yahoo Finance (reserv)'
-        return frame
+        return pd.DataFrame()
     except Exception:
         return pd.DataFrame()
 
@@ -1339,8 +1293,7 @@ def verified_capitalization(symbol,info,quick,fin,history):
             return result
         pref_history,_=borsapi_history(pref_symbol,borsapi_key())
         if pref_history.empty:
-            try: pref_history=yf.Ticker(pref_symbol).history(period='5d',auto_adjust=False)
-            except Exception: pref_history=pd.DataFrame()
+            pref_history=pd.DataFrame()
         if pref_history.empty or (pd.Timestamp.now().normalize()-pd.Timestamp(pref_history.index[-1]).tz_localize(None).normalize()).days>7:
             result['warnings'].append('Aktuell preferensaktiekurs saknas; totalt börsvärde spärrat.')
             return result
@@ -1349,9 +1302,9 @@ def verified_capitalization(symbol,info,quick,fin,history):
         result['preferred_cap']+=pref_shares*pref_price
     cap+=result['preferred_cap']
     if yahoo_cap and abs(cap/yahoo_cap-1)>0.08:
-        notes.append('Yahoo-börsvärdet avviker över 8 % och används inte.')
+        notes.append('Tidigare börsvärde avviker över 8 % och används inte.')
     if yahoo_shares and abs(shares/yahoo_shares-1)>0.08:
-        notes.append('Yahoo-aktieantalet avviker över 8 % och används inte.')
+        notes.append('Tidigare aktieantal avviker över 8 % och används inte.')
     if symbol=='VOLO.ST':
         notes.append('Stamaktier och preferensaktier värderas separat och summeras.')
     if symbol.endswith(('-A.ST','-B.ST','-C.ST')) or symbol in ('VOLO.ST','SAMPO-SDB.ST'):
@@ -1709,7 +1662,7 @@ def render_biotech_scenario(ticker,category,valuation):
 
 def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
     # ROIC primary for matching annual statements; never mix currencies or periods.
-    primary_source=info.get('_report_source','Yahoo Finance')
+    primary_source=info.get('_report_source','Börsdata/Avanza')
     key=roic_key() if use_roic else ''
     if key:
         try:
@@ -1748,14 +1701,14 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                             if info.get('financialCurrency')==ccy:
                                 rf=rf.combine_first(fin.reindex(columns=rf.columns))
                                 rb=rb.combine_first(balance.reindex(columns=rb.columns))
-                                primary_source='ROIC.ai + Yahoo Finance (matchad period och valuta)'
+                                primary_source='ROIC.ai + Börsdata/Avanza (matchad period och valuta)'
                             else:
                                 cash=pd.DataFrame()
                                 primary_source='ROIC.ai'
                             fin,balance=rf,rb
                             info=dict(info,financialCurrency=ccy)
         except Exception:
-            primary_source='Yahoo Finance (ROIC ej tillgänglig)'
+            primary_source='Börsdata/Avanza (ROIC ej tillgänglig)'
 
     # Börsdata annual reports take precedence when matched by date and original currency.
     if use_roic:
@@ -2053,7 +2006,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 out['roe_source']='Årsresultat till stamaktieägare / genomsnittligt eget kapital'
         if roe is None:
             roe=val(info,'returnOnEquity')
-            out['roe_source']='Yahoo Finance rapporterad ROE'
+            out['roe_source']='Börsdata/Avanza rapporterad ROE'
         ke=0.10
         growth=0.02
         out['roe']=roe
@@ -2411,7 +2364,7 @@ def screener_snapshot(symbol):
         if result.get('target') is None and roic_key():
             fallback=valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=False)
             if fallback.get('target') is not None:
-                fallback['missing'].append('ROIC-underlag gav ingen riktkurs; Yahoo-reservmodell används.')
+                fallback['missing'].append('ROIC-underlag gav ingen riktkurs; extern reservmodell används.')
                 result=fallback
         result['website']=info.get('website')
         if result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
@@ -2425,10 +2378,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v48-avanza-crosscheck':
+if st.session_state.get('screener_model_version')!='unified-v49-no-yahoo':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v48-avanza-crosscheck'
+    st.session_state['screener_model_version']='unified-v49-no-yahoo'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -2526,7 +2479,7 @@ with st.spinner(f'Hämtar data för {name or ticker}…'):
     except Exception as ex:
         st.error(f'Datakällan kunde inte hämtas: {ex}. Försök igen senare eller välj annan ticker.');st.stop()
 if not info and hist.empty and all(f.empty for f in (fin,cash,balance)) and not quick:
-    st.error('Ingen data kunde hämtas från Yahoo Finance. Det kan vara ett tillfälligt API-fel eller en begränsning på Streamlit-servern.')
+    st.error('Ingen data kunde hämtas från Börsdata/Avanza. Det kan vara ett tillfälligt API-fel eller en begränsning på Streamlit-servern.')
     with st.expander('Visa teknisk felsökning'):
         st.json(fetch_errors)
     st.stop()
@@ -2543,7 +2496,7 @@ with company_col:
     if company_type=='Rörelsedrivande bolag':
         company_type=operating_valuation_profile(ticker,info) or KNOWN_GROUP_BY_TICKER.get(ticker) or 'Rörelsedrivande bolag'
     st.markdown('<div style="font-size:0.92rem;color:#64748b;margin-top:-8px;margin-bottom:10px;">'+company_type+'</div>',unsafe_allow_html=True)
-    st.caption(f'{ticker} · Valuta: {info.get("currency","okänd")} · Data kontrollerad {dt.datetime.now().strftime("%Y-%m-%d %H:%M")} · Kurs: {info.get("_price_source","Yahoo Finance")} · Rapporter: {info.get("_report_source","Yahoo Finance")}')
+    st.caption(f'{ticker} · Valuta: {info.get("currency","okänd")} · Data kontrollerad {dt.datetime.now().strftime("%Y-%m-%d %H:%M")} · Kurs: {info.get("_price_source","Börsdata/Avanza")} · Rapporter: {info.get("_report_source","Börsdata/Avanza")}')
     if not info.get('_price_source') or not info.get('_report_source'):
         with st.expander('Börsdata Pro+ – anslutningsstatus'):
             st.write('API-nyckel: '+('Finns i Streamlit Secrets' if borsapi_key() else 'Saknas'))
@@ -2570,10 +2523,10 @@ def statement_value(frame, labels):
                 if n is not None: return n
     return None
 
-revenue_source='Yahoo Finance – bolagsprofil'
+revenue_source='Börsdata/Avanza – bolagsprofil'
 if revenue is None:
     revenue=statement_value(fin,['Total Revenue','Operating Revenue'])
-    if revenue is not None: revenue_source='Yahoo Finance – senaste tillgängliga årsredovisningsperiod'
+    if revenue is not None: revenue_source='Börsdata/Avanza – senaste tillgängliga årsredovisningsperiod'
 if ebitda is None:
     ebitda=statement_value(fin,['EBITDA','Normalized EBITDA'])
 if opcf is None:
@@ -2616,7 +2569,7 @@ if roic_key():
     _roic_data,_roic_error = roic_company_data(ticker,roic_key())
 _roic_income=_roic_data.get('income',[])
 # P/E: använd års-EPS från samma rapportår som ROIC:s verifierade rapportvaluta.
-pe_source = 'Yahoo Finance trailingPE' if pe is not None else 'Saknas'
+pe_source = 'Börsdata/Avanza trailingPE' if pe is not None else 'Saknas'
 eps_source_currency = None
 eps_report_period = None
 if pe is None and price is not None and price>0 and quote_ccy:
@@ -2632,7 +2585,7 @@ if pe is None and price is not None and price>0 and quote_ccy:
             if candidate is not None and candidate>0:
                 eps_value,eps_origin=candidate,'ROIC'
                 break
-        # Yahoo års-EPS får bara användas när årsperioden överensstämmer.
+        # Börsdata års-EPS får bara användas när årsperioden överensstämmer.
         if eps_value is None and report_year and fin is not None and not fin.empty:
             for column in fin.columns:
                 try: column_year=str(pd.Timestamp(column).year)
@@ -2642,7 +2595,7 @@ if pe is None and price is not None and price>0 and quote_ccy:
                     if row in fin.index:
                         candidate=numeric(fin.loc[row,column])
                         if candidate is not None and candidate>0:
-                            eps_value,eps_origin=candidate,'Yahoo årsresultat'
+                            eps_value,eps_origin=candidate,'Börsdata årsresultat'
                             break
                 if eps_value is not None: break
         if eps_value is not None:
@@ -2806,7 +2759,7 @@ elif pe is None and report_ccy and quote_ccy and price and price>0:
         if annual_eps is not None and annual_eps>0 and rate and rate>0:
             pe=price/(annual_eps*rate)
             eps_report_period=str(period)[:10]
-            pe_source='Yahoo års-EPS'
+            pe_source='Börsdata års-EPS'
             break
 if dividend_yield is None: dividend_yield=trailing_dividend_yield(ticker,valuation_price)
  # No unlabelled provider-period fallback for annual ROE or growth.
@@ -2845,7 +2798,7 @@ if ev_ebita is None and report_ccy and quote_ccy and market_cap is not None and 
         if annual_ebita is not None and annual_ebita>0 and annual_debt is not None and rate is not None and rate>0:
             ev_ebita=(market_cap*rate+annual_debt)/annual_ebita
             ebita=annual_ebita
-            ev_ebita_source='Yahoo årsrapport '+str(period)[:10]+'; '+report_ccy
+            ev_ebita_source='Börsdata årsrapport '+str(period)[:10]+'; '+report_ccy
             break
 # Verified report snapshots: use only as fallback, never substitute EBIT or EBITDA.
 _report_ebita={
@@ -2955,7 +2908,7 @@ if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade lä
             if rate is not None and rate>0:
                 ev_ebita=(market_cap*rate+d)/ea
                 ebita=ea
-                ev_ebita_source='Yahoo årsrapport '+str(period)[:10]+'; '+report_ccy
+                ev_ebita_source='Börsdata årsrapport '+str(period)[:10]+'; '+report_ccy
         if ebita is not None and ev_ebita is not None and netdebt_ebitda is not None: break
 if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') and borsapi_key():
     bd_kpis,bd_kpi_error=borsapi_debt_ebitda_map(borsapi_key())
@@ -2992,14 +2945,14 @@ if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade lä
 elif valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') and ev_ebita is None: st.caption('EV/EBITA saknas: positiv EBITA, jämförbar nettoskuld, börsvärde eller valuta saknas.')
 
 # Only label a ratio R12 when its actual input period is known.
-pe_period_label=valuation_result.get('pe_period') if pe_source=='Värderingsmotor' else ('R12' if pe_source in ('Yahoo Finance trailingPE','Börsdata R12','Beräknat från Yahoo EPS (samma valuta)') else str(eps_report_period)[:4] if eps_report_period else None)
+pe_period_label=valuation_result.get('pe_period') if pe_source=='Värderingsmotor' else ('R12' if pe_source in ('Börsdata/Avanza trailingPE','Börsdata R12','Beräknat från Yahoo EPS (samma valuta)') else str(eps_report_period)[:4] if eps_report_period else None)
 if ticker=='WBGR-B.ST' and pe_source=='Värderingsmotor': pe_period_label=None
 pe_label='P/E'+(' ('+pe_period_label+')' if pe_period_label and pe is not None else '')
 ebita_period_label=None
 if report_fallback and ev_ebita is not None:
     # Report fallback is explicitly described as R12 in the report caption.
     ebita_period_label='R12'
-elif ev_ebita is not None and ev_ebita_source.startswith('Yahoo årsrapport '):
+elif ev_ebita is not None and ev_ebita_source.startswith('Börsdata årsrapport '):
     ebita_period_label=ev_ebita_source.split()[2][:4]
 ev_ebita_label='EV/EBITA'+(' ('+ebita_period_label+')' if ebita_period_label else '')
 overview_items = [
@@ -3066,7 +3019,7 @@ if valuation_result.get('category')=='Bank / finansiella tjänster':
         capital=_annual_balance_value(balance,['Common Equity Tier 1 Capital','CET1 Capital'],period)
         rwa=_annual_balance_value(balance,['Risk Weighted Assets','Total Risk Weighted Assets','Total Risk Exposure Amount'],period)
         if capital is not None and rwa is not None and capital>0 and rwa>0:
-            cet1_candidates.append((str(period)[:10],0,capital/rwa*100,capital,rwa,'Yahoo balansdata'))
+            cet1_candidates.append((str(period)[:10],0,capital/rwa*100,capital,rwa,'Börsdata balansdata'))
     for record in roic_balance:
         period=str(record.get('period_end_date') or '')[:10]
         if not period: continue
@@ -3470,7 +3423,7 @@ with one:
         st.markdown(f'[Bolagets officiella beskrivning]({verified[1]})')
     elif description:
         st.write(description)
-        st.caption('Källa: Yahoo Finance – bolagsprofil, ej oberoende verifierad.')
+        st.caption('Källa: Börsdata/Avanza – bolagsprofil, ej oberoende verifierad.')
     else:
         description, description_url, description_source = company_description_fallback(name or company)
         if description:
@@ -3527,7 +3480,7 @@ with three:
             shares=_annual_balance_value(balance,['Ordinary Shares Number','Share Issued'],period)
             if rev is not None and rev>0 and ebit is not None:
                 annual.append(dict(date=str(period)[:10],currency=report_ccy,revenue=rev,ebit=ebit,debt=debt,shares=shares))
-        if annual: forecast_source='Yahoo Finance'
+        if annual: forecast_source='Börsdata/Avanza'
     annual=sorted({x['date']:x for x in annual}.values(),key=lambda x:x['date'],reverse=True)
     if annual: annual=[x for x in annual if x['currency']==annual[0]['currency']]
     growths={}
@@ -3909,7 +3862,7 @@ with business_tab:
                 if fallback is not None: v=fallback/1e6; source='ROIC.ai'
             if v is None and period in reserve.columns:
                 fallback=quality_value(reserve,fields,period)
-                if fallback is not None: v=fallback/1e6; source='Yahoo Finance (reserv)'
+                if fallback is not None: v=fallback/1e6; source='Börsdata/Avanza (reserv)'
             row[label]=v
             provenance.append({'År':row['År'],'Post':label,'Källa':source})
         allocations.append(row)
@@ -3995,7 +3948,7 @@ with business_tab:
     else:
         st.info('Ingen jämförbar årlig kassaflödeshistorik hittades.')
     with st.expander('Datakällor & metodik',expanded=False):
-        st.caption('Källprioritet: Börsdata Pro+ → ROIC.ai → Yahoo Finance. Matchat rapportdatum och ursprunglig rapportvaluta krävs. Saknade poster är inte noll. Nettoposter kan innehålla både inflöden och utflöden.')
+        st.caption('Källprioritet: Börsdata Pro+ → ROIC.ai → Börsdata/Avanza. Matchat rapportdatum och ursprunglig rapportvaluta krävs. Saknade poster är inte noll. Nettoposter kan innehålla både inflöden och utflöden.')
         if roic_error: st.caption('ROIC kassaflöde: '+roic_error)
         if info.get('website'): st.markdown(f"[Bolagets webbplats – årsredovisningar]({info['website']})")
     st.markdown('#### Historisk motståndskraft')
@@ -4072,7 +4025,7 @@ with business_tab:
         import html
         summary=str(verified[0] if verified else description).strip()
         first=re.split(r'(?<=[.!?])\s+',summary)[0]
-        add_quality('Affärsmodell','Beskriven',first[:420], 'Bolagets webbplats' if verified else 'Yahoo Finance – bolagsprofil')
+        add_quality('Affärsmodell','Beskriven',first[:420], 'Bolagets webbplats' if verified else 'Börsdata/Avanza – bolagsprofil')
     else: add_quality('Affärsmodell','Underlag saknas','Ingen tillgänglig verksamhetsbeskrivning.','–')
     import os
     try: research_key=str(st.secrets.get('GROQ_API_KEY','')).strip()
@@ -4419,7 +4372,7 @@ with four:
                             st.dataframe(frame,use_container_width=True)
                         else: st.caption('Datakällan saknar uppgifter.')
                     except Exception: st.caption('Uppgifterna kunde inte hämtas.')
-                st.caption('Källa: Yahoo Finance. Täckning för svenska insidertransaktioner är inte fullständig; kontrollera mot Finansinspektionens insynsregister.')
+                st.caption('Källa: Börsdata/Avanza. Täckning för svenska insidertransaktioner är inte fullständig; kontrollera mot Finansinspektionens insynsregister.')
             except Exception: st.info('Ägaruppgifter är inte tillgängliga just nu.')
         st.caption('DCF och EV/EBITA viktas lika när båda kan beräknas. En ensam modell visas separat. Beräkningar är modellscenarier och rapportdata behöver verifieras.')
         with st.expander('Rapportkalender och rapportbevakning'):
@@ -4431,7 +4384,7 @@ with four:
                     elif isinstance(calendar,pd.DataFrame) and not calendar.empty: st.dataframe(calendar)
                     else: st.info('Inga rapportdatum tillgängliga.')
                 except Exception: st.info('Rapportkalendern kunde inte hämtas.')
-            st.caption('Yahoo Finance; datum kan ändras. Ingen automatisk avisering utanför appen.')
+            st.caption('Börsdata/Avanza; datum kan ändras. Ingen automatisk avisering utanför appen.')
         with st.expander('Portföljanalys'):
             st.caption('Ange innehav i SEK. Portföljens modellpotential beräknas endast för innehav med tillgängligt modellvärde och utan granskningsavvikelse.')
             holdings=st.data_editor(pd.DataFrame([{'Bolag':name,'Marknadsvärde SEK':0.0}]),num_rows='dynamic',key='portfolio_holdings',column_config={'Bolag':st.column_config.SelectboxColumn(options=sorted(ALL_COMPANIES)),'Marknadsvärde SEK':st.column_config.NumberColumn(min_value=0.0)},hide_index=True)
@@ -4490,7 +4443,7 @@ with four:
         st.download_button('Ladda ner värderingsrapport (PDF)',buffer.getvalue(),file_name=ticker+'-analys.pdf',mime='application/pdf')
 
     with st.expander('Finansiella rapporter – fullständigt underlag',expanded=False):
-        st.caption('Finansiella rapportdata från Yahoo Finance. Belopp visas i miljoner (M) av bolagets rapporteringsvaluta. År avser rapportperiodens slutdatum, inte nödvändigtvis kalenderår.')
+        st.caption('Finansiella rapportdata från Börsdata/Avanza. Belopp visas i miljoner (M) av bolagets rapporteringsvaluta. År avser rapportperiodens slutdatum, inte nödvändigtvis kalenderår.')
 
         # Explicit mapping only: do not substitute EBIT for EBITA or infer missing figures.
         report_sections = [
@@ -4566,7 +4519,7 @@ with four:
                 raw_table.columns = [str(c.date()) if hasattr(c, 'date') else str(c) for c in raw_table.columns]
                 st.dataframe(raw_table, use_container_width=True)
         st.markdown('#### Kvartalsutveckling – rapporterade siffror')
-        st.caption('Senaste tillgängliga kvartal från Yahoo Finance. Jämför samma kvartal föregående år när sådana uppgifter finns. Belopp i miljoner av rapportvalutan.')
+        st.caption('Senaste tillgängliga kvartal från Börsdata/Avanza. Jämför samma kvartal föregående år när sådana uppgifter finns. Belopp i miljoner av rapportvalutan.')
         quarterly_income=extended.get('quarterly_income',pd.DataFrame())
         quarterly_cash=extended.get('quarterly_cash',pd.DataFrame())
         quarterly_balance=extended.get('quarterly_balance',pd.DataFrame())
@@ -4617,7 +4570,7 @@ with four:
                 prior_value=float(candidates.loc[prior_date])
             yoy=None
             reason=''
-            yoy_source='Yahoo Finance'
+            yoy_source='Börsdata/Avanza'
             # ROIC får endast fylla en lucka om både period och valuta kan verifieras.
             if prior_value is None and label in roic_quarter_fields and roic_quarters and report_ccy:
                 def roic_quarter_value(record):
@@ -4748,7 +4701,7 @@ with four:
                     raw_quarters.columns=[str(pd.Timestamp(c).date()) if not pd.isna(pd.to_datetime(c,errors='coerce')) else str(c) for c in raw_quarters.columns]
                     raw_quarters=raw_quarters.reset_index().rename(columns={'index':'Rapportpost'})
                     st.dataframe(raw_quarters,use_container_width=True,hide_index=True)
-                    st.caption(str(len(report_frame.index))+' rapportposter · '+str(len(report_frame.columns))+' rapportperioder · Yahoo Finance. Belopp visas i originalenheter (inte miljoner).')
+                    st.caption(str(len(report_frame.index))+' rapportposter · '+str(len(report_frame.columns))+' rapportperioder · Börsdata/Avanza. Belopp visas i originalenheter (inte miljoner).')
                     st.download_button('Ladda ner '+report_title+' (CSV)',data=raw_quarters.to_csv(index=False).encode('utf-8-sig'),file_name=ticker.replace('.','_')+'_'+('resultat' if 'Resultat' in report_title else 'kassaflode' if 'Kassaflöde' in report_title else 'balans')+'_kvartal.csv',mime='text/csv',key='quarter_export_'+report_title)
         st.caption('Kvartalsrapporter kan innehålla kumulativa kassaflöden beroende på datakällans definition. Summera inte kvartalsvärden utan att kontrollera att de är fristående kvartal.')
         st.markdown('#### Datatäckning och rapporternas kvalitet')
@@ -4763,4 +4716,4 @@ with four:
 
 
 st.divider()
-st.caption('Källor: Yahoo Finance via yfinance för nyckeltal och historik; Google News RSS för nyhetssökning; användarens egna uppladdade dokument. Inga automatiska AI-slutsatser påstås ha gjorts. Appen körs på egen Streamlit-server och filerna behandlas i den sessionen.')
+st.caption('Källor: Börsdata/Avanza via yfinance för nyckeltal och historik; Google News RSS för nyhetssökning; användarens egna uppladdade dokument. Inga automatiska AI-slutsatser påstås ha gjorts. Appen körs på egen Streamlit-server och filerna behandlas i den sessionen.')
