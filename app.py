@@ -350,7 +350,8 @@ def fetch(ticker):
     if not info.get('currentPrice') and av.get('price') and av.get('currency')==info.get('currency'):
         info['currentPrice']=av['price']
         info['_price_source']='Avanza (reserv)'
-    records=borsapi_r12_records(ticker,borsapi_key())
+    records,r12_error=borsapi_r12_response(ticker,borsapi_key())
+    if r12_error: errors['Börsdata R12']=r12_error
     if records:
         rec=records[0]
         if str(rec.get('currency') or '').upper()==info.get('financialCurrency'):
@@ -450,7 +451,7 @@ def extended_financials(ticker):
     iid=identity.get('instrument_id')
     if not iid: return result,{'Börsdata kvartal':error}
     try:
-        response=requests.get('https://apiservice.borsdata.se/v1/instruments/'+iid+'/reports/quarter',params={'authKey':borsapi_key(),'maxcount':20,'original':1},timeout=20)
+        response=request_borsdata('https://apiservice.borsdata.se/v1/instruments/'+iid+'/reports/quarter',params={'authKey':borsapi_key(),'maxcount':20,'original':1},timeout=20)
         response.raise_for_status()
         records=response.json().get('reports',[])
         records=sorted(records,key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
@@ -1178,12 +1179,23 @@ def borsapi_key():
     try: return str(st.secrets.get('BORSAPI_API_KEY','')).strip()
     except Exception: return ''
 
+def request_borsdata(url, *, params, timeout):
+    import time
+    response=requests.get(url,params=params,timeout=timeout)
+    if response.status_code==429:
+        retry_after=numeric(response.headers.get('Retry-After'))
+        delay=max(1,retry_after if retry_after is not None else 10)
+        if delay<=15:
+            time.sleep(delay)
+            response=requests.get(url,params=params,timeout=timeout)
+    return response
+
 @st.cache_data(ttl=86400,show_spinner=False)
 def borsapi_instruments(api_key):
     """Börsdata v1: instrument-ID krävs för rapportanrop; ingen gissad ticker-URL."""
     if not api_key: return [],'Börsdata PRO+-nyckel saknas'
     try:
-        response=requests.get('https://apiservice.borsdata.se/v1/instruments',
+        response=request_borsdata('https://apiservice.borsdata.se/v1/instruments',
                               params={'authKey':api_key},timeout=20)
         if not response.ok: return [],'Börsdata HTTP '+str(response.status_code)
         payload=response.json()
@@ -1219,14 +1231,8 @@ def borsapi_instrument_events(symbol,api_key,kind):
     if not instrument_id: return [],error
     paths={'calendar':'instruments/report/calendar','insider':'holdings/insider'}
     try:
-        response=requests.get('https://apiservice.borsdata.se/v1/'+paths[kind],
+        response=request_borsdata('https://apiservice.borsdata.se/v1/'+paths[kind],
                               params={'authKey':api_key,'instList':instrument_id},timeout=15)
-        if response.status_code==429:
-            import time
-            retry_after=numeric(response.headers.get('Retry-After'))
-            time.sleep(min(15,max(1,retry_after if retry_after is not None else 10)))
-            response=requests.get('https://apiservice.borsdata.se/v1/'+paths[kind],
-                                  params={'authKey':api_key,'instList':instrument_id},timeout=15)
         if not response.ok: return [],'Börsdata HTTP '+str(response.status_code)
         payload=response.json()
         groups=payload.get('list') if isinstance(payload,dict) else None
@@ -1248,7 +1254,7 @@ def borsapi_reports(symbol,api_key):
     instrument_id=instrument.get('instrument_id')
     if not instrument_id: return {},error
     try:
-        response=requests.get(
+        response=request_borsdata(
             'https://apiservice.borsdata.se/v1/instruments/'+instrument_id+'/reports/year',
             params={'authKey':api_key,'maxcount':20,'original':1},timeout=20)
         if not response.ok: return {},'Börsdata rapport HTTP '+str(response.status_code)
@@ -1266,7 +1272,7 @@ def borsapi_history(symbol,api_key):
     iid=data.get('instrument_id')
     if not iid: return pd.DataFrame(),error
     try:
-        response=requests.get('https://apiservice.borsdata.se/v1/instruments/'+iid+'/stockprices',params={'authKey':api_key,'from':str(dt.date.today()-dt.timedelta(days=3660))},timeout=25)
+        response=request_borsdata('https://apiservice.borsdata.se/v1/instruments/'+iid+'/stockprices',params={'authKey':api_key,'from':str(dt.date.today()-dt.timedelta(days=3660))},timeout=25)
         if not response.ok: return pd.DataFrame(),'Börsdata kurs HTTP '+str(response.status_code)
         rows=response.json().get('stockPricesList',[])
         frame=pd.DataFrame(rows).rename(columns={'d':'Date','c':'Close','o':'Open','h':'High','l':'Low','v':'Volume'})
@@ -1308,24 +1314,31 @@ def bd_field(record,key):
     fields={norm(k):v for k,v in record.items()}
     return numeric(fields.get(norm(key)))
 
-@st.cache_data(ttl=21600,show_spinner=False)
-def borsapi_r12_records(symbol,api_key):
-    if not api_key: return []
+@st.cache_data(ttl=1800,show_spinner=False)
+def borsapi_r12_response(symbol,api_key):
     data,error=borsapi_instrument(symbol,api_key)
     iid=data.get('instrument_id')
-    if not iid: return []
+    if not iid: return [],error
     try:
-        response=requests.get('https://apiservice.borsdata.se/v1/instruments/'+iid+'/reports/r12',params={'authKey':api_key,'maxcount':8,'original':1},timeout=20)
-        response.raise_for_status()
-        records=response.json().get('reports',[])
-        return sorted([r for r in records if isinstance(r,dict) and (r.get('report_End_Date') or r.get('reportEndDate'))],key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
-    except Exception: return []
+        response=request_borsdata('https://apiservice.borsdata.se/v1/instruments/'+iid+'/reports/r12',
+                                  params={'authKey':api_key,'maxcount':8,'original':1},timeout=20)
+        if not response.ok: return [],'Börsdata HTTP '+str(response.status_code)
+        records=response.json().get('reports')
+        if not isinstance(records,list): return [],'Oväntat svarsformat från Börsdata.'
+        valid=[r for r in records if isinstance(r,dict) and (r.get('report_End_Date') or r.get('reportEndDate'))]
+        return sorted(valid,key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True),''
+    except (requests.RequestException,ValueError):
+        return [],'Börsdata kunde inte nås eller tolkas.'
+
+def borsapi_r12_records(symbol,api_key):
+    records,_=borsapi_r12_response(symbol,api_key)
+    return records
 
 @st.cache_data(ttl=1800,show_spinner=False)
 def borsapi_market_cap_map(api_key):
     if not api_key: return {},'API-nyckel saknas'
     try:
-        response=requests.get('https://apiservice.borsdata.se/v1/instruments/kpis/50/last/sek',params={'authKey':api_key},timeout=20)
+        response=request_borsdata('https://apiservice.borsdata.se/v1/instruments/kpis/50/last/sek',params={'authKey':api_key},timeout=20)
         if not response.ok: return {},'Börsdata HTTP '+str(response.status_code)
         rows=response.json().get('values',[])
         return {str(r['i']):numeric(r.get('n')) for r in rows if isinstance(r,dict) and r.get('i') is not None},''
@@ -1408,7 +1421,7 @@ def verified_capitalization(symbol,info,quick,fin,history):
 def borsapi_debt_ebitda_map(api_key):
     if not api_key: return {},'API-nyckel saknas'
     try:
-        response=requests.get('https://apiservice.borsdata.se/v1/instruments/kpis/42/last/latest',params={'authKey':api_key},timeout=20)
+        response=request_borsdata('https://apiservice.borsdata.se/v1/instruments/kpis/42/last/latest',params={'authKey':api_key},timeout=20)
         if not response.ok: return {},'HTTP '+str(response.status_code)
         rows=response.json().get('values',[])
         result={str(row['i']):numeric(row.get('n')) for row in rows if isinstance(row,dict) and row.get('i') is not None}
@@ -1425,7 +1438,7 @@ def abb_r12_ebita(symbol, record, period):
     return {
         'value':(ebit+149+185-139)*1e6,
         'sources':(
-            'https://library.e.abb.com/public/add34d4881164f39abfd190711d92bea/ABB-Q3-2026-Financial-Information.pdf',
+            'https://library.e.abb.com/public/add34d4881164f39abfd190711d92bea/ABB-Q3-2026-Financial-Information.pdf?x-sign=xpMrnYUNrRJKXQMj4lDEpt3f7IHZrlyzvLhtzo3uzoWAIMRqxmBMRfDrtfGHxH6G',
             'https://library.e.abb.com/public/efa424a5e55545ef99275bfafc6ff638/ABB-Q4-2025-financial-information.pdf',
         ),
     }
@@ -2543,7 +2556,7 @@ with st.sidebar:
     st.caption(f'Ticker: {ticker or "–"}')
     if st.button('Uppdatera data', use_container_width=True):
         for loader in (borsapi_instruments,borsapi_instrument,borsapi_reports,borsapi_history,
-                       borsapi_r12_records,borsapi_market_cap_map,borsapi_debt_ebitda_map,borsapi_instrument_events,
+                       borsapi_r12_response,borsapi_market_cap_map,borsapi_debt_ebitda_map,borsapi_instrument_events,
                        avanza_market_snapshot,extended_financials,long_history,ecb_exchange_rates,
                        trailing_dividend_yield,fetch,screener_snapshot,roic_company_data,
                        roic_quarterly_income,roic_annual_cashflow):
