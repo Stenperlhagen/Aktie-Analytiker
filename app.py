@@ -436,9 +436,9 @@ def trailing_dividend_yield(ticker,price):
     if not records: return None
     rec=records[0]
     currency='DKK' if ticker.endswith('.CO') else 'SEK' if ticker.endswith('.ST') else None
-    if str(rec.get('currency') or '').upper()!=currency: return None
+    rate=fx_rate(str(rec.get('currency') or '').upper(),currency)
     dividend=bd_field(rec,'dividend')
-    return dividend/price*100 if dividend is not None and dividend>=0 else None
+    return dividend*rate/price*100 if rate and dividend is not None and dividend>=0 else None
 
 @st.cache_data(ttl=7200,show_spinner=False)
 def extended_financials(ticker):
