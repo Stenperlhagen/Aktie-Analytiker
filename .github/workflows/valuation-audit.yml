@@ -17,10 +17,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install pandas yfinance
+      - run: pip install pandas requests
       - run: python valuation_audit.py
+      - name: Check live coverage when configured
         env:
-          ROIC_API_KEY: ${{ secrets.ROIC_API_KEY }}
+          BORSAPI_API_KEY: ${{ secrets.BORSAPI_API_KEY }}
+        run: |
+          if [ -n "$BORSAPI_API_KEY" ]; then
+            python valuation_audit.py --live
+          else
+            echo '::notice::Live coverage skipped because BORSAPI_API_KEY is unavailable.'
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
