@@ -4,11 +4,7 @@ import pandas as pd
 import plotly.express as px
 import requests, feedparser
 
-# Disable all legacy provider calls, including optional tabs, until replaced.
-class DisabledMarketProvider:
-    def Ticker(self,*args,**kwargs):
-        raise RuntimeError('Datakälla avvecklad; uppgiften kräver Börsdata eller Avanza.')
-yf=DisabledMarketProvider()
+import yfinance as yf
 from pypdf import PdfReader
 from docx import Document
 
@@ -283,6 +279,51 @@ def avanza_market_snapshot(symbol):
     except Exception as exc:
         return {},'Avanza: '+type(exc).__name__
 
+@st.cache_data(ttl=21600,show_spinner=False)
+def yahoo_annual_statements(symbol,trade_currency,report_currency):
+    if not report_currency or not trade_currency: return None
+    try:
+        listing=yf.Ticker(symbol)
+        profile=listing.get_info()
+        if (str(profile.get('symbol') or '').upper()!=symbol.upper() or
+            str(profile.get('currency') or '').upper()!=trade_currency or
+            str(profile.get('financialCurrency') or '').upper()!=report_currency):
+            return None
+    except Exception:
+        return None
+    statements=[]
+    for attribute in ('income_stmt','cashflow','balance_sheet'):
+        try:
+            frame=getattr(listing,attribute)
+            if isinstance(frame,pd.DataFrame) and not frame.empty:
+                frame=frame.copy()
+                frame.columns=pd.to_datetime(frame.columns,errors='coerce',utc=True).tz_localize(None).normalize()
+                frame=frame.loc[:,frame.columns.notna() & ~frame.columns.duplicated()]
+                statements.append(frame)
+                continue
+        except Exception:
+            pass
+        statements.append(pd.DataFrame())
+    return tuple(statements)
+
+def comparable_yahoo_periods(primary,secondary):
+    accepted=[]
+    for period in primary.columns.intersection(secondary.columns):
+        anchors=[]
+        for line in ('Total Revenue','Operating Income'):
+            if line not in primary.index or line not in secondary.index: continue
+            left,right=numeric(primary.at[line,period]),numeric(secondary.at[line,period])
+            if left is not None and right is not None:
+                anchors.append(abs(left-right)<=0.02*max(abs(left),abs(right)))
+        if anchors and all(anchors): accepted.append(period)
+    return pd.DatetimeIndex(accepted)
+
+def fill_matching_statement_periods(primary,secondary,periods):
+    periods=periods.intersection(secondary.columns)
+    if periods.empty: return primary
+    supplement=secondary.reindex(columns=periods)
+    return primary.combine_first(supplement)
+
 @st.cache_data(ttl=1800,show_spinner=False)
 def fetch(ticker):
     """Hämta varje datatyp oberoende så ett fel inte slår ut hela analysen."""
@@ -362,6 +403,21 @@ def fetch(ticker):
             if eps is not None:
                 info['trailingEps']=eps
                 info['_eps_currency']=str(rec['currency']).upper()
+    if not fin.empty:
+        newest=max(fin.columns)
+        has_ebita=any(row in fin.index and numeric(fin.at[row,newest]) is not None
+                      for row in ('EBITA','Amortization Of Intangibles'))
+        has_fcff_inputs=all(row in cash.index and newest in cash.columns and numeric(cash.at[row,newest]) is not None
+                            for row in ('Capital Expenditure','Depreciation And Amortization','Change In Working Capital'))
+        if not (has_ebita and has_fcff_inputs):
+            supplemental=yahoo_annual_statements(ticker,info.get('currency'),info.get('financialCurrency'))
+            if supplemental:
+                periods=comparable_yahoo_periods(fin,supplemental[0])
+                combined=tuple(fill_matching_statement_periods(primary,secondary,periods)
+                               for primary,secondary in zip((fin,cash,balance),supplemental))
+                if any(not enriched.equals(primary) for enriched,primary in zip(combined,(fin,cash,balance))):
+                    fin,cash,balance=combined
+                    info['_report_source']='Börsdata Pro+ + Yahoo Finance (matchad årsperiod och valuta)'
     for label,frame in [('Resultaträkning',fin),('Balansräkning',balance),('Kassaflöde',cash),('Kurshistorik',history)]:
         if frame.empty: errors.setdefault(label,'Datakällan returnerade tom tabell.')
     capitalization=verified_capitalization(ticker,info,quick,fin,history)
@@ -2568,7 +2624,7 @@ with st.sidebar:
         for loader in (borsapi_instruments,borsapi_instrument,borsapi_reports,borsapi_history,
                        borsapi_r12_response,borsapi_market_cap_map,borsapi_debt_ebitda_map,borsapi_instrument_events,
                        avanza_market_snapshot,extended_financials,long_history,ecb_exchange_rates,
-                       trailing_dividend_yield,fetch,screener_snapshot,roic_company_data,
+                       trailing_dividend_yield,yahoo_annual_statements,fetch,screener_snapshot,roic_company_data,
                        roic_quarterly_income,roic_annual_cashflow):
             loader.clear()
         st.session_state['screener_results']={}

@@ -10,12 +10,13 @@ import datetime as dt
 import pandas as pd
 from pypdf import PdfReader
 import re
+import yfinance as yf
 import sys
 from functools import lru_cache
 
 # Load exact production definitions without executing Streamlit UI.
 tree=ast.parse(pathlib.Path('app.py').read_text(encoding='utf-8'))
-names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_instrument_events','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_r12_response','request_borsdata','borsapi_market_cap_map','bd_field','abb_r12_ebita','reported_operating_metrics','trailing_dividend_yield','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
+names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_instrument_events','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_r12_response','request_borsdata','borsapi_market_cap_map','bd_field','yahoo_annual_statements','comparable_yahoo_periods','fill_matching_statement_periods','abb_r12_ebita','reported_operating_metrics','trailing_dividend_yield','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
 nodes=[]
 for node in tree.body:
     if isinstance(node,ast.FunctionDef) and node.name in names:
@@ -115,6 +116,14 @@ def tests():
     assert reported_operating_metrics({**reported,'operating_Income':-100},'SEK','SEK',950e6)['ev_ebit'] is None
     assert abb_r12_ebita('ABB.ST',{'currency':'USD','operating_Income':6716},'2026-09-30')['value']==6911e6
     assert abb_r12_ebita('ABB.ST',{'currency':'USD','operating_Income':6000},'2026-09-30') is None
+    supplemental=pd.DataFrame({p:[200,20],q:[175,18]},index=['Operating Income','Capital Expenditure'])
+    merged=fill_matching_statement_periods(fin,supplemental,fin.columns)
+    assert merged.at['Operating Income',p]==90e6
+    assert merged.at['Capital Expenditure',p]==20
+    assert q not in merged.columns
+    assert comparable_yahoo_periods(fin,supplemental).empty
+    supplemental.at['Operating Income',p]=90e6
+    assert list(comparable_yahoo_periods(fin,supplemental))==[p]
     print('Mathematical regression tests passed')
 
 if __name__=='__main__':
@@ -141,7 +150,7 @@ if __name__=='__main__':
                   'EPS',info.get('trailingEps'),'P/E',model.get('pe_ttm'),
                   'dividend yield',trailing_dividend_yield(symbol,info.get('currentPrice')),
                   'reported operating metrics',reported_operating_metrics(trailing[0] if trailing else {},info.get('financialCurrency'),info.get('currency'),info.get('marketCap')),
-                  'market cap present',info.get('_cap_verified'),'profile',model.get('profile'),
+                  'report source',info.get('_report_source'),'market cap present',info.get('_cap_verified'),'profile',model.get('profile'),
                   'inputs',model.get('inputs'),'issues',model.get('missing'),'provider status',errors,
                   flush=True)
             if symbol=='ABB.ST':
