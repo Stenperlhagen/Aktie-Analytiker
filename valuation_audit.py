@@ -232,6 +232,37 @@ if __name__=='__main__':
                   'report source',info.get('_report_source'),'market cap present',info.get('_cap_verified'),'profile',model.get('profile'),
                   'model names',list(model.get('models',{})),'issue count',len(model.get('missing',[])),'provider error labels',list(errors),
                   flush=True)
+            # Diagnose reserve coverage without printing restricted financial values.
+            if trailing:
+                record=trailing[0]
+                period=pd.Timestamp(record.get('report_End_Date') or record.get('reportEndDate')).normalize()
+                listing=yf.Ticker(symbol)
+                try:
+                    profile=listing.get_info()
+                    identity_ok=(str(profile.get('symbol') or '').upper()==symbol.upper() and
+                                 str(profile.get('currency') or '').upper()==info.get('currency') and
+                                 str(profile.get('financialCurrency') or '').upper()==info.get('financialCurrency'))
+                    print(symbol,'Yahoo identity match',identity_ok,flush=True)
+                    for attrs,is_ttm in ((('quarterly_income_stmt','quarterly_cashflow'),False),
+                                         (('ttm_income_stmt','ttm_cashflow'),True)):
+                        frames=[]
+                        for attr in attrs:
+                            try:
+                                frame=getattr(listing,attr).copy()
+                                frame.columns=pd.to_datetime(frame.columns,errors='coerce',utc=True).tz_localize(None).normalize()
+                                frame=frame.loc[:,frame.columns.notna() & ~frame.columns.duplicated(keep=False)]
+                            except Exception:
+                                frame=pd.DataFrame()
+                            frames.append(frame)
+                        needed=pd.DatetimeIndex([period] if is_ttm else [period-pd.offsets.MonthEnd(3*i) for i in range(4)])
+                        bridge=yahoo_r12_bridge(*frames,record,period,trailing=is_ttm) if identity_ok else {}
+                        print(symbol,'Yahoo',attrs[0],'income periods',int(needed.isin(frames[0].columns).sum()),
+                              'cash periods',int(needed.isin(frames[1].columns).sum()),
+                              'income labels',sorted(str(x) for x in frames[0].index if any(k in str(x).lower() for k in ('revenue','operating income','amort','ebita'))),
+                              'cash labels',sorted(str(x) for x in frames[1].index if any(k in str(x).lower() for k in ('amort','cash flow','capital expenditure','working capital'))),
+                              'matched components',sorted(bridge),flush=True)
+                except Exception as exc:
+                    print(symbol,'Yahoo diagnostic failure',type(exc).__name__,flush=True)
             if symbol in ('ABB.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST'):
                 if trailing:
                     record=trailing[0]
@@ -260,7 +291,8 @@ if __name__=='__main__':
                 if v.get('price') and v['price']>0:
                     assert abs(v['buy_limit']-v['target']*.8)<1e-7, 'Inconsistent buy limit'
                     assert abs(v['upside']-(v['target']/v['price']-1)*100)<1e-7, 'Inconsistent upside'
-            rows.append({'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Source not recorded'),'fetch_errors':str(errors),'annual_reports':not fin.empty,'price_history':not hist.empty,'report_verified':False,'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
+            avanza=info.get('_avanza_snapshot') or {}
+            rows.append({'avanza_identity_verified':bool(avanza.get('verified')),'avanza_fresh_quote':bool(avanza.get('verified') and numeric(avanza.get('price')) is not None and avanza['price']>0),'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Source not recorded'),'fetch_errors':str(errors),'annual_reports':not fin.empty,'price_history':not hist.empty,'report_verified':False,'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
         except Exception as e:
             failures.append(symbol+': '+str(e))
             rows.append({'ticker':symbol,'missing':type(e).__name__+': '+str(e),'report_verified':False})
@@ -285,6 +317,8 @@ if __name__=='__main__':
     print('FCFF coverage:',pd.Series([r.get('fcff_status','Fel') for r in rows]).value_counts().to_dict(),flush=True)
     print('Dual model coverage:',pd.Series([r.get('dual_model_status','Fel') for r in rows]).value_counts().to_dict(),flush=True)
     print('Matched R12 EBITA evidence (separate from model):',sum(bool(r.get('r12_ebita_matched')) for r in rows),flush=True)
+    print('Live Avanza identity coverage:',sum(bool(r.get('avanza_identity_verified')) for r in rows),'of',len(rows),flush=True)
+    print('Live Avanza fresh quote coverage:',sum(bool(r.get('avanza_fresh_quote')) for r in rows),'of',len(rows),flush=True)
     print('Execution failures:',len(failures),flush=True)
     if not any(row.get('annual_reports') for row in rows) or not any(row.get('price_history') for row in rows):
         raise AssertionError('No live annual reports or price history were loaded')
