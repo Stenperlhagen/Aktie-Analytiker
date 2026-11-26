@@ -1737,16 +1737,19 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     rebit=ramount('operating_Income')
                     rdebt=ramount('net_Debt')
                     rsales=ramount('revenues')
-                    if rccy and rccy==report and (not common or rdate>=pd.Timestamp(common[0])) and rebit is not None and rdebt is not None and rsales is not None and rsales>0:
-                        earnings=rebit
-                        earnings_label='EBIT'
+                    rebita=ramount('ebita')
+                    # Do not discard a usable annual EBITA or FCFF model for an incomplete R12 bundle.
+                    preserves_models=(earnings is None or earnings_label=='EBIT' or rebita is not None) and (fcff is None or fcff<=0)
+                    if preserves_models and rccy and rccy==report and (not common or rdate>=pd.Timestamp(common[0])) and rebit is not None and rdebt is not None and rsales is not None and rsales>0:
+                        earnings=rebita if rebita is not None else rebit
+                        earnings_label='EBITA' if rebita is not None else 'EBIT'
                         debt=rdebt
                         fcff=None
                         r12_sales=rsales
                         r12_used=True
                         out['period']=str(rdate.date())
                         out['source']='Börsdata Pro+ R12 · matchad valuta och period'
-                        out['missing'].append('R12: separat EBITA och FCFF kräver verifierade avskrivningar, investeringar och rörelsekapital; EBIT används separat.')
+                        out['missing'].append('R12: FCFF saknar komplett underlag.' if rebita is not None else 'R12: separat EBITA och FCFF saknar komplett underlag; EBIT används separat.')
             if symbol=='VOLO.ST':
                 currency=currency or 'SEK'
                 out['currency']=currency
@@ -2705,6 +2708,14 @@ if bd_overview and ticker!='WBGR-B.ST':
     bd_equity=bd_field(record,'total_Equity')
     bd_div=bd_field(record,'dividend')
     if bd_currency and bd_currency==report_ccy:
+        direct_ebita=bd_field(record,'ebita')
+        direct_debt=bd_field(record,'net_Debt')
+        if direct_ebita is not None:
+            ebita=direct_ebita*1e6
+            rate=fx_rate(quote_ccy,report_ccy) if quote_ccy else None
+            ev_ebita=(market_cap*rate+direct_debt*1e6)/ebita if market_cap is not None and rate and direct_debt is not None and ebita>0 else None
+            ev_ebita_source='Börsdata R12 '+bd_overview_period
+            st.caption('EBITA: Börsdata R12 '+bd_overview_period)
         if bd_revenue is not None and bd_revenue>0: revenue=bd_revenue*1e6
         if bd_cf is not None: opcf=bd_cf*1e6
         if bd_revenue and bd_revenue>0 and bd_ebit is not None: margin=bd_ebit/bd_revenue
