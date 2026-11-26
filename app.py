@@ -1618,6 +1618,24 @@ def abb_r12_ebita(symbol, record, period):
         if sales is None or ebit is None or abs(sales-expected_sales)>0.6 or abs(ebit-expected_ebit)>0.6:
             return None
         result={'value':reported_ebita*1e6,'sources':(url,)}
+        # Bravida Q3 2026, pp. 1, 13, 16: adjusted operating cash flow
+        # is explicitly before income taxes, net financial items and after
+        # machinery/equipment investments. Use statutory operating tax as
+        # an assumption, excluding the reported 158 MSEK divestment gain.
+        # The provider net debt must include the same lease obligations.
+        if symbol=='BRAV.ST':
+            ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+            net_debt=bd_field(record,'net_Debt')
+            if (ocf is not None and abs(ocf-2411)<=1 and
+                net_debt is not None and abs(net_debt-2564)<=1):
+                tax_rate=0.206
+                result.update(
+                    fcff=(2724-(1996-158)*tax_rate)*1e6,
+                    fcff_tax_rate=tax_rate,
+                    fcff_note=('Bravida R12: rapporterat ränte- och skattejusterat operativt kassaflöde '
+                               'efter maskin- och inventarieinvesteringar, minus antagen rörelseskatt 20,6 % '
+                               'på EBIT exklusive realisationsvinst. Historiskt FCFF före förvärv '
+                               'och leasingamortering; framtida nyttjanderättsinvesteringar måste normaliseras.'))
         # Addtech Q2 2026/27, pp. 16-17: R12 reported EBITDA, EBIT,
         # pre-tax/after-tax profit, net non-current-asset investments and WC.
         # Acquisition flows are excluded from this historical organic FCFF bridge.
@@ -2131,8 +2149,13 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     rdebt=ramount('net_Debt')
                     rsales=ramount('revenues')
                     rebita=ramount('ebita')
-                    filing=abb_r12_ebita(symbol,rec,rdate) if rebita is None else None
-                    if filing: rebita=filing['value']
+                    filing=abb_r12_ebita(symbol,rec,rdate)
+                    if filing:
+                        if rebita is None:
+                            rebita=filing['value']
+                        elif abs(rebita-filing['value'])>0.6e6:
+                            # Do not attach a conflicting filing to provider EBITA.
+                            filing=None
                     if rebita is None and rebit is not None:
                         amort=ramount('amortization_Of_Intangibles')
                         if amort is not None: rebita=rebit+abs(amort)
@@ -2254,6 +2277,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
             if (preferred is not None and preferred>0) or symbol=='VOLO.ST':
                 audit.append('Preferenskapital: marknadsvärde och rättigheter måste verifieras innan stamaktievärdet kan användas som köpsignal')
             if symbol=='BOL.ST': audit.append('Nexa-förvärv: kontrollera status, finansiering och pro forma kassaflöden innan riktkurs används')
+            if symbol=='BRAV.ST' and r12_used and out.get('fcff_note'):
+                audit.append('Bravida: historiskt FCFF före leasingamortering; verifiera framtida nyttjanderättsinvesteringar och engångsposter före köp-/säljsignal')
             if symbol=='BOKUS.ST' and r12_used and out.get('fcff_note'):
                 audit.append('Bokusgruppen: historiskt FCFF före leasingamortering; normalisera framtida nyttjanderättsinvesteringar före köp-/säljsignal')
             if symbol=='ADDT-B.ST' and r12_used and out.get('fcff_note'):
