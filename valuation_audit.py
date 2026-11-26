@@ -54,9 +54,14 @@ def tests():
     fin=pd.DataFrame({p:[1000e6,100e6,90e6]},index=['Total Revenue','EBITA','Operating Income'])
     balance=pd.DataFrame({p:[200e6]},index=['Net Debt'])
     cash=pd.DataFrame({p:[20e6,-25e6,-5e6]},index=['Depreciation And Amortization','Capital Expenditure','Change In Working Capital'])
-    info={'currency':'SEK','financialCurrency':'SEK','currentPrice':100,'sharesOutstanding':10e6,'marketCap':1e9}
+    info={'currency':'SEK','financialCurrency':'SEK','currentPrice':100,'sharesOutstanding':10e6,'marketCap':1e9,'_cap_verified':True,'_preferred_cap':0.0,'_common_cap':1e9}
     v=valuation_engine('VOLO-TEST.ST',{**info,'sector':'Industrials'},fin,cash,balance,{},pd.DataFrame())
     assert abs(v['models']['EV/EBITA']-90)<1e-8
+    # Marknadsdata utan verifierad kapitalstruktur får aldrig ge automatisk riktkurs.
+    unverified=valuation_engine('VOLO-TEST.ST',{**info,'_cap_verified':False},fin,cash,balance,{},pd.DataFrame(),use_roic=False)
+    assert unverified.get('target') is None
+    assert not unverified.get('models')
+    assert any('Börsvärde ej verifierat' in msg for msg in unverified.get('audit',[]))
     assert abs(v['inputs']['FCFF']-61.46e6)<1
     assert abs(v['target']-sum(v['models'].values())/len(v['models']))<1e-8
     assert valuation_category('AAK.ST')=='Rörelsedrivande bolag'
