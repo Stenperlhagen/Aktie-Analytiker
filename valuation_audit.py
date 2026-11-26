@@ -65,7 +65,31 @@ def avanza_market_snapshot(symbol):
     return {},'Offline audit'
 def verified_capitalization(symbol,info,quick,fin,history):
     return {'market_cap':None,'shares':None,'source':'Offline audit','warnings':[],'verified':False}
+OPERATING_CATEGORIES={'Rörelsedrivande bolag','Etablerade läkemedelsbolag'}
+
+def has_complete_operating_models(model, info, annual_reports, price_history):
+    """Coverage gate only; not independent source verification."""
+    if model.get('category') not in OPERATING_CATEGORIES:
+        return False
+    models=model.get('models') or {}
+    values=[numeric(models.get(key)) for key in ('EV/EBITA','DCF')]
+    inputs=model.get('inputs') or {}
+    required=[numeric(inputs.get(key)) for key in ('FCFF','Antal aktier','Valutakurs')]
+    earnings=numeric(inputs.get('EBITA'))
+    if earnings is None:
+        earnings=numeric(inputs.get('EBITA (beräknad)'))
+    return bool(annual_reports and price_history and info.get('_cap_verified')
+                and all(v is not None and v>0 for v in values+required+[earnings,numeric(model.get('target'))])
+                and numeric(inputs.get('Nettoskuld')) is not None)
+
 def tests():
+    sample={'category':'Rörelsedrivande bolag','models':{'EV/EBITA':90,'DCF':110},'target':100,'inputs':{'EBITA':100,'FCFF':50,'Antal aktier':10,'Valutakurs':1,'Nettoskuld':0}}
+    assert has_complete_operating_models(sample,{'_cap_verified':True},True,True)
+    assert not has_complete_operating_models({**sample,'models':{'EV/EBITA':90}}, {'_cap_verified':True},True,True)
+    assert not has_complete_operating_models({**sample,'models':{'EV/EBIT':90,'DCF':110}}, {'_cap_verified':True},True,True)
+    assert not has_complete_operating_models(sample,{'_cap_verified':False},True,True)
+    assert not has_complete_operating_models(sample,{'_cap_verified':True},False,True)
+    assert not has_complete_operating_models({**sample,'inputs':{**sample['inputs'],'FCFF':None}}, {'_cap_verified':True},True,True)
     assert abs(comparable_ev_ebita(245e6,1331e6,79406571,12,1)-20.263)<0.01
     assert comparable_ev_ebita(100,None,10,12,1) is None
     assert comparable_ev_ebita(100,1300,10,12,1) is None
@@ -155,6 +179,7 @@ if __name__=='__main__':
     rows=[]
     failures=[]
     for symbol in dict.fromkeys(ALL_COMPANIES.values()):
+        v={}
         try:
             info,hist,fin,cash,balance,quick,errors=fetch(symbol)
             v=valuation_engine(symbol,info,fin,cash,balance,quick,hist)
@@ -164,16 +189,16 @@ if __name__=='__main__':
                 if v.get('price') and v['price']>0:
                     assert abs(v['buy_limit']-v['target']*.8)<1e-7, 'Inconsistent buy limit'
                     assert abs(v['upside']-(v['target']/v['price']-1)*100)<1e-7, 'Inconsistent upside'
-            rows.append({'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Source not recorded'),'fetch_errors':str(errors),'annual_reports':not fin.empty,'price_history':not hist.empty,'report_verified':False,'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
+            rows.append({'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Source not recorded'),'fetch_errors':str(errors),'annual_reports':not fin.empty,'price_history':not hist.empty,'report_verified':False,'both_models_present':has_complete_operating_models(v,info,not fin.empty,not hist.empty),'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
         except Exception as e:
             failures.append(symbol+': '+str(e))
             rows.append({'ticker':symbol,'missing':type(e).__name__+': '+str(e),'report_verified':False})
-        if 'v' in locals() and rows[-1].get('category'):
+        if v and rows[-1].get('category'):
             inputs=v.get('inputs',{})
             earnings=inputs.get('EBITA')
             if earnings is None: earnings=inputs.get('EBITA (beräknad)')
             debt,fx,shares,price=(inputs.get('Nettoskuld'),inputs.get('Valutakurs'),inputs.get('Antal aktier'),v.get('price'))
-            applicable=v.get('category')=='Rörelsedrivande bolag'
+            applicable=v.get('category') in OPERATING_CATEGORIES
             multiple=(price*shares/fx+debt)/earnings if applicable and all(x is not None for x in (earnings,debt,fx,shares,price)) and min(earnings,fx,shares,price)>0 else None
             rows[-1].update({'ebita':earnings,'ev_ebita':multiple,'ebita_status':'Ej tillämpligt' if not applicable else 'Saknas EBITA' if earnings is None else 'Saknas jämförbar EV/EBITA' if multiple is None else 'Underlag finns'})
         print(symbol,rows[-1].get('target'),rows[-1].get('ebita_status'),flush=True)
@@ -187,3 +212,9 @@ if __name__=='__main__':
     if not any(row.get('finite_positive_target') for row in rows):
         raise AssertionError('No live valuation produced a target')
     if failures: raise AssertionError('; '.join(failures))
+    applicable_rows=[r for r in rows if r.get('category') in OPERATING_CATEGORIES]
+    missing_both=[r['ticker'] for r in applicable_rows if not r.get('both_models_present')]
+    print('Both operating models present:',len(applicable_rows)-len(missing_both),'/',len(applicable_rows),flush=True)
+    if not applicable_rows or missing_both:
+        raise AssertionError('Incomplete live EV/EBITA + DCF coverage: '+', '.join(missing_both))
+    print('Coverage passed; independent filing and share-class verification is still required.',flush=True)
