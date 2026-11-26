@@ -414,8 +414,28 @@ def trailing_dividend_yield(ticker,price):
 
 @st.cache_data(ttl=7200,show_spinner=False)
 def extended_financials(ticker):
-    # Unsupported series remain empty rather than using another provider silently.
-    return {k:pd.DataFrame() for k in ('quarterly_income','quarterly_cash','quarterly_balance','valuation_history')},{'Rapportserier':'Kvartalsserier behöver separat Börsdata-adapter.'}
+    result={k:pd.DataFrame() for k in ('quarterly_income','quarterly_cash','quarterly_balance','valuation_history')}
+    identity,error=borsapi_reports(ticker,borsapi_key())
+    iid=identity.get('instrument_id')
+    if not iid: return result,{'Börsdata kvartal':error}
+    try:
+        response=requests.get('https://apiservice.borsdata.se/v1/instruments/'+iid+'/reports/quarter',params={'authKey':borsapi_key(),'maxcount':20,'original':1},timeout=20)
+        response.raise_for_status()
+        records=response.json().get('reports',[])
+        records=sorted(records,key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
+        if not records: return result,{'Börsdata kvartal':'Tomt svar'}
+        currency=records[0].get('currency')
+        maps={'quarterly_income':{'Total Revenue':'revenues','Operating Income':'operating_Income','Net Income Common Stockholders':'profit_To_Equity_Holders','Basic EPS':'earnings_Per_Share','EBITA':'ebita'},'quarterly_cash':{'Operating Cash Flow':'cash_Flow_From_Operating_Activities','Free Cash Flow':'free_Cash_Flow'},'quarterly_balance':{'Net Debt':'net_Debt','Stockholders Equity':'total_Equity','Cash And Cash Equivalents':'cash_And_Equivalents'}}
+        for label,mapping in maps.items():
+            series={}
+            for rec in records:
+                if rec.get('currency')!=currency: continue
+                date=pd.Timestamp(rec.get('report_End_Date') or rec.get('reportEndDate'))
+                if pd.isna(date): continue
+                series[date]={k:v if k=='Basic EPS' else v*1e6 for k,field in mapping.items() if (v:=bd_field(rec,field)) is not None}
+            result[label]=pd.DataFrame(series).dropna(how='all')
+        return result,{}
+    except Exception as exc: return result,{'Börsdata kvartal':type(exc).__name__}
 
 # Jämförelsebolag och dataladdare för Investeringsanalys.
 # Definitionerna måste finnas innan fliken använder dem.
@@ -2378,10 +2398,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v49-no-yahoo':
+if st.session_state.get('screener_model_version')!='unified-v50-quarter':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v49-no-yahoo'
+    st.session_state['screener_model_version']='unified-v50-quarter'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -2821,7 +2841,7 @@ if ticker in _report_ebita and (ebita is None or ev_ebita is None):
             ev_ebita=(market_cap+4459e6)/ebita
         elif report_ccy=='SEK' and quote_ccy and market_cap is not None:
             try:
-                quarterly_balance=yf.Ticker(ticker).quarterly_balance_sheet
+                quarterly_balance=extended_financials(ticker)[0]['quarterly_balance']
                 report_debt=_annual_balance_value(quarterly_balance,['Net Debt'],report_period)
                 if report_debt is None:
                     gross=_annual_balance_value(quarterly_balance,['Total Debt'],report_period)
