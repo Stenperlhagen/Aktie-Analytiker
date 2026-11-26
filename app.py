@@ -367,7 +367,10 @@ def yahoo_r12_bridge(income, cash, record, period, trailing=False):
     revenue=total(income,['Total Revenue'])
     ebit=total(income,['Operating Income'])
     operating_revenue=total(income,['Operating Revenue'])
-    if not ((matches(revenue,'revenues') or matches(operating_revenue,'net_Sales')) and matches(ebit,'operating_Income')): return {}
+    # Yahoo Total Revenue can be consolidated net sales rather than total
+    # operating revenue (other operating income is reported separately).
+    if not ((matches(revenue,'revenues') or matches(revenue,'net_Sales') or
+             matches(operating_revenue,'net_Sales')) and matches(ebit,'operating_Income')): return {}
     result={}
     explicit=total(income,['EBITA'])
     amort=total(income,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'])
@@ -423,15 +426,18 @@ def matched_yahoo_r12(symbol, trade_currency, report_currency, record, period):
         return {}
 
 def comparable_yahoo_periods(primary,secondary):
+    """Match annual income periods using explicit consolidated revenue and EBIT."""
     accepted=[]
+    def close(period,left_label,right_label):
+        if left_label not in primary.index or right_label not in secondary.index: return False
+        left,right=numeric(primary.at[left_label,period]),numeric(secondary.at[right_label,period])
+        return left is not None and right is not None and abs(left-right)<=max(0.5e6,0.02*max(abs(left),abs(right)))
     for period in primary.columns.intersection(secondary.columns):
-        anchors=[]
-        for line in ('Total Revenue','Operating Income'):
-            if line not in primary.index or line not in secondary.index: continue
-            left,right=numeric(primary.at[line,period]),numeric(secondary.at[line,period])
-            if left is not None and right is not None:
-                anchors.append(abs(left-right)<=0.02*max(abs(left),abs(right)))
-        if len(anchors)==2 and all(anchors): accepted.append(period)
+        if close(period,'Operating Income','Operating Income') and (
+            close(period,'Total Revenue','Total Revenue') or
+            close(period,'Net Sales','Total Revenue') or
+            close(period,'Net Sales','Operating Revenue')):
+            accepted.append(period)
     return pd.DatetimeIndex(accepted)
 
 def fill_matching_statement_periods(primary,secondary,periods):
@@ -530,8 +536,25 @@ def fetch(ticker):
             supplemental=yahoo_annual_statements(ticker,info.get('currency'),info.get('financialCurrency'))
             if supplemental:
                 periods=comparable_yahoo_periods(fin,supplemental[0])
-                combined=tuple(fill_matching_statement_periods(primary,secondary,periods)
-                               for primary,secondary in zip((fin,cash,balance),supplemental))
+                # Income agreement alone is not sufficient for cash-flow or
+                # balance-sheet lines: verify the same consolidated statement.
+                def statement_periods(primary,secondary,anchors):
+                    accepted=[]
+                    for period in periods.intersection(primary.columns).intersection(secondary.columns):
+                        pairs=[(numeric(primary.at[a,period]),numeric(secondary.at[b,period]))
+                               for a,b in anchors if a in primary.index and b in secondary.index]
+                        if len(pairs)==len(anchors) and all(
+                            a is not None and b is not None and abs(a-b)<=max(0.5e6,0.02*max(abs(a),abs(b)))
+                            for a,b in pairs):
+                            accepted.append(period)
+                    return pd.DatetimeIndex(accepted)
+                cash_periods=statement_periods(cash,supplemental[1],[
+                    ('Operating Cash Flow','Operating Cash Flow')])
+                balance_periods=statement_periods(balance,supplemental[2],[
+                    ('Total Assets','Total Assets'),('Stockholders Equity','Stockholders Equity')])
+                combined=tuple(fill_matching_statement_periods(primary,secondary,matched)
+                               for primary,secondary,matched in zip((fin,cash,balance),supplemental,
+                                                                    (periods,cash_periods,balance_periods)))
                 if any(not enriched.equals(primary) for enriched,primary in zip(combined,(fin,cash,balance))):
                     fin,cash,balance=combined
                     info['_report_source']='Börsdata Pro+ + Yahoo Finance (matchad årsperiod och valuta)'
@@ -1479,7 +1502,7 @@ def borsapi_annual_frames(symbol,api_key):
     records.sort(key=lambda pair:pair[0],reverse=True)
     currency=str(records[0][1]['currency']).upper()
     maps=[
-        {'EBITDA':'ebitda','Tax Provision':'tax_Provision','EBITA':'ebita','Amortization Of Intangibles':'amortization_Of_Intangibles','Total Revenue':'revenues','Gross Profit':'gross_Income','Operating Income':'operating_Income','Pretax Income':'profit_Before_Tax','Interest Expense':'interest_Expense','Net Income Common Stockholders':'profit_To_Equity_Holders','Basic EPS':'earnings_Per_Share'},
+        {'EBITDA':'ebitda','Tax Provision':'tax_Provision','EBITA':'ebita','Amortization Of Intangibles':'amortization_Of_Intangibles','Total Revenue':'revenues','Net Sales':'net_Sales','Gross Profit':'gross_Income','Operating Income':'operating_Income','Pretax Income':'profit_Before_Tax','Interest Expense':'interest_Expense','Net Income Common Stockholders':'profit_To_Equity_Holders','Basic EPS':'earnings_Per_Share'},
         {'Invested Capital':'invested_Capital','Total Debt':'total_Debt','Net Debt':'net_Debt','Cash And Cash Equivalents':'cash_And_Equivalents','Stockholders Equity':'total_Equity','Total Assets':'total_Assets','Current Assets':'current_Assets','Current Liabilities':'current_Liabilities','Ordinary Shares Number':'number_Of_Shares'},
         {'Operating Cash Flow':'cash_Flow_From_Operating_Activities','Investing Cash Flow':'cash_Flow_From_Investing_Activities','Financing Cash Flow':'cash_Flow_From_Financing_Activities','Free Cash Flow':'free_Cash_Flow','Capital Expenditure':'capital_Expenditure','Depreciation And Amortization':'depreciation_And_Amortization','Change In Working Capital':'change_In_Working_Capital'}]
     frames=[{} for _ in maps]
