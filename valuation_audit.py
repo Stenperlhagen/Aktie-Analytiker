@@ -8,11 +8,12 @@ import urllib.parse
 import datetime as dt
 import pandas as pd
 import re
+import sys
 from functools import lru_cache
 
 # Load exact production definitions without executing Streamlit UI.
 tree=ast.parse(pathlib.Path('app.py').read_text(encoding='utf-8'))
-names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
+names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_market_cap_map','bd_field','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
 nodes=[]
 for node in tree.body:
     if isinstance(node,ast.FunctionDef) and node.name in names:
@@ -31,6 +32,11 @@ def roic_key():
 def borsapi_key():
     # CI does not have Streamlit Secrets. Do not require credentials for mathematical tests.
     return os.environ.get('BORSAPI_API_KEY','').strip()
+
+production_adapters={name:globals()[name] for name in ('borsapi_instruments','borsapi_instrument','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_market_cap_map','avanza_market_snapshot','verified_capitalization')}
+
+def borsapi_instrument(symbol, api_key):
+    return {},'Offline audit'
 
 def borsapi_reports(symbol, api_key):
     # Deterministic offline fallback; integration is tested separately.
@@ -100,6 +106,14 @@ def tests():
 
 if __name__=='__main__':
     tests()
+    if '--live' not in sys.argv:
+        print('Live coverage was not checked. Pass --live to check production adapters.')
+        sys.exit(0)
+    if not borsapi_key():
+        print('Live coverage requires BORSAPI_API_KEY.',file=sys.stderr)
+        sys.exit(2)
+    globals().update({name:lru_cache(maxsize=512)(adapter) if name not in ('verified_capitalization','borsapi_annual_frames') else adapter for name,adapter in production_adapters.items()})
+    ALL_COMPANIES={name:sym for name,sym in ALL_COMPANIES.items() if sym not in {'FNOX.ST','COALA.ST','ADDV-B.ST','ADDV-A.ST'}}
     rows=[]
     failures=[]
     for symbol in dict.fromkeys(ALL_COMPANIES.values()):
@@ -112,7 +126,7 @@ if __name__=='__main__':
                 if v.get('price') and v['price']>0:
                     assert abs(v['buy_limit']-v['target']*.8)<1e-7, 'Inconsistent buy limit'
                     assert abs(v['upside']-(v['target']/v['price']-1)*100)<1e-7, 'Inconsistent upside'
-            rows.append({'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Offline audit – not independently verified'),'fetch_errors':str(list(errors)),'report_verified':False,'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
+            rows.append({'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Offline audit – not independently verified'),'fetch_errors':str(errors),'annual_reports':not fin.empty,'price_history':not hist.empty,'report_verified':False,'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
         except Exception as e:
             failures.append(symbol+': '+str(e))
             rows.append({'ticker':symbol,'missing':type(e).__name__+': '+str(e),'report_verified':False})
@@ -130,4 +144,8 @@ if __name__=='__main__':
 
     print('EBITA coverage:',pd.Series([r.get('ebita_status','Fel') for r in rows]).value_counts().to_dict(),flush=True)
     print('Execution failures:',len(failures),flush=True)
+    if not any(row.get('annual_reports') for row in rows) or not any(row.get('price_history') for row in rows):
+        raise AssertionError('No live annual reports or price history were loaded')
+    if not any(row.get('finite_positive_target') for row in rows):
+        raise AssertionError('No live valuation produced a target')
     if failures: raise AssertionError('; '.join(failures))
