@@ -8,11 +8,16 @@ import urllib.parse
 import datetime as dt
 import pandas as pd
 import re
+import io
+from pypdf import PdfReader
 from functools import lru_cache
 
 # Load exact production definitions without executing Streamlit UI.
 tree=ast.parse(pathlib.Path('app.py').read_text(encoding='utf-8'))
 names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
+live=os.environ.get('EQUITYLAB_LIVE_AUDIT')=='1'
+if live:
+    names.update({'borsapi_reports','borsapi_instruments','borsapi_history','borsapi_r12_records','borsapi_annual_frames','borsapi_market_cap_map','avanza_market_snapshot','verified_capitalization','bd_field','report_ebita_extract'})
 nodes=[]
 for node in tree.body:
     if isinstance(node,ast.FunctionDef) and node.name in names:
@@ -32,28 +37,29 @@ def borsapi_key():
     # CI does not have Streamlit Secrets. Do not require credentials for mathematical tests.
     return os.environ.get('BORSAPI_API_KEY','').strip()
 
-def borsapi_reports(symbol, api_key):
-    # Deterministic offline fallback; integration is tested separately.
-    return {}, 'Börsdata API unavailable in offline audit'
+if not live:
+    def borsapi_reports(symbol, api_key):
+        # Deterministic offline fallback; integration is tested separately.
+        return {}, 'Börsdata API unavailable in offline audit'
 
-def borsapi_history(symbol, api_key):
-    return pd.DataFrame(), 'Börsdata API unavailable in offline audit'
+    def borsapi_history(symbol, api_key):
+        return pd.DataFrame(), 'Börsdata API unavailable in offline audit'
 
-def borsapi_annual_frames(symbol, api_key):
-    return None, 'Börsdata API unavailable in offline audit'
+    def borsapi_annual_frames(symbol, api_key):
+        return None, 'Börsdata API unavailable in offline audit'
 
-def borsapi_r12_records(symbol, api_key):
-    # Offline audit: R12 endpoint is unavailable without credentials.
-    return []
+    def borsapi_r12_records(symbol, api_key):
+        # Offline audit: R12 endpoint is unavailable without credentials.
+        return []
 
-def borsapi_instruments(api_key):
-    return [],'Offline audit'
-def borsapi_market_cap_map(api_key):
-    return {},'Offline audit'
-def avanza_market_snapshot(symbol):
-    return {},'Offline audit'
-def verified_capitalization(symbol,info,quick,fin,history):
-    return {'market_cap':None,'shares':None,'source':'Offline audit','warnings':[],'verified':False}
+    def borsapi_instruments(api_key):
+        return [],'Offline audit'
+    def borsapi_market_cap_map(api_key):
+        return {},'Offline audit'
+    def avanza_market_snapshot(symbol):
+        return {},'Offline audit'
+    def verified_capitalization(symbol,info,quick,fin,history):
+        return {'market_cap':None,'shares':None,'source':'Offline audit','warnings':[],'verified':False}
 def tests():
     assert abs(comparable_ev_ebita(245e6,1331e6,79406571,12,1)-20.263)<0.01
     assert comparable_ev_ebita(100,None,10,12,1) is None
@@ -63,7 +69,7 @@ def tests():
     balance=pd.DataFrame({p:[200e6]},index=['Net Debt'])
     cash=pd.DataFrame({p:[20e6,-25e6,-5e6]},index=['Depreciation And Amortization','Capital Expenditure','Change In Working Capital'])
     info={'currency':'SEK','financialCurrency':'SEK','currentPrice':100,'sharesOutstanding':10e6,'marketCap':1e9,'_cap_verified':True,'_preferred_cap':0.0,'_common_cap':1e9}
-    v=valuation_engine('VOLO-TEST.ST',{**info,'sector':'Industrials'},fin,cash,balance,{},pd.DataFrame())
+    v=valuation_engine('VOLO-TEST.ST',{**info,'sector':'Industrials'},fin,cash,balance,{},pd.DataFrame(),use_roic=False)
     assert abs(v['models']['EV/EBITA']-90)<1e-8
     # Marknadsdata utan verifierad kapitalstruktur får aldrig ge automatisk riktkurs.
     unverified=valuation_engine('VOLO-TEST.ST',{**info,'_cap_verified':False},fin,cash,balance,{},pd.DataFrame(),use_roic=False)
@@ -97,6 +103,38 @@ def tests():
     assert recovered.get('target') is not None
     assert 'VOLV-A.ST' not in ALL_COMPANIES.values() and 'VOLV-B.ST' in ALL_COMPANIES.values()
     print('Mathematical regression tests passed')
+
+if __name__=='__main__' and live:
+    # Do not write licensed source data, identifiers or credentials to public logs/artifacts.
+    import sys
+    key=borsapi_key()
+    if not key:
+        sys.exit('LIVE AUDIT BLOCKED: BORSAPI_API_KEY absent from Actions secrets')
+    instruments,error=borsapi_instruments(key)
+    if error or not instruments:
+        sys.exit('LIVE AUDIT BLOCKED: instrument endpoint unavailable ('+str(error)+')')
+    for name in ('borsapi_instruments','borsapi_reports','borsapi_history','borsapi_r12_records','borsapi_annual_frames','borsapi_market_cap_map','avanza_market_snapshot'):
+        globals()[name]=lru_cache(maxsize=256)(globals()[name])
+    sample=['ATT.ST','AAK.ST','VOLO.ST','VOLV-B.ST','BOKUS.ST','DUNI.ST','ALFA.ST','LIFCO-B.ST']
+    metrics={'sample':len(sample),'reports':0,'prices':0,'avanza':0,'cap_verified':0,'ebita':0,'fcff':0,'combined':0,'execution_errors':0}
+    for symbol in sample:
+        try:
+            info,hist,fin,cash,balance,quick,errors=fetch(symbol)
+            v=valuation_engine(symbol,info,fin,cash,balance,quick,hist)
+            metrics['reports']+=int(not fin.empty)
+            metrics['prices']+=int(bool(info.get('currentPrice')))
+            metrics['avanza']+=int(bool(info.get('_avanza_snapshot',{}).get('price')))
+            metrics['cap_verified']+=int(bool(info.get('_cap_verified')))
+            metrics['ebita']+=int(any(v.get('inputs',{}).get(k) is not None for k in ('EBITA','EBITA (beräknad)')))
+            metrics['fcff']+=int(v.get('inputs',{}).get('FCFF') is not None)
+            metrics['combined']+=int(v.get('target') is not None and {'EV/EBITA','DCF'}.issubset(v.get('models',{})))
+        except Exception as exc:
+            metrics['execution_errors']+=1
+            print('Execution error type:',type(exc).__name__)
+    print('LIVE AGGREGATE:',metrics)
+    if metrics['combined']!=len(sample) or metrics['execution_errors']:
+        sys.exit('LIVE AUDIT INCOMPLETE: combined model coverage not verified')
+    sys.exit(0)
 
 if __name__=='__main__':
     tests()
