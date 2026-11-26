@@ -86,6 +86,24 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(metric("EBITA",6_911e6,"USD","SEK",None),("EBITA (MUSD)","6 911"))
         self.assertEqual(metric("Kassa",0,"SEK","SEK",1),("Kassa (MSEK)","0"))
 
+    def test_yahoo_r12_bridge_reconciles_all_four_quarters(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("yahoo_r12_bridge",ns)
+        periods=pd.to_datetime(["2026-09-30","2026-06-30","2026-03-31","2025-12-31"])
+        income=pd.DataFrame([[250e6]*4,[25e6]*4,[2e6]*4],index=["Total Revenue","Operating Income","Amortization Of Intangibles"],columns=periods)
+        cash=pd.DataFrame([[30e6]*4,[5e6]*4,[-6e6]*4,[-1e6]*4],index=["Operating Cash Flow","Depreciation And Amortization","Capital Expenditure","Change In Working Capital"],columns=periods)
+        record={"revenues":1000,"operating_Income":100,"cash_Flow_From_Operating_Activities":120}
+        result=calc(income,cash,record,periods[0])
+        self.assertAlmostEqual(result["ebita"],108e6)
+        self.assertAlmostEqual(result["fcff"],71.4e6)
+        self.assertEqual(calc(income.iloc[:,:3],cash,record,periods[0]),{})
+        self.assertEqual(calc(income,cash,{**record,"revenues":1500},periods[0]),{})
+        self.assertNotIn("fcff",calc(income,cash,{**record,"cash_Flow_From_Operating_Activities":200},periods[0]))
+        self.assertNotIn("ebita",calc(income.drop(index="Amortization Of Intangibles"),cash,record,periods[0]))
+        self.assertNotIn("fcff",calc(income,cash.drop(index="Change In Working Capital"),record,periods[0]))
+
     def test_emission(self):
         calc = load_function("emission_adjustment", {})
         result = calc(100, 200, 10, 20, 500, 1000)

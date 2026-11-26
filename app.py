@@ -306,6 +306,70 @@ def yahoo_annual_statements(symbol,trade_currency,report_currency):
         statements.append(pd.DataFrame())
     return tuple(statements)
 
+def yahoo_r12_bridge(income, cash, record, period):
+    """Return only explicit components from four exact quarterly periods.
+    Independently reconcile quarterly flows to Börsdata R12 before using them.
+    All statement values are in original reporting currency, not millions.
+    """
+    end=pd.Timestamp(period).normalize()
+    if not end.is_month_end: return {}
+    dates=pd.DatetimeIndex([end-pd.offsets.MonthEnd(3*i) for i in range(4)])
+    def total(frame, labels):
+        if not dates.isin(frame.columns).all(): return None
+        for label in labels:
+            if label not in frame.index: continue
+            values=[numeric(frame.at[label,d]) for d in dates]
+            if all(x is not None for x in values): return sum(values)
+        return None
+    def matches(value,key):
+        reference=bd_field(record,key)
+        if value is None or reference is None: return False
+        reference*=1e6
+        return abs(value-reference)<=max(0.5e6,0.02*max(abs(value),abs(reference)))
+    revenue=total(income,['Total Revenue'])
+    ebit=total(income,['Operating Income'])
+    if not (matches(revenue,'revenues') and matches(ebit,'operating_Income')): return {}
+    result={}
+    explicit=total(income,['EBITA'])
+    amort=total(income,['Amortization Of Intangibles','Amortization Of Intangible Assets'])
+    if explicit is not None:
+        result['ebita']=explicit
+    elif amort is not None:
+        result['ebita']=bd_field(record,'operating_Income')*1e6+abs(amort)
+    ocf=total(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'])
+    if not matches(ocf,'cash_Flow_From_Operating_Activities'): return result
+    if 'ebita' not in result:
+        amort=total(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'])
+        if amort is not None:
+            result['ebita']=bd_field(record,'operating_Income')*1e6+abs(amort)
+    da=total(cash,['Depreciation And Amortization','Depreciation Amortization Depletion'])
+    cap=total(cash,['Capital Expenditure'])
+    wc=total(cash,['Change In Working Capital'])
+    if all(x is not None for x in (da,cap,wc)):
+        result['fcff']=bd_field(record,'operating_Income')*1e6*(1-0.206)+da-abs(cap)+wc
+    return result
+
+@st.cache_data(ttl=1800,show_spinner=False)
+def matched_yahoo_r12(symbol, trade_currency, report_currency, record, period):
+    if not trade_currency or not report_currency or str(record.get('currency') or '').upper()!=report_currency:
+        return {}
+    try:
+        listing=yf.Ticker(symbol)
+        profile=listing.get_info()
+        if (str(profile.get('symbol') or '').upper()!=symbol.upper() or
+            str(profile.get('currency') or '').upper()!=trade_currency or
+            str(profile.get('financialCurrency') or '').upper()!=report_currency):
+            return {}
+        frames=[]
+        for attribute in ('quarterly_income_stmt','quarterly_cashflow'):
+            frame=getattr(listing,attribute).copy()
+            frame.columns=pd.to_datetime(frame.columns,errors='coerce',utc=True).tz_localize(None).normalize()
+            frame=frame.loc[:,frame.columns.notna() & ~frame.columns.duplicated(keep=False)]
+            frames.append(frame)
+        return yahoo_r12_bridge(*frames,record,period)
+    except Exception:
+        return {}
+
 def comparable_yahoo_periods(primary,secondary):
     accepted=[]
     for period in primary.columns.intersection(secondary.columns):
@@ -315,7 +379,7 @@ def comparable_yahoo_periods(primary,secondary):
             left,right=numeric(primary.at[line,period]),numeric(secondary.at[line,period])
             if left is not None and right is not None:
                 anchors.append(abs(left-right)<=0.02*max(abs(left),abs(right)))
-        if anchors and all(anchors): accepted.append(period)
+        if len(anchors)==2 and all(anchors): accepted.append(period)
     return pd.DatetimeIndex(accepted)
 
 def fill_matching_statement_periods(primary,secondary,periods):
@@ -2019,11 +2083,6 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     amort=row(fin,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
                     if amort is None and period in cash.columns:
                         amort=row(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
-                    if amort is None and period in cash.columns:
-                        total_da=row(cash,['Depreciation And Amortization','Depreciation Amortization Depletion'],period)
-                        depreciation=row(cash,['Depreciation','Depreciation And Depletion'],period)
-                        if total_da is not None and depreciation is not None and abs(total_da)>=abs(depreciation):
-                            amort=abs(total_da)-abs(depreciation)
                     if ebit is not None:
                         earnings=ebit+abs(amort) if amort is not None else ebit
                         earnings_label='EBITA (beräknad)' if amort is not None else 'EBIT'
@@ -2041,11 +2100,6 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     wc=row(cash,['Change In Working Capital'],period)
                     if all(v is not None for v in (ebit,da,cap,wc)):
                         fcff=ebit*(1-0.206)+da-abs(cap)+wc
-                    else:
-                        ocf=row(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'],period)
-                        interest=row(fin,['Interest Expense'],period)
-                        if all(v is not None for v in (ocf,cap,interest)):
-                            fcff=ocf-abs(cap)+abs(interest)*(1-0.206)
             # Prefer a complete, currency-matched trailing report bundle; never mix annual cash flows with R12 earnings.
             r12_sales=None
             r12_used=False
@@ -2067,6 +2121,11 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     if rebita is None and rebit is not None:
                         amort=ramount('amortization_Of_Intangibles')
                         if amort is not None: rebita=rebit+abs(amort)
+                    # A quarterly reserve is accepted only after exact date, listing, currency and flow reconciliation.
+                    bridge={}
+                    if rccy==report and rebit is not None and (rebita is None or not all(ramount(k) is not None for k in ('depreciation_And_Amortization','capital_Expenditure','change_In_Working_Capital'))):
+                        bridge=matched_yahoo_r12(symbol,currency,report,rec,str(rdate.date()))
+                        if rebita is None: rebita=bridge.get('ebita')
                     if rebita is None and rccy==report and rebit is not None and rdebt is not None and rsales is not None and rsales>0 and (earnings is None or earnings_label=='EBIT'):
                         # Official report fallback; strict R12 period and original currency.
                         hit=report_ebita_extract(str(info.get('website') or ''),str(info.get('longName') or info.get('shortName') or symbol),str(rdate.date()),rccy)
@@ -2079,6 +2138,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     rfcff=filing.get('fcff') if filing else None
                     if rfcff is None and all(v is not None for v in (rebit,rda,rcapex,rwc)):
                         rfcff=rebit*(1-0.206)+rda-abs(rcapex)+rwc
+                    if rfcff is None: rfcff=bridge.get('fcff')
                     preserves_models=(earnings is None or earnings_label=='EBIT' or rebita is not None) and (
                         fcff is None or fcff<=0 or (rfcff is not None and rfcff>0))
                     if preserves_models and rccy and rccy==report and (not common or rdate>=pd.Timestamp(common[0])) and rebit is not None and rdebt is not None and rsales is not None and rsales>0:
@@ -2090,6 +2150,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                         r12_used=True
                         out['period']=str(rdate.date())
                         out['source']='Börsdata Pro+ R12 · matchad valuta och period'
+                        if bridge:
+                            out['source']+=' + Yahoo Finance (avstämda kvartalsrapporter)'
                         if filing:
                             out['ebita_sources']=filing['sources']
                             out['fcff_note']=filing['fcff_note']

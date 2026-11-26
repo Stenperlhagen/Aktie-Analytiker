@@ -16,7 +16,7 @@ from functools import lru_cache
 
 # Load exact production definitions without executing Streamlit UI.
 tree=ast.parse(pathlib.Path('app.py').read_text(encoding='utf-8'))
-names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_instrument_events','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_r12_response','request_borsdata','borsapi_market_cap_map','bd_field','yahoo_annual_statements','comparable_yahoo_periods','fill_matching_statement_periods','abb_r12_ebita','reported_operating_metrics','trailing_dividend_yield','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
+names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_instrument_events','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_r12_response','request_borsdata','borsapi_market_cap_map','bd_field','yahoo_annual_statements','yahoo_r12_bridge','matched_yahoo_r12','comparable_yahoo_periods','fill_matching_statement_periods','abb_r12_ebita','reported_operating_metrics','trailing_dividend_yield','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
 nodes=[]
 for node in tree.body:
     if isinstance(node,ast.FunctionDef) and node.name in names:
@@ -125,6 +125,8 @@ def tests():
     assert q not in merged.columns
     assert comparable_yahoo_periods(fin,supplemental).empty
     supplemental.at['Operating Income',p]=90e6
+    assert comparable_yahoo_periods(fin,supplemental).empty
+    supplemental.loc['Total Revenue',p]=1000e6
     assert list(comparable_yahoo_periods(fin,supplemental))==[p]
     print('Mathematical regression tests passed')
 
@@ -149,11 +151,10 @@ if __name__=='__main__':
             annual_records=annual.get('periods',[])
             print(symbol,'annual',len(annual_records),'R12',len(trailing),'prices',len(hist),
                   'report currency',info.get('financialCurrency'),'listing currency',info.get('currency'),
-                  'EPS',info.get('trailingEps'),'P/E',model.get('pe_ttm'),
-                  'dividend yield',trailing_dividend_yield(symbol,info.get('currentPrice')),
-                  'reported operating metrics',reported_operating_metrics(trailing[0] if trailing else {},info.get('financialCurrency'),info.get('currency'),info.get('marketCap')),
+                  'EPS present',numeric(info.get('trailingEps')) is not None,'P/E present',numeric(model.get('pe_ttm')) is not None,
+                  'dividend yield present',trailing_dividend_yield(symbol,info.get('currentPrice')) is not None,
                   'report source',info.get('_report_source'),'market cap present',info.get('_cap_verified'),'profile',model.get('profile'),
-                  'inputs',model.get('inputs'),'issues',model.get('missing'),'provider status',errors,
+                  'model names',list(model.get('models',{})),'issue count',len(model.get('missing',[])),'provider error labels',list(errors),
                   flush=True)
             if symbol=='ABB.ST':
                 for event_kind in ('calendar','insider'):
@@ -184,14 +185,18 @@ if __name__=='__main__':
             earnings=inputs.get('EBITA')
             if earnings is None: earnings=inputs.get('EBITA (beräknad)')
             debt,fx,shares,price=(inputs.get('Nettoskuld'),inputs.get('Valutakurs'),inputs.get('Antal aktier'),v.get('price'))
-            applicable=v.get('category')=='Rörelsedrivande bolag'
+            applicable=v.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag')
             multiple=(price*shares/fx+debt)/earnings if applicable and all(x is not None for x in (earnings,debt,fx,shares,price)) and min(earnings,fx,shares,price)>0 else None
-            rows[-1].update({'ebita':earnings,'ev_ebita':multiple,'ebita_status':'Ej tillämpligt' if not applicable else 'Saknas EBITA' if earnings is None else 'Saknas jämförbar EV/EBITA' if multiple is None else 'Underlag finns'})
-        print(symbol,rows[-1].get('target'),rows[-1].get('ebita_status'),flush=True)
+            rows[-1].update({'ebita':earnings,'ev_ebita':multiple,'ebita_status':'Ej tillämpligt' if not applicable else 'Saknas EBITA' if earnings is None else 'Saknas jämförbar EV/EBITA' if multiple is None else 'Underlag finns',
+                             'fcff_status':'Ej tillämpligt' if not applicable else 'Saknas FCFF' if numeric(inputs.get('FCFF')) is None else 'FCFF <= 0' if inputs['FCFF']<=0 else 'Underlag finns',
+                             'dual_model_status':'Ej tillämpligt' if not applicable else 'Underlag finns' if {'EV/EBITA','DCF'}<=set(v.get('models',{})) and v.get('target') is not None else 'Ofullständig huvudmodell'})
+        print(symbol,'target present',bool(rows[-1].get('finite_positive_target')),rows[-1].get('ebita_status'),rows[-1].get('fcff_status'),rows[-1].get('dual_model_status'),flush=True)
         pd.DataFrame(rows).to_csv('valuation-audit.csv',index=False)
     print('Total:',len(rows),'With target:',sum(r.get('target') is not None for r in rows))
 
     print('EBITA coverage:',pd.Series([r.get('ebita_status','Fel') for r in rows]).value_counts().to_dict(),flush=True)
+    print('FCFF coverage:',pd.Series([r.get('fcff_status','Fel') for r in rows]).value_counts().to_dict(),flush=True)
+    print('Dual model coverage:',pd.Series([r.get('dual_model_status','Fel') for r in rows]).value_counts().to_dict(),flush=True)
     print('Execution failures:',len(failures),flush=True)
     if not any(row.get('annual_reports') for row in rows) or not any(row.get('price_history') for row in rows):
         raise AssertionError('No live annual reports or price history were loaded')

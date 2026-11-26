@@ -56,7 +56,7 @@ jobs:
             echo '::notice::Live coverage skipped because BORSAPI_API_KEY is unavailable.'
           fi
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && github.event.repository.private == true
         with:
           name: valuation-audit
           path: valuation-audit.csv
