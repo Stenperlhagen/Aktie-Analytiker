@@ -1615,7 +1615,16 @@ def abb_r12_ebita(symbol, record, period):
         sales=bd_field(record,'revenues')
         ebit=bd_field(record,'operating_Income')
         # Allow only rounding differences between the two published datasets.
-        if sales is None or ebit is None or abs(sales-expected_sales)>0.6 or abs(ebit-expected_ebit)>0.6:
+        if symbol=='INSTAL.ST':
+            # Report pp. 1, 10 and 15: net sales 14,604; total operating revenue
+            # 14,705. The published individual quarters sum to EBIT 858
+            # while the R12 column shows 859, due to independent rounding.
+            net_sales=bd_field(record,'net_Sales')
+            if (sales is None or ebit is None or abs(ebit-859)>1.5 or
+                min(abs(sales-14604),abs(sales-14705))>1.5 or
+                (net_sales is not None and abs(net_sales-14604)>1.5)):
+                return None
+        elif sales is None or ebit is None or abs(sales-expected_sales)>0.6 or abs(ebit-expected_ebit)>0.6:
             return None
         result={'value':reported_ebita*1e6,'sources':(url,)}
         # Bravida Q3 2026, pp. 1, 13, 16: adjusted operating cash flow
@@ -1636,6 +1645,23 @@ def abb_r12_ebita(symbol, record, period):
                                'efter maskin- och inventarieinvesteringar, minus antagen rörelseskatt 20,6 % '
                                'på EBIT exklusive realisationsvinst. Historiskt FCFF före förvärv '
                                'och leasingamortering; framtida nyttjanderättsinvesteringar måste normaliseras.'))
+        # Instalco Q3 2026, pp. 10, 13, 15 and 17: original SEK R12.
+        # Use net investments in PPE and intangible assets, not the aggregate
+        # investing cash flow, and match lease-inclusive net debt.
+        if symbol=='INSTAL.ST':
+            ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+            net_debt=bd_field(record,'net_Debt')
+            if (ocf is not None and abs(ocf-723)<=1.5 and
+                net_debt is not None and abs(net_debt-4724)<=1.5):
+                tax_rate=0.206
+                result.update(
+                    fcff=(859*(1-tax_rate)+572-151-226)*1e6,
+                    fcff_tax_rate=tax_rate,
+                    fcff_note=('Instalco R12: rapporterat EBIT efter antagen rörelseskatt 20,6 %, '
+                               'plus avskrivningar, minus nettoinvesteringar i materiella och immateriella '
+                               'tillgångar samt rörelsekapitalets kassaflöde. Historiskt FCFF före förvärv; '
+                               'leasinginvesteringar, minoritetsintressen och Fabris delårskonsolidering '
+                               'måste beaktas i prognosen.'))
         # Addtech Q2 2026/27, pp. 16-17: R12 reported EBITDA, EBIT,
         # pre-tax/after-tax profit, net non-current-asset investments and WC.
         # Acquisition flows are excluded from this historical organic FCFF bridge.
