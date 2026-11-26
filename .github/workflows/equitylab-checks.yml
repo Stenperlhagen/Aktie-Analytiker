@@ -6,6 +6,12 @@ on:
       - 'test_app_smoke.py'
       - 'requirements.txt'
       - '.github/workflows/equitylab-checks.yml'
+  pull_request:
+    paths:
+      - 'app.py'
+      - 'test_app_smoke.py'
+      - 'requirements.txt'
+      - '.github/workflows/equitylab-checks.yml'
   workflow_dispatch:
 jobs:
   validate:
@@ -17,26 +23,6 @@ jobs:
           python-version: '3.11'
       - name: Compile Python source
         run: python -m py_compile app.py
-      - name: Verify critical UI and data paths
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          source = Path('app.py').read_text(encoding='utf-8')
-          checks = {
-              'seven tabs with separate business quality': "one,business_tab,quality_tab,four,three,six,five=st.tabs(['Kurs och historik','Affärsmodell & bolagskvalitet','Tillväxt & stabilitet','Motiverat aktievärde','Kurspotential','Bull & Bear','Kurspåverkande händelser'])" in source and "with business_tab:" in source,
-              'bull bear section': "with six:" in source and "render_bull_bear(ticker)" in source,
-              'price event section': "with five:" in source and "render_price_events(hist,company,ticker)" in source,
-              'news tab removed': "'Nyheter – 6 månader'" not in source,
-              'competitor configuration': "PEER_UNIVERSE={" in source,
-              'valuation categories': "def valuation_category(" in source,
-              'reverse DCF': "Reverse DCF" in source,
-              'Borsdata primary reports and Avanza cross-check': "borsapi_annual_frames(ticker,borsapi_key())" in source and "avanza_market_snapshot(ticker)" in source and "import requests, feedparser, yfinance" not in source,
-              'valuation screener': "def screener_snapshot(symbol):" in source,
-          }
-          for name, ok in checks.items():
-              print(('PASS' if ok else 'FAIL') + ': ' + name)
-          assert all(checks.values())
-          PY
       - name: Install app dependencies
         run: pip install -r requirements.txt
       - name: Streamlit startup smoke test

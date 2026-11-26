@@ -278,6 +278,7 @@ def avanza_market_snapshot(symbol):
             if amount is not None and raw.get('currency')==ccy:
                 if unit in ('MILLION','MILLIONS','MSEK','MDKK'): cap=amount*1e6
                 elif unit in ('ABSOLUTE','SEK','DKK'): cap=amount
+        if price is not None and price<=0: price=None
         return {'price':price,'market_cap':cap,'currency':ccy,'id':iid,'url':root+'/aktier/om-aktien.html/'+iid},''
     except Exception as exc:
         return {},'Avanza: '+type(exc).__name__
@@ -314,21 +315,31 @@ def fetch(ticker):
                     info['_report_source']='Börsdata Pro+ (årsrapporter; komplettering vid matchad period)'
                 else: errors['Börsdata rapport']='Årsrapporter mottagna men inga tolkbara resultatfält.'
             else: errors['Börsdata rapport']=bd_error
+        except Exception as exc:
+            errors['Börsdata rapport']=type(exc).__name__
+        try:
             bd_hist,bd_error=borsapi_history(ticker,borsapi_key())
             if not bd_hist.empty:
                 history=bd_hist.loc[bd_hist.index>=pd.Timestamp.today()-pd.DateOffset(years=5)]
                 if not history.empty:
-                    last=float(history.Close.iloc[-1])
-                    info['currentPrice']=last
-                    info['regularMarketPrice']=last
-                    quick['last_price']=last
-                    info['_price_source']='Börsdata Pro+ (senaste stängning)'
+                    last=numeric(history.Close.iloc[-1])
+                    quote_date=history.index[-1].date()
+                    if last is not None and last>0 and 0<=(dt.date.today()-quote_date).days<=7:
+                        info['currentPrice']=last
+                        info['regularMarketPrice']=last
+                        quick['last_price']=last
+                        info['_price_source']='Börsdata Pro+ (stängning '+str(quote_date)+')'
+                    else:
+                        errors['Börsdata kurs']='Senaste stängningskurs är ogiltig eller äldre än sju dagar.'
             else: errors['Börsdata kurs']=bd_error
         except Exception as exc:
-            errors['Börsdata adapter']=type(exc).__name__
+            errors['Börsdata kurs']=type(exc).__name__
     info['currency']='DKK' if ticker.endswith('.CO') else 'SEK' if ticker.endswith('.ST') else None
     instruments,_=borsapi_instruments(borsapi_key())
-    identity,_=borsapi_reports(ticker,borsapi_key())
+    identity,_=borsapi_instrument(ticker,borsapi_key())
+    known_currency=str(identity.get('stockPriceCurrency') or '').strip().upper()
+    if len(known_currency)==3 and known_currency.isalpha():
+        info['currency']=known_currency
     iid=str(identity.get('instrument_id') or '')
     for inst in instruments:
         if iid and str(inst.get('insId') or inst.get('insID') or inst.get('instrumentId') or '')==iid:
@@ -339,7 +350,8 @@ def fetch(ticker):
     if not info.get('currentPrice') and av.get('price') and av.get('currency')==info.get('currency'):
         info['currentPrice']=av['price']
         info['_price_source']='Avanza (reserv)'
-    records=borsapi_r12_records(ticker,borsapi_key())
+    records,r12_error=borsapi_r12_response(ticker,borsapi_key())
+    if r12_error: errors['Börsdata R12']=r12_error
     if records:
         rec=records[0]
         if str(rec.get('currency') or '').upper()==info.get('financialCurrency'):
@@ -347,13 +359,16 @@ def fetch(ticker):
                 n=bd_field(rec,key)
                 if n is not None: info[field]=n*1e6
             eps=bd_field(rec,'earnings_Per_Share')
-            if eps is not None: info['trailingEps']=eps
+            if eps is not None:
+                info['trailingEps']=eps
+                info['_eps_currency']=str(rec['currency']).upper()
     for label,frame in [('Resultaträkning',fin),('Balansräkning',balance),('Kassaflöde',cash),('Kurshistorik',history)]:
         if frame.empty: errors.setdefault(label,'Datakällan returnerade tom tabell.')
     capitalization=verified_capitalization(ticker,info,quick,fin,history)
+    capital_structure_verified=capitalization['verified']
     # Display the provider's own market cap, not a reconstructed share-class sum.
     bd_caps,bd_cap_error=borsapi_market_cap_map(borsapi_key())
-    identity,_=borsapi_reports(ticker,borsapi_key())
+    identity,_=borsapi_instrument(ticker,borsapi_key())
     bd_cap_msek=bd_caps.get(str(identity.get('instrument_id')))
     trade_currency=info.get('currency') or quick.get('currency')
     rate=fx_rate('SEK',trade_currency)
@@ -378,14 +393,12 @@ def fetch(ticker):
     bd_cap=capitalization.get('market_cap')
     if av_cap is not None and av_cap>0 and bd_cap and bd_cap>0 and abs(av_cap/bd_cap-1)>0.05:
         capitalization['warnings'].append('Avanza och Börsdata avviker över 5 % i börsvärde; definition och aktieslag måste kontrolleras.')
-        capitalization['verified']=False
-        capitalization['market_cap']=None
     if avanza and av_cap is None:
         errors['Avanza börsvärde']='Börsvärde saknar uttrycklig enhet eller valuta i API-svaret.'
     info['_cap_source']=capitalization['source']
     info['_cap_warnings']=capitalization['warnings']
     info['_cap_verified']=capitalization['verified']
-    info['_preferred_cap']=capitalization.get('preferred_cap') if capitalization['verified'] else None
+    info['_preferred_cap']=capitalization.get('preferred_cap') if capital_structure_verified else None
     info['_common_cap']=capitalization.get('common_cap')
     info['marketCap']=capitalization['market_cap']
     quick['market_cap']=capitalization['market_cap']
@@ -395,11 +408,40 @@ def fetch(ticker):
     return info or {}, history, fin, cash, balance, quick or {}, errors
 
 @st.cache_data(ttl=3600,show_spinner=False)
+def ecb_exchange_rates():
+    from xml.etree import ElementTree
+    try:
+        response=requests.get('https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml',timeout=8)
+        response.raise_for_status()
+        root=ElementTree.fromstring(response.content)
+        daily=next(element for element in root.iter() if 'time' in element.attrib)
+        published=dt.date.fromisoformat(daily.attrib['time'])
+        if not 0<=(dt.date.today()-published).days<=7: return {}
+        rates={'EUR':1.0}
+        for element in daily:
+            value=numeric(element.get('rate'))
+            currency=element.get('currency')
+            if currency and value is not None and value>0: rates[currency]=value
+        return rates
+    except (requests.RequestException,ElementTree.ParseError,StopIteration,ValueError):
+        return {}
+
 def fx_rate(from_currency,to_currency):
     if not from_currency or not to_currency: return None
     if from_currency==to_currency: return 1.0
-    # No unverified exchange rate fallback.
-    return None
+    rates=ecb_exchange_rates()
+    source,destination=rates.get(from_currency),rates.get(to_currency)
+    return destination/source if source and destination else None
+
+def overview_money_metric(label, amount, report_currency, display_currency, rate):
+    if amount is None or not report_currency:
+        return label, 'Saknas'
+    if rate is not None and rate>0 and display_currency:
+        amount*=rate
+        currency=display_currency
+    else:
+        currency=report_currency
+    return label+' (M'+currency+')',show(amount/1e6,'',0)
 
 @st.cache_data(ttl=86400,show_spinner=False)
 def trailing_dividend_yield(ticker,price):
@@ -408,18 +450,18 @@ def trailing_dividend_yield(ticker,price):
     if not records: return None
     rec=records[0]
     currency='DKK' if ticker.endswith('.CO') else 'SEK' if ticker.endswith('.ST') else None
-    if str(rec.get('currency') or '').upper()!=currency: return None
+    rate=fx_rate(str(rec.get('currency') or '').upper(),currency)
     dividend=bd_field(rec,'dividend')
-    return dividend/price*100 if dividend is not None and dividend>=0 else None
+    return dividend*rate/price*100 if rate and dividend is not None and dividend>=0 else None
 
 @st.cache_data(ttl=7200,show_spinner=False)
 def extended_financials(ticker):
     result={k:pd.DataFrame() for k in ('quarterly_income','quarterly_cash','quarterly_balance','valuation_history')}
-    identity,error=borsapi_reports(ticker,borsapi_key())
+    identity,error=borsapi_instrument(ticker,borsapi_key())
     iid=identity.get('instrument_id')
     if not iid: return result,{'Börsdata kvartal':error}
     try:
-        response=requests.get('https://apiservice.borsdata.se/v1/instruments/'+iid+'/reports/quarter',params={'authKey':borsapi_key(),'maxcount':20,'original':1},timeout=20)
+        response=request_borsdata('https://apiservice.borsdata.se/v1/instruments/'+iid+'/reports/quarter',params={'authKey':borsapi_key(),'maxcount':20,'original':1},timeout=20)
         response.raise_for_status()
         records=response.json().get('reports',[])
         records=sorted(records,key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
@@ -1147,12 +1189,23 @@ def borsapi_key():
     try: return str(st.secrets.get('BORSAPI_API_KEY','')).strip()
     except Exception: return ''
 
+def request_borsdata(url, *, params, timeout):
+    import time
+    response=requests.get(url,params=params,timeout=timeout)
+    if response.status_code==429:
+        retry_after=numeric(response.headers.get('Retry-After'))
+        delay=max(1,retry_after if retry_after is not None else 10)
+        if delay<=15:
+            time.sleep(delay)
+            response=requests.get(url,params=params,timeout=timeout)
+    return response
+
 @st.cache_data(ttl=86400,show_spinner=False)
 def borsapi_instruments(api_key):
     """Börsdata v1: instrument-ID krävs för rapportanrop; ingen gissad ticker-URL."""
     if not api_key: return [],'Börsdata PRO+-nyckel saknas'
     try:
-        response=requests.get('https://apiservice.borsdata.se/v1/instruments',
+        response=request_borsdata('https://apiservice.borsdata.se/v1/instruments',
                               params={'authKey':api_key},timeout=20)
         if not response.ok: return [],'Börsdata HTTP '+str(response.status_code)
         payload=response.json()
@@ -1161,25 +1214,57 @@ def borsapi_instruments(api_key):
     except Exception as exc:
         return [],type(exc).__name__
 
-@st.cache_data(ttl=86400,show_spinner=False)
-def borsapi_reports(symbol,api_key):
-    """Rapporter via dokumenterat Börsdata API, bara med entydigt matchat instrument."""
+@st.cache_data(ttl=1800,show_spinner=False)
+def borsapi_instrument(symbol,api_key):
     instruments,error=borsapi_instruments(api_key)
     if error: return {},error
-    requested=symbol.removesuffix('.ST').removesuffix('.CO').upper()
-    def normalize(s): return re.sub(r'[^A-Z0-9]','',str(s).upper().removesuffix('.ST').removesuffix('.CO'))
-    matches=[]
-    for inst in instruments:
-        if not isinstance(inst,dict): continue
-        candidates=[inst.get(k) for k in ('ticker','tickerSymbol','symbol','shortName','stockSymbol','yahoo')]
-        if normalize(requested) in [normalize(c) for c in candidates if c]:
-            matches.append(inst)
-    ids={str(x.get('insId') or x.get('insID') or x.get('instrumentId') or '') for x in matches}
-    ids.discard('')
-    if len(ids)!=1: return {},'Instrument-ID kunde inte matchas entydigt'
-    instrument_id=next(iter(ids))
+    requested=symbol.strip().upper()
+    eligible=[item for item in instruments if isinstance(item,dict) and
+              (item.get('insId') or item.get('instrumentId'))]
+    matches=[item for item in eligible if str(item.get('yahoo') or '').upper()==requested]
+    if not matches:
+        name,_,exchange=requested.rpartition('.')
+        def ticker_key(value):
+            return re.sub(r'[ -]+','-',str(value or '').strip().upper())
+        matches=[item for item in eligible if exchange in ('ST','CO') and
+                 str(item.get('yahoo') or '').upper().endswith('.'+exchange) and
+                 ticker_key(item.get('ticker'))==ticker_key(name)]
+    indexed={str(item.get('insId') or item.get('instrumentId')):item for item in matches}
+    if len(indexed)!=1: return {},'Instrument-ID kunde inte matchas entydigt för noteringen'
+    instrument_id,item=next(iter(indexed.items()))
+    return {**item,'instrument_id':instrument_id},''
+
+@st.cache_data(ttl=1800,show_spinner=False)
+def borsapi_instrument_events(symbol,api_key,kind):
+    instrument,error=borsapi_instrument(symbol,api_key)
+    instrument_id=instrument.get('instrument_id')
+    if not instrument_id: return [],error
+    paths={'calendar':'instruments/report/calendar','insider':'holdings/insider'}
     try:
-        response=requests.get(
+        response=request_borsdata('https://apiservice.borsdata.se/v1/'+paths[kind],
+                              params={'authKey':api_key,'instList':instrument_id},timeout=15)
+        if not response.ok: return [],'Börsdata HTTP '+str(response.status_code)
+        payload=response.json()
+        groups=payload.get('list') if isinstance(payload,dict) else None
+        if not isinstance(groups,list): return [],'Oväntat svarsformat från Börsdata.'
+        for group in groups:
+            if not isinstance(group,dict) or str(group.get('insId'))!=instrument_id: continue
+            if group.get('error'): return [],'Börsdata rapporterade ett fel för instrumentet.'
+            values=group.get('values')
+            if values is None: return [],''
+            if not isinstance(values,list): return [],'Oväntad lista från Börsdata.'
+            return [row for row in values if isinstance(row,dict)],''
+        return [],''
+    except (requests.RequestException,ValueError):
+        return [],'Börsdata kunde inte nås eller tolkas.'
+
+@st.cache_data(ttl=1800,show_spinner=False)
+def borsapi_reports(symbol,api_key):
+    instrument,error=borsapi_instrument(symbol,api_key)
+    instrument_id=instrument.get('instrument_id')
+    if not instrument_id: return {},error
+    try:
+        response=request_borsdata(
             'https://apiservice.borsdata.se/v1/instruments/'+instrument_id+'/reports/year',
             params={'authKey':api_key,'maxcount':20,'original':1},timeout=20)
         if not response.ok: return {},'Börsdata rapport HTTP '+str(response.status_code)
@@ -1193,35 +1278,40 @@ def borsapi_reports(symbol,api_key):
 
 @st.cache_data(ttl=21600,show_spinner=False)
 def borsapi_history(symbol,api_key):
-    data,error=borsapi_reports(symbol,api_key)
+    data,error=borsapi_instrument(symbol,api_key)
     iid=data.get('instrument_id')
     if not iid: return pd.DataFrame(),error
     try:
-        response=requests.get('https://apiservice.borsdata.se/v1/instruments/'+iid+'/stockprices',params={'authKey':api_key,'from':str(dt.date.today()-dt.timedelta(days=3660))},timeout=25)
+        response=request_borsdata('https://apiservice.borsdata.se/v1/instruments/'+iid+'/stockprices',params={'authKey':api_key,'from':str(dt.date.today()-dt.timedelta(days=3660))},timeout=25)
         if not response.ok: return pd.DataFrame(),'Börsdata kurs HTTP '+str(response.status_code)
         rows=response.json().get('stockPricesList',[])
         frame=pd.DataFrame(rows).rename(columns={'d':'Date','c':'Close','o':'Open','h':'High','l':'Low','v':'Volume'})
         if not {'Date','Close'}.issubset(frame.columns): return pd.DataFrame(),'Börsdata kursformat saknas'
-        frame['Date']=pd.to_datetime(frame['Date'],errors='coerce')
+        frame['Date']=pd.to_datetime(frame['Date'],errors='coerce',utc=True).dt.tz_localize(None)
         for k in ('Close','Open','High','Low','Volume'):
             if k in frame: frame[k]=pd.to_numeric(frame[k],errors='coerce')
-        return frame.dropna(subset=['Date','Close']).set_index('Date').sort_index(),''
+        frame=frame.dropna(subset=['Date','Close']).loc[lambda rows: rows['Close']>0]
+        return frame.drop_duplicates('Date',keep='last').set_index('Date').sort_index(),''
     except Exception as exc: return pd.DataFrame(),type(exc).__name__
 
 def borsapi_annual_frames(symbol,api_key):
     data,error=borsapi_reports(symbol,api_key)
-    records=[r for r in data.get('periods',[]) if str(r.get('period'))=='5' and r.get('currency') and (r.get('report_End_Date') or r.get('reportEndDate'))]
+    records=[]
+    for record in data.get('periods',[]):
+        if not isinstance(record,dict) or str(record.get('period'))!='5' or not record.get('currency'):
+            continue
+        date=pd.to_datetime(record.get('report_End_Date') or record.get('reportEndDate'),errors='coerce',utc=True)
+        if pd.notna(date): records.append((date.tz_localize(None).normalize(),record))
     if not records: return None,error or 'Inga jämförbara årsrapporter'
-    records.sort(key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
-    currency=str(records[0]['currency']).upper()
+    records.sort(key=lambda pair:pair[0],reverse=True)
+    currency=str(records[0][1]['currency']).upper()
     maps=[
-        {'EBITA':'ebita','Amortization Of Intangibles':'amortization_Of_Intangibles','Total Revenue':'revenues','Gross Profit':'gross_Income','Operating Income':'operating_Income','Pretax Income':'profit_Before_Tax','Interest Expense':'interest_Expense','Net Income Common Stockholders':'profit_To_Equity_Holders','Basic EPS':'earnings_Per_Share'},
-        {'Net Debt':'net_Debt','Cash And Cash Equivalents':'cash_And_Equivalents','Stockholders Equity':'total_Equity','Total Assets':'total_Assets','Current Assets':'current_Assets','Current Liabilities':'current_Liabilities','Ordinary Shares Number':'number_Of_Shares'},
+        {'EBITDA':'ebitda','Tax Provision':'tax_Provision','EBITA':'ebita','Amortization Of Intangibles':'amortization_Of_Intangibles','Total Revenue':'revenues','Gross Profit':'gross_Income','Operating Income':'operating_Income','Pretax Income':'profit_Before_Tax','Interest Expense':'interest_Expense','Net Income Common Stockholders':'profit_To_Equity_Holders','Basic EPS':'earnings_Per_Share'},
+        {'Invested Capital':'invested_Capital','Total Debt':'total_Debt','Net Debt':'net_Debt','Cash And Cash Equivalents':'cash_And_Equivalents','Stockholders Equity':'total_Equity','Total Assets':'total_Assets','Current Assets':'current_Assets','Current Liabilities':'current_Liabilities','Ordinary Shares Number':'number_Of_Shares'},
         {'Operating Cash Flow':'cash_Flow_From_Operating_Activities','Investing Cash Flow':'cash_Flow_From_Investing_Activities','Financing Cash Flow':'cash_Flow_From_Financing_Activities','Free Cash Flow':'free_Cash_Flow','Capital Expenditure':'capital_Expenditure','Depreciation And Amortization':'depreciation_And_Amortization','Change In Working Capital':'change_In_Working_Capital'}]
     frames=[{} for _ in maps]
-    for record in records:
+    for date,record in records:
         if str(record['currency']).upper()!=currency: continue
-        date=pd.Timestamp(record.get('report_End_Date') or record.get('reportEndDate')).normalize()
         for dest,mapping in zip(frames,maps):
             dest[date]={}
             for label,key in mapping.items():
@@ -1234,24 +1324,31 @@ def bd_field(record,key):
     fields={norm(k):v for k,v in record.items()}
     return numeric(fields.get(norm(key)))
 
-@st.cache_data(ttl=21600,show_spinner=False)
-def borsapi_r12_records(symbol,api_key):
-    if not api_key: return []
-    data,error=borsapi_reports(symbol,api_key)
+@st.cache_data(ttl=1800,show_spinner=False)
+def borsapi_r12_response(symbol,api_key):
+    data,error=borsapi_instrument(symbol,api_key)
     iid=data.get('instrument_id')
-    if not iid: return []
+    if not iid: return [],error
     try:
-        response=requests.get('https://apiservice.borsdata.se/v1/instruments/'+iid+'/reports/r12',params={'authKey':api_key,'maxcount':8,'original':1},timeout=20)
-        response.raise_for_status()
-        records=response.json().get('reports',[])
-        return sorted([r for r in records if isinstance(r,dict) and (r.get('report_End_Date') or r.get('reportEndDate'))],key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
-    except Exception: return []
+        response=request_borsdata('https://apiservice.borsdata.se/v1/instruments/'+iid+'/reports/r12',
+                                  params={'authKey':api_key,'maxcount':8,'original':1},timeout=20)
+        if not response.ok: return [],'Börsdata HTTP '+str(response.status_code)
+        records=response.json().get('reports')
+        if not isinstance(records,list): return [],'Oväntat svarsformat från Börsdata.'
+        valid=[r for r in records if isinstance(r,dict) and (r.get('report_End_Date') or r.get('reportEndDate'))]
+        return sorted(valid,key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True),''
+    except (requests.RequestException,ValueError):
+        return [],'Börsdata kunde inte nås eller tolkas.'
+
+def borsapi_r12_records(symbol,api_key):
+    records,_=borsapi_r12_response(symbol,api_key)
+    return records
 
 @st.cache_data(ttl=1800,show_spinner=False)
 def borsapi_market_cap_map(api_key):
     if not api_key: return {},'API-nyckel saknas'
     try:
-        response=requests.get('https://apiservice.borsdata.se/v1/instruments/kpis/50/last/sek',params={'authKey':api_key},timeout=20)
+        response=request_borsdata('https://apiservice.borsdata.se/v1/instruments/kpis/50/last/sek',params={'authKey':api_key},timeout=20)
         if not response.ok: return {},'Börsdata HTTP '+str(response.status_code)
         rows=response.json().get('values',[])
         return {str(r['i']):numeric(r.get('n')) for r in rows if isinstance(r,dict) and r.get('i') is not None},''
@@ -1260,8 +1357,6 @@ def borsapi_market_cap_map(api_key):
 def verified_capitalization(symbol,info,quick,fin,history):
     """Börsvärde = aktuell aktiekurs × rapporterat aktieantal, aldrig okontrollerad Yahoo marketCap."""
     price=val(info,'currentPrice','regularMarketPrice') or val(quick,'last_price')
-    if price is None and history is not None and not history.empty:
-        price=numeric(history['Close'].iloc[-1])
     yahoo_cap=val(info,'marketCap') or val(quick,'market_cap')
     yahoo_shares=val(info,'sharesOutstanding') or val(quick,'shares')
     shares=source=date=None
@@ -1336,12 +1431,27 @@ def verified_capitalization(symbol,info,quick,fin,history):
 def borsapi_debt_ebitda_map(api_key):
     if not api_key: return {},'API-nyckel saknas'
     try:
-        response=requests.get('https://apiservice.borsdata.se/v1/instruments/kpis/42/last/latest',params={'authKey':api_key},timeout=20)
+        response=request_borsdata('https://apiservice.borsdata.se/v1/instruments/kpis/42/last/latest',params={'authKey':api_key},timeout=20)
         if not response.ok: return {},'HTTP '+str(response.status_code)
         rows=response.json().get('values',[])
         result={str(row['i']):numeric(row.get('n')) for row in rows if isinstance(row,dict) and row.get('i') is not None}
         return result,'' if result else 'Tomt nyckeltalssvar'
     except Exception as exc: return {},type(exc).__name__
+
+def abb_r12_ebita(symbol, record, period):
+    if symbol!='ABB.ST' or str(period)[:10]!='2026-09-30' or record.get('currency')!='USD':
+        return None
+    # The 2025 and 2026 reports reconcile continuing operations on the same basis.
+    # Cross-check the provider's EBIT before applying the filings' amortization bridge.
+    ebit=5211+6047-4542
+    if bd_field(record,'operating_Income')!=ebit: return None
+    return {
+        'value':(ebit+149+185-139)*1e6,
+        'sources':(
+            'https://library.e.abb.com/public/add34d4881164f39abfd190711d92bea/ABB-Q3-2026-Financial-Information.pdf?x-sign=xpMrnYUNrRJKXQMj4lDEpt3f7IHZrlyzvLhtzo3uzoWAIMRqxmBMRfDrtfGHxH6G',
+            'https://library.e.abb.com/public/efa424a5e55545ef99275bfafc6ff638/ABB-Q4-2025-financial-information.pdf',
+        ),
+    }
 
 @st.cache_data(ttl=86400,show_spinner=False)
 def report_ebita_extract(website, company, period, currency):
@@ -1769,15 +1879,11 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
     params=VALUATION_PROFILES.get(profile)
     price=val(info,'currentPrice','regularMarketPrice')
     if price is None: price=val(quick,'last_price')
-    if price is None and not hist.empty: price=numeric(hist['Close'].iloc[-1])
     currency=info.get('currency') or quick.get('currency')
     report=info.get('financialCurrency')
     # Do not infer reporting currency from listing currency. Preserve diagnostics for missing metadata.
     fx=fx_rate(report,currency)
     shares=val(info,'sharesOutstanding') or val(quick,'shares')
-    if not shares:
-        cap=val(info,'marketCap') or val(quick,'market_cap')
-        if cap and price and price>0 and '-' not in symbol and symbol not in {'VOLO.ST','SALIX.ST'}: shares=cap/price
     out={'category':category,'profile':profile,'price':price,'currency':currency,'target':None,'method':'','missing':[],'models':{}}
     out['source']=primary_source
     out['report_currency']=report
@@ -1795,7 +1901,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
         return None
     # Shared market metrics: trailing EPS is per quoted share, not total group earnings.
     eps=val(info,'trailingEps')
-    eps_ccy=info.get('financialCurrency')
+    eps_ccy=info.get('_eps_currency') or info.get('financialCurrency')
     eps_fx=fx_rate(eps_ccy,currency) if eps_ccy and currency else None
     out['pe_ttm']=None
     out['pe_period']='R12' if eps is not None else None
@@ -1874,7 +1980,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
             # Prefer a complete, currency-matched trailing report bundle; never mix annual cash flows with R12 earnings.
             r12_sales=None
             r12_used=False
-            if use_roic and symbol not in ('VOLO.ST','AAK.ST','LIAB.ST','BOL.ST','WBGR-B.ST'):
+            if use_roic:
                 records=borsapi_r12_records(symbol,borsapi_key())
                 if records:
                     rec=records[0]
@@ -1887,6 +1993,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     rdebt=ramount('net_Debt')
                     rsales=ramount('revenues')
                     rebita=ramount('ebita')
+                    filing=abb_r12_ebita(symbol,rec,rdate) if rebita is None else None
+                    if filing: rebita=filing['value']
                     if rebita is None and rebit is not None:
                         amort=ramount('amortization_Of_Intangibles')
                         if amort is not None: rebita=rebit+abs(amort)
@@ -1896,18 +2004,35 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                         if hit and hit.get('currency')==rccy and hit.get('period')==str(rdate.date()):
                             rebita=numeric(hit.get('value'))
                     # Do not discard a usable annual EBITA or FCFF model for an incomplete R12 bundle.
-                    preserves_models=(earnings is None or earnings_label=='EBIT' or rebita is not None) and (fcff is None or fcff<=0)
+                    rda=ramount('depreciation_And_Amortization')
+                    rcapex=ramount('capital_Expenditure')
+                    rwc=ramount('change_In_Working_Capital')
+                    rfcff=None
+                    if all(v is not None for v in (rebit,rda,rcapex,rwc)):
+                        rfcff=rebit*(1-0.206)+rda-abs(rcapex)+rwc
+                    preserves_models=(earnings is None or earnings_label=='EBIT' or rebita is not None) and (
+                        fcff is None or fcff<=0 or (rfcff is not None and rfcff>0))
                     if preserves_models and rccy and rccy==report and (not common or rdate>=pd.Timestamp(common[0])) and rebit is not None and rdebt is not None and rsales is not None and rsales>0:
                         earnings=rebita if rebita is not None else rebit
                         earnings_label='EBITA' if rebita is not None else 'EBIT'
                         debt=rdebt
-                        fcff=None
+                        fcff=rfcff
                         r12_sales=rsales
                         r12_used=True
                         out['period']=str(rdate.date())
                         out['source']='Börsdata Pro+ R12 · matchad valuta och period'
-                        out['missing'].append('R12: FCFF saknar komplett underlag.' if rebita is not None else 'R12: separat EBITA och FCFF saknar komplett underlag; EBIT används separat.')
-            if symbol=='VOLO.ST':
+                        if filing:
+                            out['ebita_sources']=filing['sources']
+                            out['source']='ABB:s rapporter (beräknad EBITA) + Börsdata R12'
+                        if rebita is None: out['missing'].append('R12: separat EBITA saknas.')
+                        if rfcff is None: out['missing'].append('R12: FCFF saknar komplett underlag.')
+            has_complete_model=earnings is not None and earnings_label!='EBIT' and fcff is not None and fcff>0 and debt is not None
+            fallback_date=pd.Timestamp('2026-09-30')
+            model_date=pd.to_datetime(out.get('period'),errors='coerce')
+            allow_report_fallback=(not has_complete_model and
+                                   0<=(pd.Timestamp.today().normalize()-fallback_date).days<=180 and
+                                   (pd.isna(model_date) or model_date<=fallback_date))
+            if allow_report_fallback and symbol=='VOLO.ST':
                 currency=currency or 'SEK'
                 out['currency']=currency
                 earnings=VOLATI_Q3_2026['ebita_ltm']
@@ -1919,7 +2044,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 fcff=None
                 out['period']=VOLATI_Q3_2026['as_of']
                 out['source']=VOLATI_Q3_2026['source']
-            if symbol=='AAK.ST':
+            if allow_report_fallback and symbol=='AAK.ST':
                 currency=currency or 'SEK'
                 out['currency']=currency
                 # Q3 2026: rapporterad EBIT R12, inte EBITA. Konservativ separat proxy.
@@ -1933,7 +2058,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 out['period']='2026-09-30'
                 out['source']='https://financialfilings.com/filings/aak/interim-quarterly-report/2026/74641045/'
                 out['missing'].append('AAK: separat EBITA och normaliserad FCFF ej verifierade; rapporterad EBIT används i separat EV/EBIT-modell.')
-            if symbol=='LIAB.ST' and info.get('financialCurrency')=='SEK' and (pd.Timestamp.now()-pd.Timestamp('2026-09-30')).days<=180:
+            if allow_report_fallback and symbol=='LIAB.ST' and info.get('financialCurrency')=='SEK' and (pd.Timestamp.now()-pd.Timestamp('2026-09-30')).days<=180:
                 # Reported EBIT plus acquisition-related amortisation/impairment, not adjusted EBITA.
                 earnings=830e6
                 earnings_label='EBITA (beräknad)'
@@ -1941,7 +2066,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 fcff=None
                 out['period']='2026-09-30'
                 out['source']='https://financialfilings.com/filings/lindab-international/interim-quarterly-report/2026/74636455/'
-            if symbol=='BOL.ST' and currency=='SEK' and (pd.Timestamp.now()-pd.Timestamp('2026-09-30')).days<=180:
+            if allow_report_fallback and symbol=='BOL.ST' and currency=='SEK' and (pd.Timestamp.now()-pd.Timestamp('2026-09-30')).days<=180:
                 shares=283962452
                 debt=18335e6
                 fx=1.0
@@ -1981,8 +2106,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 audit.append('Preferenskapital: marknadsvärde och rättigheter måste verifieras innan stamaktievärdet kan användas som köpsignal')
             if symbol=='BOL.ST': audit.append('Nexa-förvärv: kontrollera status, finansiering och pro forma kassaflöden innan riktkurs används')
             out['audit']=audit
-            out['inputs']={('EBIT' if symbol=='AAK.ST' else earnings_label):earnings,'Nettoskuld':debt,'Antal aktier':shares,'FCFF':fcff,'Valutakurs':fx}
-            use_ebit=symbol=='AAK.ST' or earnings_label=='EBIT'
+            out['inputs']={earnings_label:earnings,'Nettoskuld':debt,'Antal aktier':shares,'FCFF':fcff,'Valutakurs':fx}
+            use_ebit=earnings_label=='EBIT'
             # Explicit separate illustrative EBIT multiple, not a measured peer median.
             effective_multiple=max(1.0,m-1.0) if use_ebit else m
             if use_ebit:
@@ -2440,8 +2565,12 @@ with st.sidebar:
     ticker = ALL_COMPANIES[name] if name else ''
     st.caption(f'Ticker: {ticker or "–"}')
     if st.button('Uppdatera data', use_container_width=True):
-        fetch.clear()
-        screener_snapshot.clear()
+        for loader in (borsapi_instruments,borsapi_instrument,borsapi_reports,borsapi_history,
+                       borsapi_r12_response,borsapi_market_cap_map,borsapi_debt_ebitda_map,borsapi_instrument_events,
+                       avanza_market_snapshot,extended_financials,long_history,ecb_exchange_rates,
+                       trailing_dividend_yield,fetch,screener_snapshot,roic_company_data,
+                       roic_quarterly_income,roic_annual_cashflow):
+            loader.clear()
         st.session_state['screener_results']={}
         st.session_state['ranking_timestamps']={}
         st.rerun()
@@ -2504,7 +2633,7 @@ with st.spinner(f'Hämtar data för {name or ticker}…'):
     try: info,hist,fin,cash,balance,quick,fetch_errors=fetch(ticker)
     except Exception as ex:
         st.error(f'Datakällan kunde inte hämtas: {ex}. Försök igen senare eller välj annan ticker.');st.stop()
-if not info and hist.empty and all(f.empty for f in (fin,cash,balance)) and not quick:
+if val(info,'currentPrice') is None and hist.empty and all(f.empty for f in (fin,cash,balance)):
     st.error('Ingen data kunde hämtas från Börsdata/Avanza. Det kan vara ett tillfälligt API-fel eller en begränsning på Streamlit-servern.')
     with st.expander('Visa teknisk felsökning'):
         st.json(fetch_errors)
@@ -2522,7 +2651,7 @@ with company_col:
     if company_type=='Rörelsedrivande bolag':
         company_type=operating_valuation_profile(ticker,info) or KNOWN_GROUP_BY_TICKER.get(ticker) or 'Rörelsedrivande bolag'
     st.markdown('<div style="font-size:0.92rem;color:#64748b;margin-top:-8px;margin-bottom:10px;">'+company_type+'</div>',unsafe_allow_html=True)
-    st.caption(f'{ticker} · Valuta: {info.get("currency","okänd")} · Data kontrollerad {dt.datetime.now().strftime("%Y-%m-%d %H:%M")} · Kurs: {info.get("_price_source","Börsdata/Avanza")} · Rapporter: {info.get("_report_source","Börsdata/Avanza")}')
+    st.caption(f'{ticker} · Valuta: {info.get("currency","okänd")} · Kurs: {info.get("_price_source","Börsdata/Avanza")} · Rapporter: {info.get("_report_source","Börsdata/Avanza")}')
     if not info.get('_price_source') or not info.get('_report_source'):
         with st.expander('Börsdata Pro+ – anslutningsstatus'):
             st.write('API-nyckel: '+('Finns i Streamlit Secrets' if borsapi_key() else 'Saknas'))
@@ -2535,7 +2664,6 @@ with target_col:
 
 price=val(info,'currentPrice','regularMarketPrice','previousClose')
 if price is None: price=val(quick,'last_price','previous_close')
-if price is None and not hist.empty:price=numeric(hist['Close'].iloc[-1])
 revenue=val(info,'totalRevenue');ebitda=val(info,'ebitda');margin=val(info,'operatingMargins');debt=val(info,'totalDebt');cash_val=val(info,'totalCash');opcf=val(info,'operatingCashflow');eps=val(info,'trailingEps');pe=val(info,'trailingPE')
 netdebt=debt-cash_val if debt is not None and cash_val is not None else None
 
@@ -2732,7 +2860,7 @@ dividend_yield = trailing_dividend_yield(ticker, price)
 if _roic_income:
     latest=_roic_income[0]
     roic_currency=latest.get('currency')
-    if ebita is None and isinstance(latest.get('ebita'),(int,float)):
+    if ebita is None and roic_currency==report_ccy and numeric(latest.get('ebita')) is not None:
         ebita=latest['ebita']
     if sales_growth_pct is None and len(_roic_income)>=2 and latest.get('currency') and latest.get('currency')==_roic_income[1].get('currency') and 330<=(pd.Timestamp(latest.get('period_end_date'))-pd.Timestamp(_roic_income[1].get('period_end_date'))).days<=400:
         current_rev,prior_rev=latest.get('is_sales_revenue_turnover'),_roic_income[1].get('is_sales_revenue_turnover')
@@ -2938,7 +3066,7 @@ if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade lä
         if ebita is not None and ev_ebita is not None and netdebt_ebitda is not None: break
 if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') and borsapi_key():
     bd_kpis,bd_kpi_error=borsapi_debt_ebitda_map(borsapi_key())
-    bd_identity,_=borsapi_reports(ticker,borsapi_key())
+    bd_identity,_=borsapi_instrument(ticker,borsapi_key())
     bd_ratio=bd_kpis.get(str(bd_identity.get('instrument_id')))
     if bd_ratio is not None:
         netdebt_ebitda=bd_ratio
@@ -2957,6 +3085,20 @@ if ebita is None and valuation_result.get('category') in ('Rörelsedrivande bola
             ev_ebita=(market_cap*rate+matched_debt*1e6)/ebita
             ev_ebita_source='Rapporterad EBITA R12; matchad Börsdata nettoskuld'
 st.markdown('### Finansiell översikt')
+# Use the selected model's paired EBITA and net debt whenever they are available.
+model_ebita=valuation_inputs.get('EBITA')
+if model_ebita is None: model_ebita=valuation_inputs.get('EBITA (beräknad)')
+model_currency=valuation_result.get('report_currency')
+if model_ebita is not None and model_currency==report_ccy and valuation_debt is not None:
+    ebita=model_ebita
+    model_rate=fx_rate(quote_ccy,model_currency)
+    ev_ebita=(market_cap*model_rate+valuation_debt)/ebita if market_cap is not None and model_rate and ebita>0 else None
+    ev_ebita_source='Värderingsmodell '+str(valuation_result.get('period') or '')
+    st.caption('EBITA: '+ev_ebita_source)
+    if valuation_result.get('ebita_sources'):
+        st.markdown('EBITA = rapporterat EBIT plus förvärvsrelaterade avskrivningar. '+
+                    ' · '.join(f'[Källrapport {i}]({url})' for i,url in enumerate(valuation_result['ebita_sources'],1)))
+
 st.caption('Börsvärde: '+str(info.get('_cap_source') or 'Ej verifierat')+' · Leverantörens eget börsvärde, inte egen beräkning.')
 av_snapshot=info.get('_avanza_snapshot',{})
 if av_snapshot:
@@ -2981,15 +3123,37 @@ if report_fallback and ev_ebita is not None:
 elif ev_ebita is not None and ev_ebita_source.startswith('Börsdata årsrapport '):
     ebita_period_label=ev_ebita_source.split()[2][:4]
 ev_ebita_label='EV/EBITA'+(' ('+ebita_period_label+')' if ebita_period_label else '')
+def reported_operating_metrics(record, report_currency, trade_currency, market_cap):
+    if not record or str(record.get('currency') or '').upper()!=report_currency:
+        return {}
+    def amount(field):
+        value=bd_field(record,field)
+        return value*1e6 if value is not None else None
+    ebit=amount('operating_Income')
+    debt=amount('net_Debt')
+    fx=fx_rate(trade_currency,report_currency) if market_cap is not None else None
+    enterprise_value=market_cap*fx+debt if fx and debt is not None else None
+    return {
+        'ebit':ebit,
+        'net_debt':debt,
+        'free_cash_flow':amount('free_Cash_Flow'),
+        'ev_ebit':enterprise_value/ebit if enterprise_value is not None and ebit and ebit>0 else None,
+    }
+
+display_ccy='SEK' if ticker.endswith('.ST') else quote_ccy or report_ccy
+report_display_rate=fx_rate(report_ccy,display_ccy)
+def money_metric(label,value):
+    return overview_money_metric(label,value,report_ccy,display_ccy,report_display_rate)
+
 overview_items = [
     ('Börsvärde',show(market_cap/1e9,' mdkr',2) if market_cap is not None and quote_ccy=='SEK' else (show(market_cap/1e9,' md '+(quote_ccy or ''),2) if market_cap is not None else 'Saknas')),
     ('Aktiekurs ('+str(quote_ccy or '–')+')',show(valuation_price,'',2)),
-    ('Omsättning (LTM/helår)',show(revenue/1e6,' M'+str(report_ccy or ' (valuta okänd)'),0) if revenue is not None and revenue!=0 else 'Saknas'),
+    money_metric('Omsättning',revenue),
     ('Omsättningstillväxt',show(sales_growth_pct,' %/år',1) if sales_growth_pct is not None else 'Saknas'),
     ('Rörelsemarginal',show(margin*100,' %') if margin is not None else 'Saknas'),
-    ('EBITA (rapportperiod)',show(ebita/1e6,' M'+str(report_ccy or ' (valuta okänd)'),0) if ebita is not None else 'Saknas'),
+    money_metric('EBITA',ebita),
     ('ROE',show(roe_overview,' %',1) if roe_overview is not None else 'Saknas'),
-    ('Operativt kassaflöde',show(opcf/1e6,' M'+str(report_ccy or ' (valuta okänd)'),0) if opcf is not None else 'Saknas'),
+    money_metric('Operativt kassaflöde',opcf),
     (pe_label,('Ej definierat (nollvinst)' if r12_eps==0 else 'Ej meningsfullt (förlust)') if pe_source=='Börsdata R12' and r12_eps<=0 else show(pe,'×') if pe is not None and pe>0 else 'Ej meningsfullt (förlust)' if pe is not None and pe<0 else 'Ej definierat (nollvinst)' if valuation_result.get('pe_zero') else 'Saknas'),
     (ev_ebita_label,show(ev_ebita,'×',1) if ev_ebita is not None else 'Saknas'),
     ('Nettoskuld/EBITDA',show(netdebt_ebitda,'×',2) if netdebt_ebitda is not None else 'Saknas'),
@@ -3126,7 +3290,7 @@ if valuation_result.get('category')=='Bank / finansiella tjänster':
         'Operativt kassaflöde':('Kreditförlustnivå',show(credit_loss,' %',2)),
         'Rörelsemarginal':(ki_label,show(ki,' %',1))
     }
-    overview_items=[replacements.get('EV/EBITA' if label.startswith('EV/EBITA') else label,(label,value)) for label,value in overview_items]
+    overview_items=[replacements.get('EV/EBITA' if label.startswith('EV/EBITA') else re.sub(r' \(M[A-Z]{3}\)$','',label),(label,value)) for label,value in overview_items]
     if cet1_source:
         st.caption('CET1: '+(show(cet1_capital/1e6,' M',1)+' / '+show(cet1_rwa/1e6,' M',1)+' × 100. ' if cet1_capital is not None and cet1_rwa is not None else '')+'Källa: '+cet1_source)
     st.caption('Bankspecifika nyckeltal. CET1 och kreditförlustnivå kräver kompletterande bankrapporter när underlag saknas. K/I beräknas endast från identifierade kostnader och intäkter i samma årsperiod.')
@@ -3139,8 +3303,6 @@ if overview_category in ('Fastigheter','Försäkring','Forskningsbolag','Läkeme
             value=_annual_balance_value(frame,labels,period)
             if value is not None: return value
         return None
-    def money_metric(label,value):
-        return (label+' (M)',show(value/1e6,'',0) if value is not None else 'Saknas')
     def ratio_metric(label,value,suffix=' %'):
         return (label,show(value,suffix,1))
     eq=sector_metric(balance,['Common Stock Equity','Stockholders Equity'])
@@ -3165,6 +3327,22 @@ if overview_category in ('Fastigheter','Försäkring','Forskningsbolag','Läkeme
     else:
         overview_items=common+[money_metric('Omsättning',revenue),money_metric('Operativt kassaflöde',opcf),money_metric('Investeringar',sector_metric(cash,['Capital Expenditure'])),money_metric('Nettoskuld',sector_metric(balance,['Net Debt'])),money_metric('Nettoresultat',net_income),money_metric('Kassa',liquid),overview_items[-1]]
     st.caption('Sektoranpassade nyckeltal. Specialiserade rapportfält visas endast när de finns; belopp kan avse olika rapportperioder.')
+
+if overview_category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
+    if bd_overview and bd_overview_period:
+        reported=reported_operating_metrics(bd_overview[0],report_ccy,quote_ccy,market_cap)
+        actual_ebit=reported.get('ebit')
+        actual_multiple=reported.get('ev_ebit')
+        if ebita is None and actual_ebit is not None:
+            overview_items[5]=money_metric('EBIT R12',actual_ebit)
+        if ev_ebita is None and actual_multiple is not None:
+            overview_items[9]=('EV/EBIT (R12)',show(actual_multiple,'×',1))
+        for label,key in (('Fritt kassaflöde','free_cash_flow'),('Nettoskuld','net_debt')):
+            amount=reported.get(key)
+            if amount is not None:
+                overview_items.append(money_metric(label,amount))
+        if reported.get('free_cash_flow') is not None:
+            st.caption('Fritt kassaflöde: Börsdata R12 '+bd_overview_period+'. DCF använder separat beräknat FCFF.')
 
 for start in range(0,len(overview_items),4):
     cols=st.columns(4)
@@ -3241,17 +3419,17 @@ def directional_indicator(good, label):
 
 # Gemensam värderingsindikator ovanför alla flikar.
 # Baseras på verifierbar års-EPS och historisk P/E-median, aldrig enbart dagens P/E.
-def reconstructed_pe_history(income,prices,report_currency,trade_currency):
+def reconstructed_pe_history(income,prices,report_currency,trade_currency,published_dates):
     """Årlig historisk P/E med rapporterad EPS eller nettovinst/utspädda aktier.
-    Observerad kurs vid första handelsdag efter rapporterat räkenskapsår.
+    Observerad kurs vid första handelsdag efter publicerad årsrapport.
     """
     if report_currency!=trade_currency or not report_currency or not isinstance(prices,pd.DataFrame) or prices.empty or 'Close' not in prices:
         return []
     if not isinstance(income,pd.DataFrame) or income.empty: return []
-    eps_by_year={}
+    eps_by_publication={}
     for period in income.columns:
-        try: year=int(pd.Timestamp(period).year)
-        except (TypeError,ValueError): continue
+        published=published_dates.get(pd.Timestamp(period).normalize())
+        if published is None: continue
         eps_value=None
         for label in ('Diluted EPS','Basic EPS'):
             if label in income.index:
@@ -3270,12 +3448,12 @@ def reconstructed_pe_history(income,prices,report_currency,trade_currency):
                     if share_value is not None and share_value>0: break
             if income_value is not None and income_value>0 and share_value is not None and share_value>0:
                 eps_value=income_value/share_value
-        if eps_value is not None and eps_value>0: eps_by_year[year]=eps_value
+        if eps_value is not None and eps_value>0: eps_by_publication[published]=eps_value
     series=prices['Close'].copy()
     series.index=pd.to_datetime(series.index,utc=True).tz_localize(None)
     ratios=[]
-    for year,eps_value in sorted(eps_by_year.items()):
-        start=pd.Timestamp(year=year+1,month=1,day=1)
+    for published,eps_value in sorted(eps_by_publication.items()):
+        start=published+pd.Timedelta(days=1)
         observed=series.loc[(series.index>=start)&(series.index<=start+pd.Timedelta(days=20))].dropna()
         if len(observed):
             close=numeric(observed.iloc[0])
@@ -3293,7 +3471,14 @@ if isinstance(global_pe_frame,pd.DataFrame) and not global_pe_frame.empty:
 global_pe_samples=[float(x) for x in global_pe_samples if 0<float(x)<=80]
 global_pe_method='Historiska P/E-observationer'
 if len(global_pe_samples)<3:
-    rebuilt=reconstructed_pe_history(fin,hist,report_ccy,quote_ccy)
+    published_dates={}
+    annual_data,_=borsapi_reports(ticker,borsapi_key())
+    for record in annual_data.get('periods',[]):
+        fiscal_end=pd.to_datetime(record.get('report_End_Date') or record.get('reportEndDate'),errors='coerce',utc=True)
+        published=pd.to_datetime(record.get('report_Date') or record.get('reportDate'),errors='coerce',utc=True)
+        if pd.notna(fiscal_end) and pd.notna(published) and fiscal_end<=published:
+            published_dates[fiscal_end.tz_localize(None).normalize()]=published.tz_localize(None).normalize()
+    rebuilt=reconstructed_pe_history(fin,hist,report_ccy,quote_ccy,published_dates)
     if len(rebuilt)>=2:
         global_pe_samples=rebuilt
         global_pe_method='Rekonstruerad års-P/E (rapporterad EPS eller nettovinst/aktier)'
@@ -4386,31 +4571,38 @@ with four:
             else:
                 st.write('Aktien handlas över modellvärdet. Modellen ger inte stöd för köp till aktuell kurs.')
             st.caption('Bedömningen gäller modellens antaganden, inte en garanti för avkastning.')
-        st.markdown('#### Ägarstruktur och insidertransaktioner')
-        if st.button('Hämta ägar- och insideruppgifter',key='load_ownership'):
-            try:
-                obj=yf.Ticker(ticker)
-                for title,attribute in [('Större ägare','major_holders'),('Institutionella ägare','institutional_holders'),('Insidertransaktioner','insider_transactions')]:
-                    st.write('**'+title+'**')
-                    try:
-                        frame=getattr(obj,attribute)
-                        if isinstance(frame,pd.DataFrame) and not frame.empty:
-                            st.dataframe(frame,use_container_width=True)
-                        else: st.caption('Datakällan saknar uppgifter.')
-                    except Exception: st.caption('Uppgifterna kunde inte hämtas.')
-                st.caption('Källa: Börsdata/Avanza. Täckning för svenska insidertransaktioner är inte fullständig; kontrollera mot Finansinspektionens insynsregister.')
-            except Exception: st.info('Ägaruppgifter är inte tillgängliga just nu.')
-        st.caption('DCF och EV/EBITA viktas lika när båda kan beräknas. En ensam modell visas separat. Beräkningar är modellscenarier och rapportdata behöver verifieras.')
+        st.markdown('#### Insidertransaktioner')
+        if st.button('Hämta insidertransaktioner',key='load_ownership'):
+            records,error=borsapi_instrument_events(ticker,borsapi_key(),'insider')
+            if error:
+                st.warning(error)
+            elif records:
+                columns={'transactionDate':'Affärsdatum','ownerName':'Namn','ownerPosition':'Befattning',
+                         'shares':'Antal aktier','price':'Pris per aktie','amount':'Belopp','currency':'Valuta'}
+                trades=pd.DataFrame(records)
+                if 'transactionDate' in trades:
+                    trades=trades.sort_values('transactionDate',ascending=False)
+                st.dataframe(trades.reindex(columns=columns).rename(columns=columns).head(50),hide_index=True)
+                st.caption('Källa: Börsdata Pro+. Upp till 50 senaste registrerade transaktioner.')
+            else:
+                st.info('Börsdata har inga registrerade insidertransaktioner för noteringen.')
+        st.caption('DCF och EV/EBITA viktas lika när båda kan beräknas. En ensam modell visas separat.')
         with st.expander('Rapportkalender och rapportbevakning'):
             if st.button('Hämta rapportdatum',key='report_calendar_load'):
-                try:
-                    calendar=yf.Ticker(ticker).calendar
-                    if isinstance(calendar,dict) and calendar:
-                        st.dataframe(pd.DataFrame([{'Händelse':k,'Uppgift':str(x)} for k,x in calendar.items()]),hide_index=True)
-                    elif isinstance(calendar,pd.DataFrame) and not calendar.empty: st.dataframe(calendar)
-                    else: st.info('Inga rapportdatum tillgängliga.')
-                except Exception: st.info('Rapportkalendern kunde inte hämtas.')
-            st.caption('Börsdata/Avanza; datum kan ändras. Ingen automatisk avisering utanför appen.')
+                records,error=borsapi_instrument_events(ticker,borsapi_key(),'calendar')
+                if error:
+                    st.warning(error)
+                else:
+                    events=[]
+                    for record in records:
+                        published=pd.to_datetime(record.get('releaseDate'),errors='coerce',utc=True)
+                        if pd.notna(published) and published.date()>=dt.date.today():
+                            events.append({'Rapportdatum':published.date(),'Rapport':record.get('reportType')})
+                    if events:
+                        st.dataframe(pd.DataFrame(events).sort_values('Rapportdatum'),hide_index=True)
+                    else:
+                        st.info('Börsdata har inga kommande rapportdatum för noteringen.')
+            st.caption('Källa: Börsdata Pro+. Rapporterade datum kan ändras.')
         with st.expander('Portföljanalys'):
             st.caption('Ange innehav i SEK. Portföljens modellpotential beräknas endast för innehav med tillgängligt modellvärde och utan granskningsavvikelse.')
             holdings=st.data_editor(pd.DataFrame([{'Bolag':name,'Marknadsvärde SEK':0.0}]),num_rows='dynamic',key='portfolio_holdings',column_config={'Bolag':st.column_config.SelectboxColumn(options=sorted(ALL_COMPANIES)),'Marknadsvärde SEK':st.column_config.NumberColumn(min_value=0.0)},hide_index=True)

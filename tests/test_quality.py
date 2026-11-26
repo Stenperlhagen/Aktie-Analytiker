@@ -1,5 +1,6 @@
 import ast
 import math
+import re
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
@@ -23,9 +24,11 @@ class QualityTests(unittest.TestCase):
 
     def test_dividend_yield(self):
         records=[{'currency':'SEK','dividend':0.11}]
-        calc=load_function("trailing_dividend_yield",{"borsapi_key":lambda:'fixture',"borsapi_r12_records":lambda *args:records,"bd_field":lambda r,k:r.get(k)})
+        calc=load_function("trailing_dividend_yield",{"borsapi_key":lambda:'fixture',"borsapi_r12_records":lambda *args:records,"bd_field":lambda r,k:r.get(k),"fx_rate":lambda source,dest:1 if source==dest else 11 if source=="EUR" and dest=="SEK" else None})
         self.assertAlmostEqual(calc("STOR-B.ST",11.10),0.11/11.10*100)
         records[0]['currency']='EUR'
+        self.assertAlmostEqual(calc("STOR-B.ST",11.10),0.11*11/11.10*100)
+        records[0]['currency']='XXX'
         self.assertIsNone(calc("STOR-B.ST",11.10))
         self.assertIsNone(calc("STOR-B.ST", 0))
         self.assertIsNone(calc("STOR-B.ST", -1))
@@ -41,6 +44,47 @@ class QualityTests(unittest.TestCase):
         self.assertAlmostEqual(calc(100, 200, 10, 12, 2), 200)
         for args in [(0,200,10,12,1),(100,None,10,12,1),(100,200,0,12,1),(100,200,10,12,0)]:
             self.assertIsNone(calc(*args))
+
+    def test_instrument_resolver_preserves_exchange_and_share_class(self):
+        instruments=[
+            {"insId":1,"ticker":"ABC A","yahoo":"ABC-A.ST"},
+            {"insId":2,"ticker":"ABC B","yahoo":"ABC-B.ST"},
+            {"insId":3,"ticker":"ABC B","yahoo":"ABC-B.CO"},
+            {"insId":4,"ticker":"ABCB","yahoo":"ABCB.ST"},
+        ]
+        resolver=load_function("borsapi_instrument", {
+            "re":re,"borsapi_instruments":lambda key:(instruments,""),
+        })
+        self.assertEqual(resolver("ABC-B.ST","test")[0]["instrument_id"],"2")
+        self.assertEqual(resolver("ABC-B.CO","test")[0]["instrument_id"],"3")
+        self.assertFalse(resolver("ABC-B.OL","test")[0])
+        instruments.append({"insId":5,"ticker":"ABC B","yahoo":"ABC-B.ST"})
+        self.assertFalse(resolver("ABC-B.ST","test")[0])
+
+    def test_fx_cross_rate_and_missing_currency(self):
+        calc=load_function("fx_rate", {"ecb_exchange_rates":lambda:{"EUR":1,"SEK":11,"DKK":7.5}})
+        self.assertAlmostEqual(calc("SEK","DKK"),7.5/11)
+        self.assertEqual(calc("SEK","SEK"),1)
+        self.assertIsNone(calc("SEK","USD"))
+
+    def test_historical_pe_uses_report_publication_date(self):
+        ns={"math":math,"pd":pd}
+        load_function("numeric",ns)
+        calc=load_function("reconstructed_pe_history",ns)
+        period=pd.Timestamp("2025-06-30")
+        prices=pd.DataFrame({"Close":[100,200]},index=pd.to_datetime(["2025-07-01","2025-08-21"]))
+        income=pd.DataFrame({period:[10]},index=["Basic EPS"])
+        self.assertEqual(calc(income,prices,"SEK","SEK",{period:pd.Timestamp("2025-08-20")}),[20])
+        self.assertEqual(calc(income,prices,"SEK","SEK",{}),[])
+
+    def test_overview_money_displays_stockholm_amounts_in_sek(self):
+        ns={"math":math}
+        load_function("numeric",ns)
+        load_function("show",ns)
+        metric=load_function("overview_money_metric",ns)
+        self.assertEqual(metric("Omsättning",36_962e6,"USD","SEK",10),("Omsättning (MSEK)","369 620"))
+        self.assertEqual(metric("EBITA",6_911e6,"USD","SEK",None),("EBITA (MUSD)","6 911"))
+        self.assertEqual(metric("Kassa",0,"SEK","SEK",1),("Kassa (MSEK)","0"))
 
     def test_emission(self):
         calc = load_function("emission_adjustment", {})
