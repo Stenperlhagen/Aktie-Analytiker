@@ -1215,9 +1215,9 @@ def borsapi_annual_frames(symbol,api_key):
     records.sort(key=lambda r:str(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
     currency=str(records[0]['currency']).upper()
     maps=[
-        {'EBITA':'ebita','Amortization Of Intangibles':'amortization_Of_Intangibles','Total Revenue':'revenues','Gross Profit':'gross_Income','Operating Income':'operating_Income','Pretax Income':'profit_Before_Tax','Net Income Common Stockholders':'profit_To_Equity_Holders','Basic EPS':'earnings_Per_Share'},
+        {'EBITA':'ebita','Amortization Of Intangibles':'amortization_Of_Intangibles','Total Revenue':'revenues','Gross Profit':'gross_Income','Operating Income':'operating_Income','Pretax Income':'profit_Before_Tax','Interest Expense':'interest_Expense','Net Income Common Stockholders':'profit_To_Equity_Holders','Basic EPS':'earnings_Per_Share'},
         {'Net Debt':'net_Debt','Cash And Cash Equivalents':'cash_And_Equivalents','Stockholders Equity':'total_Equity','Total Assets':'total_Assets','Current Assets':'current_Assets','Current Liabilities':'current_Liabilities','Ordinary Shares Number':'number_Of_Shares'},
-        {'Operating Cash Flow':'cash_Flow_From_Operating_Activities','Investing Cash Flow':'cash_Flow_From_Investing_Activities','Financing Cash Flow':'cash_Flow_From_Financing_Activities','Free Cash Flow':'free_Cash_Flow'}]
+        {'Operating Cash Flow':'cash_Flow_From_Operating_Activities','Investing Cash Flow':'cash_Flow_From_Investing_Activities','Financing Cash Flow':'cash_Flow_From_Financing_Activities','Free Cash Flow':'free_Cash_Flow','Capital Expenditure':'capital_Expenditure','Depreciation And Amortization':'depreciation_And_Amortization','Change In Working Capital':'change_In_Working_Capital'}]
     frames=[{} for _ in maps]
     for record in records:
         if str(record['currency']).upper()!=currency: continue
@@ -1744,11 +1744,11 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     if str(record['currency']).upper()!=ccy: continue
                     date=pd.Timestamp(record.get('report_End_Date') or record.get('reportEndDate')).normalize()
                     def amount(key):
-                        value=numeric(record.get(key))
+                        value=bd_field(record,key)
                         return value*1e6 if value is not None else None
                     fi[date]={'EBITA':amount('ebita'),'Amortization Of Intangibles':amount('amortization_Of_Intangibles'),'Total Revenue':amount('revenues'),'Operating Income':amount('operating_Income'),'Pretax Income':amount('profit_Before_Tax'),'Net Income Common Stockholders':amount('profit_To_Equity_Holders')}
                     ba[date]={'Net Debt':amount('net_Debt'),'Cash And Cash Equivalents':amount('cash_And_Equivalents'),'Stockholders Equity':amount('total_Equity')}
-                    cf[date]={'Operating Cash Flow':amount('cash_Flow_From_Operating_Activities')}
+                    cf[date]={'Operating Cash Flow':amount('cash_Flow_From_Operating_Activities'),'Capital Expenditure':amount('capital_Expenditure'),'Depreciation And Amortization':amount('depreciation_And_Amortization'),'Change In Working Capital':amount('change_In_Working_Capital'),'Free Cash Flow':amount('free_Cash_Flow')}
                 rf,rb,rc=pd.DataFrame(fi).dropna(how='all'),pd.DataFrame(ba).dropna(how='all'),pd.DataFrame(cf).dropna(how='all')
                 latest=max(fi)
                 if not rf.empty and not rb.empty and numeric(fi[latest]['Operating Income']) is not None and numeric(ba[latest]['Net Debt']) is not None and (fin.empty or latest>=max(pd.Timestamp(p) for p in fin.columns)):
@@ -2139,6 +2139,12 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
         out['pending_acquisition']['EPS-scenario vid 8 procent ökning (SEK)']=50.25*1.08
         out['pending_acquisition_note']='Nexa: apportemission godkänd av stämman 23 november 2026, ännu villkorad av myndighetsgodkännanden. Förväntat slutförande Q1 2027. Ingen kontant emissionslikvid. Kontantbudets belopp är endast illustrativt vid annonserat aktievärde; faktisk kurs bestäms vid slutförandet. EPS-scenariot applicerar illustrativt 8 % på historiskt R12-EPS, inte en prognos. Konsoliderad EBITA, FCFF, förvärvsanalys och minoritetsvärden krävs för en pro forma-riktkurs.'
         out['emission_note']='Historisk riktad emission mars 2025 för gruvförvärv. Emissionslikvid och förvärv ingår i senare rapporter; ingen ytterligare mekanisk skuldjustering. TERP är approximativt från rapporterad avrundad rabatt. Kontrollera aktuellt aktieantal mot 283 962 452 per Q3 2026; nettoskuld och framtida kassaflöden måste vara efter förvärven.'
+    # Never present a single operating-company model as the combined valuation.
+    if category in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') and not {'EV/EBITA','DCF'}.issubset(out['models']):
+        out.setdefault('audit',[]).append('Ofullständig huvudmodell: EV/EBITA + DCF kräver båda beräkningarna.')
+        out['unreviewed_target']=out.get('target')
+        out['target']=None
+        out['method']='Ofullständig EV/EBITA + DCF'
     # Extrema modellutfall är granskningsfall, inte automatiska köp-/säljsignaler.
     target=out['target']
     if target is not None and price is not None and price>0 and not 0.2<=target/price<=5:
@@ -2398,10 +2404,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v50-quarter':
+if st.session_state.get('screener_model_version')!='unified-v51-combined':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v50-quarter'
+    st.session_state['screener_model_version']='unified-v51-combined'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
