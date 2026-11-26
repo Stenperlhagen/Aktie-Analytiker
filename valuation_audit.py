@@ -1,4 +1,5 @@
 import ast
+import io
 import pathlib
 import csv
 import math
@@ -7,6 +8,7 @@ import requests
 import urllib.parse
 import datetime as dt
 import pandas as pd
+from pypdf import PdfReader
 import re
 import sys
 from functools import lru_cache
@@ -113,6 +115,7 @@ if __name__=='__main__':
         print('Live coverage requires BORSAPI_API_KEY.',file=sys.stderr)
         sys.exit(2)
     globals().update({name:lru_cache(maxsize=512)(adapter) if name not in ('verified_capitalization','borsapi_annual_frames') else adapter for name,adapter in production_adapters.items()})
+    globals()['ecb_exchange_rates']=lru_cache(maxsize=1)(ecb_exchange_rates)
     ALL_COMPANIES={name:sym for name,sym in ALL_COMPANIES.items() if sym not in {'FNOX.ST','COALA.ST','ADDV-B.ST','ADDV-A.ST'}}
     rows=[]
     failures=[]
@@ -126,7 +129,7 @@ if __name__=='__main__':
                 if v.get('price') and v['price']>0:
                     assert abs(v['buy_limit']-v['target']*.8)<1e-7, 'Inconsistent buy limit'
                     assert abs(v['upside']-(v['target']/v['price']-1)*100)<1e-7, 'Inconsistent upside'
-            rows.append({'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Offline audit – not independently verified'),'fetch_errors':str(errors),'annual_reports':not fin.empty,'price_history':not hist.empty,'report_verified':False,'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
+            rows.append({'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Source not recorded'),'fetch_errors':str(errors),'annual_reports':not fin.empty,'price_history':not hist.empty,'report_verified':False,'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
         except Exception as e:
             failures.append(symbol+': '+str(e))
             rows.append({'ticker':symbol,'missing':type(e).__name__+': '+str(e),'report_verified':False})
