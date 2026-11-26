@@ -1634,6 +1634,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
     out['source']=primary_source
     out['report_currency']=report
     def row(frame,labels,period):
+        if frame is None or period not in frame.columns: return None
         for label in labels:
             if label in frame.index:
                 value=numeric(frame.at[label,period])
@@ -1762,6 +1763,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 currency=currency or 'SEK'
                 out['currency']=currency
                 earnings=VOLATI_Q3_2026['ebita_ltm']
+                earnings_label='EBITA'
                 debt=VOLATI_Q3_2026['net_debt']
                 shares=VOLATI_Q3_2026['ordinary_shares']
                 fx=fx_rate('SEK',currency)
@@ -1774,6 +1776,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 out['currency']=currency
                 # Q3 2026: rapporterad EBIT R12, inte EBITA. Konservativ separat proxy.
                 earnings=4_777_000_000.0
+                earnings_label='EBIT'
                 debt=3_134_000_000.0
                 shares=259_708_000.0
                 fx=fx_rate('SEK',currency)
@@ -2237,10 +2240,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v43':
+if st.session_state.get('screener_model_version')!='unified-v44':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v43'
+    st.session_state['screener_model_version']='unified-v44'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -2595,6 +2598,7 @@ if all(x is not None for x in (valuation_earnings,valuation_debt,valuation_fx,va
     ev_ebita=(valuation_price*valuation_shares/valuation_fx+valuation_debt)/valuation_earnings
 if valuation_earnings is not None:
     ebita=valuation_earnings
+    st.caption('EBITA: värderingsunderlag '+str(valuation_result.get('period') or 'okänd period')+' · '+str(valuation_result.get('source') or 'okänd källa'))
 elif ebita is None and fin is not None and not fin.empty:
     for period in fin.columns:
         operating=_annual_balance_value(fin,['Operating Income','EBIT'],period)
