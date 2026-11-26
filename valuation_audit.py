@@ -159,7 +159,7 @@ def tests():
     try:
         globals()['roic_company_data']=forbidden
         globals()['borsapi_reports']=forbidden
-        preserved=valuation_engine('VOLO-TEST.ST',info,fin,cash,balance,{},pd.DataFrame())
+        preserved=valuation_engine('VOLO-TEST.ST',{**info,'sector':'Industrials'},fin,cash,balance,{},pd.DataFrame())
         assert preserved['operating_inputs']==v['operating_inputs']
         assert preserved['target']==v['target']
     finally:
