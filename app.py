@@ -1692,6 +1692,22 @@ def borsapi_debt_ebitda_map(api_key):
     except Exception as exc: return {},type(exc).__name__
 
 def abb_r12_ebita(symbol, record, period):
+    if symbol=='AFRY.ST':
+        # AFRY Q3 2026, pp. 12 and 25: consolidated R12 (Oct 2025-Sep 2026).
+        # Use reported, not adjusted EBITA. Net sales and total revenue
+        # differ by 19 MSEK of other income; require the reported EBIT.
+        if str(period)[:10]!='2026-09-30' or record.get('currency')!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        if (sales is None or ebit is None or abs(ebit-1448)>1.5 or
+            min(abs(sales-25276),abs(sales-25295))>1.5 or
+            (net_sales is not None and abs(net_sales-25276)>1.5)):
+            return None
+        # Do not infer FCFF from a net investment line that includes disposals.
+        # Retain the matched primary-provider cash-flow inputs.
+        return {'value':1613e6,'sources':('https://afry.com/sites/default/files/2026-10/afry_delarsrapport_januari-september_2026.pdf',)}
     # Curated company filings, keyed by exact reporting period and listing.
     # R12 consolidated net sales, EBIT and separately reported EBITA, all MSEK.
     # Source pages are 1 (Bravida, Instalco), 11 and 14 (Addtech),
