@@ -104,6 +104,26 @@ def tests():
     assert valuation_category('AAK.ST')=='Rörelsedrivande bolag'
     assert operating_valuation_profile('AAK.ST')=='Livsmedelsproduktion'
     assert comparable_ev_ebita(4777e6,3134e6,259708000,11,1)>0
+    # A matched partial R12 is not replaced by the old AAK snapshot.
+    # In particular missing EBITA must not erase FCFF or override share count.
+    r12={'currency':'SEK','report_End_Date':'2026-09-30','revenues':1000,
+         'operating_Income':90,'net_Debt':200,'depreciation_And_Amortization':20,
+         'capital_Expenditure':25,'change_In_Working_Capital':-5}
+    original_r12=borsapi_r12_records
+    original_bridge=matched_yahoo_r12
+    try:
+        globals()['borsapi_r12_records']=lambda *args:[r12]
+        globals()['matched_yahoo_r12']=lambda *args:{}
+        partial_fin=fin.drop(index='EBITA')
+        partial=valuation_engine('AAK.ST',info,partial_fin,cash,balance,{},pd.DataFrame())
+        assert partial['operating_period']=='2026-09-30'
+        assert partial['operating_inputs']['EBIT']==90e6
+        assert partial['operating_inputs']['Antal aktier']==10e6
+        assert abs(partial['operating_inputs']['FCFF']-61.46e6)<1
+        assert partial['operating_inputs']['Nettoskuld']==200e6
+    finally:
+        globals()['borsapi_r12_records']=original_r12
+        globals()['matched_yahoo_r12']=original_bridge
     assert abs(v['buy_limit']-v['target']*.8)<1e-8
     assert abs(v['upside']-(v['target']/v['price']-1)*100)<1e-8
     score,items,coverage=investment_score(v,info)
