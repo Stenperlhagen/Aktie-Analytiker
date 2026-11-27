@@ -276,6 +276,18 @@ def tests():
     assert abb_r12_ebita('EPI-A.ST',{**epi,'operating_Income':9573},'2026-09-30') is None
     assert 'fcff' not in abb_r12_ebita('EPI-A.ST',{**epi,'cash_Flow_From_Operating_Activities':7217},'2026-09-30')
     assert 'fcff' not in abb_r12_ebita('EPI-A.ST',{**epi,'net_Debt':10000},'2026-09-30')
+
+    indt={'currency':'SEK','revenues':34148,'net_Sales':34148,'operating_Income':4098,
+          'cash_Flow_From_Operating_Activities':4331,'net_Debt':9574}
+    indt_bridge=abb_r12_ebita('INDT.ST',indt,'2026-09-30')
+    assert indt_bridge['value']==4844e6
+    assert abs(indt_bridge['fcff']-(4098*(1-851/3664)+1827-156-477)*1e6)<1
+    assert abb_r12_ebita('INDT.ST',indt,'2026-06-30') is None
+    for wrong in ({'currency':'EUR'},{'revenues':32229},{'net_Sales':32229},{'operating_Income':3769}):
+        assert abb_r12_ebita('INDT.ST',{**indt,**wrong},'2026-09-30') is None
+    assert 'fcff' not in abb_r12_ebita('INDT.ST',{**indt,'net_Debt':6476},'2026-09-30')
+    assert 'fcff' not in abb_r12_ebita('INDT.ST',{**indt,'cash_Flow_From_Operating_Activities':3990},'2026-09-30')
+
     assa={'currency':'SEK','net_Sales':154088,'revenues':154088,'operating_Income':25702,
           'cash_Flow_From_Operating_Activities':25041,'net_Debt':64212}
     matched=abb_r12_ebita('ASSA-B.ST',assa,'2026-09-30')
@@ -395,7 +407,7 @@ if __name__=='__main__':
     globals()['ecb_exchange_rates']=lru_cache(maxsize=1)(ecb_exchange_rates)
     ALL_COMPANIES={name:sym for name,sym in ALL_COMPANIES.items() if sym not in {'FNOX.ST','COALA.ST','ADDV-B.ST','ADDV-A.ST'}}
     if '--probe' in sys.argv:
-        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-B.ST','TRUE-B.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ALIF-B.ST','LAGR-B.ST','LIFCO-B.ST','SAND.ST','ASSA-B.ST','EPI-A.ST'):
+        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-B.ST','TRUE-B.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ALIF-B.ST','LAGR-B.ST','LIFCO-B.ST','SAND.ST','ASSA-B.ST','EPI-A.ST','INDT.ST'):
             key=borsapi_key()
             info,hist,fin,cash,balance,quick,errors=fetch(symbol)
             annual,_=borsapi_reports(symbol,key)
