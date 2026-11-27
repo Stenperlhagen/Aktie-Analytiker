@@ -180,6 +180,19 @@ def tests():
     assert abb_r12_ebita('INSTAL.ST',{**instal,'currency':'EUR'},'2026-09-30') is None
     assert 'fcff' not in abb_r12_ebita('INSTAL.ST',{**instal,'net_Debt':3846},'2026-09-30')
     assert 'fcff' not in abb_r12_ebita('INSTAL.ST',{**instal,'cash_Flow_From_Operating_Activities':800},'2026-09-30')
+    atlas={'currency':'SEK','revenues':176216,'operating_Income':35930,
+           'cash_Flow_From_Operating_Activities':32147,'net_Debt':14244}
+    atlas_bridge=abb_r12_ebita('ATCO-B.ST',atlas,'2026-09-30')
+    assert atlas_bridge['value']==38603e6
+    assert abs(atlas_bridge['fcff_tax_rate']-7700/35385)<1e-10
+    assert abs(atlas_bridge['fcff']-(35930*(1-7700/35385)+10289-7407-2335)*1e6)<1
+    assert abb_r12_ebita('ATCO-A.ST',atlas,'2026-09-30')==atlas_bridge
+    assert abb_r12_ebita('ATCO-B.ST',{**atlas,'revenues':170000},'2026-09-30') is None
+    assert abb_r12_ebita('ATCO-B.ST',{**atlas,'operating_Income':35000},'2026-09-30') is None
+    assert abb_r12_ebita('ATCO-B.ST',{**atlas,'currency':'USD'},'2026-09-30') is None
+    assert abb_r12_ebita('ATCO-B.ST',atlas,'2026-06-30') is None
+    assert 'fcff' not in abb_r12_ebita('ATCO-B.ST',{**atlas,'net_Debt':13000},'2026-09-30')
+    assert 'fcff' not in abb_r12_ebita('ATCO-B.ST',{**atlas,'cash_Flow_From_Operating_Activities':30000},'2026-09-30')
     # No secondary provider may replace the annual frames passed by fetch().
     original_roic=roic_company_data
     original_reports=borsapi_reports
@@ -218,7 +231,7 @@ if __name__=='__main__':
     globals()['ecb_exchange_rates']=lru_cache(maxsize=1)(ecb_exchange_rates)
     ALL_COMPANIES={name:sym for name,sym in ALL_COMPANIES.items() if sym not in {'FNOX.ST','COALA.ST','ADDV-B.ST','ADDV-A.ST'}}
     if '--probe' in sys.argv:
-        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-A.ST','TRUE-B.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST'):
+        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-B.ST','TRUE-B.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST'):
             key=borsapi_key()
             info,hist,fin,cash,balance,quick,errors=fetch(symbol)
             annual,_=borsapi_reports(symbol,key)
@@ -263,7 +276,7 @@ if __name__=='__main__':
                               'matched components',sorted(bridge),flush=True)
                 except Exception as exc:
                     print(symbol,'Yahoo diagnostic failure',type(exc).__name__,flush=True)
-            if symbol in ('ABB.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST'):
+            if symbol in ('ABB.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST'):
                 if trailing:
                     record=trailing[0]
                     period=str(record.get('report_End_Date') or record.get('reportEndDate'))[:10]
@@ -331,7 +344,12 @@ if __name__=='__main__':
     assert actual==expected and len(rows)==len(expected), 'Incomplete active universe audit'
     missing_targets=[r['ticker'] for r in rows if not r.get('finite_positive_target')]
     missing_dual=[r['ticker'] for r in rows if r.get('dual_model_status') not in ('Ej tillämpligt','Underlag finns')]
-    print('Publication coverage gate:', 'PASS' if not missing_targets and not missing_dual else 'NOT READY',flush=True)
-    print('Missing positive targets:',len(missing_targets),'Missing applicable dual models:',len(missing_dual),flush=True)
-    if '--require-complete' in sys.argv and (missing_targets or missing_dual):
-        raise AssertionError('Publication coverage gate failed: incomplete targets or applicable dual models')
+    missing_identity=[r['ticker'] for r in rows if not r.get('avanza_identity_verified')]
+    missing_quotes=[r['ticker'] for r in rows if not r.get('avanza_fresh_quote') or
+                    numeric(r.get('price')) is None or r['price']<=0]
+    incomplete=bool(missing_targets or missing_dual or missing_identity or missing_quotes)
+    print('Publication coverage gate:', 'NOT READY' if incomplete else 'PASS',flush=True)
+    print('Missing positive targets:',len(missing_targets),'Missing applicable dual models:',len(missing_dual),
+          'Missing verified identities:',len(missing_identity),'Missing fresh quotes:',len(missing_quotes),flush=True)
+    if '--require-complete' in sys.argv and incomplete:
+        raise AssertionError('Publication coverage gate failed: incomplete targets, models, identities or prices')
