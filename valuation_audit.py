@@ -82,6 +82,45 @@ def tests():
             assert r['currency']==('EUR' if symbol=='VSURE.ST' else 'DKK' if symbol.endswith('.CO') else 'SEK')
             assert r['market_code']==('FNSE' if symbol in ('BOKUS.ST','SUS.ST','SES.ST') else 'XCSE' if symbol.endswith('.CO') else 'XSTO')
         print('Avanza registry coverage:',len(registry),'of',len(set(ALL_COMPANIES.values())))
+    # Simulate a migrated orderbook. Reject the old registry identity,
+    # rediscover using Börsdata ISIN, then validate all four fields again.
+    from unittest.mock import patch
+    import time
+    class FakeResponse:
+        status_code=200
+        def __init__(self,payload): self.payload=payload
+        def raise_for_status(self): pass
+        def json(self): return self.payload
+    class FakeSession:
+        def __init__(self,ambiguous=False,wrong_currency=False):
+            self.headers={}
+            self.ambiguous=ambiguous
+            self.wrong_currency=wrong_currency
+            self.searched=False
+        def __enter__(self): return self
+        def __exit__(self,*args): pass
+        def post(self,url,json,timeout):
+            assert json['query']=='SE0011337708'
+            self.searched=True
+            hits=[{'type':'STOCK','id':'900001'}]
+            if self.ambiguous: hits.append({'type':'STOCK','id':'900002'})
+            return FakeResponse({'hits':hits})
+        def get(self,url,timeout):
+            iid=url.rsplit('/',1)[-1]
+            return FakeResponse({'orderbookId':iid,'isin':'SE0011337708' if iid.startswith('90000') else 'SE0000000000',
+                'listing':{'tickerSymbol':'AAK','currency':'USD' if self.wrong_currency else 'SEK','marketPlaceCode':'XSTO'},
+                'quote':{'last':123,'updated':int(time.time()*1000)}})
+    with patch.dict(globals(),{'borsapi_instrument':lambda *args:({'isin':'SE0011337708','stockPriceCurrency':'SEK'},'')}):
+        for ambiguous,wrong_currency in [(False,False),(True,False),(False,True)]:
+            session=FakeSession(ambiguous,wrong_currency)
+            with patch.object(requests,'Session',return_value=session):
+                snapshot,error=production_adapters['avanza_market_snapshot']('AAK.ST')
+            assert session.searched
+            if ambiguous or wrong_currency:
+                assert not snapshot and error
+            else:
+                assert not error and snapshot['id']=='900001' and snapshot['price']==123
+                assert snapshot['quote_timestamp']>0 and snapshot['verified']
     assert abs(comparable_ev_ebita(245e6,1331e6,79406571,12,1)-20.263)<0.01
     assert comparable_ev_ebita(100,None,10,12,1) is None
     assert comparable_ev_ebita(100,1300,10,12,1) is None
