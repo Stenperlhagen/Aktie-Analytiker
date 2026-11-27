@@ -145,6 +145,27 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(trailing(wrong,cash,record,end,trailing=True),{})
         self.assertEqual(trailing(income,cash,{**record,"net_Sales":900},end,trailing=True),{})
 
+    def test_yahoo_matches_reported_ebit_not_adjusted_ebit(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        annual=load_function("comparable_yahoo_periods",ns)
+        fill=load_function("fill_matching_statement_periods",ns)
+        trailing=load_function("yahoo_r12_bridge",ns)
+        end=pd.Timestamp("2026-09-30")
+        primary=pd.DataFrame({end:[1000e6,100e6]},index=["Total Revenue","Operating Income"])
+        income=pd.DataFrame({end:[1000e6,90e6,100e6,8e6]},index=["Total Revenue","Operating Income","Total Operating Income As Reported","Amortization Of Intangibles"])
+        cash=pd.DataFrame({end:[120e6,20e6,-24e6,-4e6]},index=["Operating Cash Flow","Depreciation And Amortization","Capital Expenditure","Change In Working Capital"])
+        record={"revenues":1000,"operating_Income":100,"cash_Flow_From_Operating_Activities":120}
+        self.assertEqual(list(annual(primary,income)),[end])
+        self.assertEqual(fill(primary,income,annual(primary,income)).at["Operating Income",end],100e6)
+        result=trailing(income,cash,record,end,trailing=True)
+        self.assertAlmostEqual(result["ebita"],108e6)
+        self.assertAlmostEqual(result["fcff"],71.4e6)
+        income.at["Total Operating Income As Reported",end]=80e6
+        self.assertTrue(annual(primary,income).empty)
+        self.assertEqual(trailing(income,cash,record,end,trailing=True),{})
+
     def test_emission(self):
         calc = load_function("emission_adjustment", {})
         result = calc(100, 200, 10, 20, 500, 1000)
