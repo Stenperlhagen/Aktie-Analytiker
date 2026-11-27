@@ -193,6 +193,19 @@ def tests():
     assert abb_r12_ebita('ATCO-B.ST',atlas,'2026-06-30') is None
     assert 'fcff' not in abb_r12_ebita('ATCO-B.ST',{**atlas,'net_Debt':13000},'2026-09-30')
     assert 'fcff' not in abb_r12_ebita('ATCO-B.ST',{**atlas,'cash_Flow_From_Operating_Activities':30000},'2026-09-30')
+    addlife={'currency':'SEK','revenues':10698,'net_Sales':10698,'operating_Income':1079,
+             'cash_Flow_From_Operating_Activities':1393,'net_Debt':4746}
+    alif=abb_r12_ebita('ALIF-B.ST',addlife,'2026-09-30')
+    assert alif['value']==1501e6
+    assert abs(alif['fcff_tax_rate']-248/894)<1e-10
+    assert abs(alif['fcff']-(1079*(1-248/894)+740-9-279)*1e6)<1
+    assert abb_r12_ebita('ALIF-B.ST',{**addlife,'net_Sales':10000},'2026-09-30') is None
+    assert abb_r12_ebita('ALIF-B.ST',{**addlife,'operating_Income':1000},'2026-09-30') is None
+    assert abb_r12_ebita('ALIF-B.ST',{**addlife,'currency':'EUR'},'2026-09-30') is None
+    assert abb_r12_ebita('ALIF-B.ST',addlife,'2026-06-30') is None
+    assert abb_r12_ebita('ALIF-A.ST',addlife,'2026-09-30') is None
+    assert 'fcff' not in abb_r12_ebita('ALIF-B.ST',{**addlife,'net_Debt':3866},'2026-09-30')
+    assert 'fcff' not in abb_r12_ebita('ALIF-B.ST',{**addlife,'cash_Flow_From_Operating_Activities':1000},'2026-09-30')
     # No secondary provider may replace the annual frames passed by fetch().
     original_roic=roic_company_data
     original_reports=borsapi_reports
@@ -231,7 +244,7 @@ if __name__=='__main__':
     globals()['ecb_exchange_rates']=lru_cache(maxsize=1)(ecb_exchange_rates)
     ALL_COMPANIES={name:sym for name,sym in ALL_COMPANIES.items() if sym not in {'FNOX.ST','COALA.ST','ADDV-B.ST','ADDV-A.ST'}}
     if '--probe' in sys.argv:
-        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-B.ST','TRUE-B.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST'):
+        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-B.ST','TRUE-B.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ALIF-B.ST'):
             key=borsapi_key()
             info,hist,fin,cash,balance,quick,errors=fetch(symbol)
             annual,_=borsapi_reports(symbol,key)
@@ -276,7 +289,7 @@ if __name__=='__main__':
                               'matched components',sorted(bridge),flush=True)
                 except Exception as exc:
                     print(symbol,'Yahoo diagnostic failure',type(exc).__name__,flush=True)
-            if symbol in ('ABB.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST'):
+            if symbol in ('ABB.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST'):
                 if trailing:
                     record=trailing[0]
                     period=str(record.get('report_End_Date') or record.get('reportEndDate'))[:10]
