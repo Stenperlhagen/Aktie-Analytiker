@@ -1937,6 +1937,38 @@ def abb_r12_ebita(symbol, record, period):
                            'och leasingamortering; normalisera förvärv, avyttringsvinster, omvärderade '
                            'tilläggsköpeskillingar och framtida leasinginvesteringar före prognos.'))
         return result
+    if symbol=='EPI-A.ST':
+        # Epiroc Q3 2026 and Q4 2025, pp. 3, 7 and 19. All MSEK.
+        # R12 = Jan-Sep 2026 + Oct-Dec 2025; use reported, not adjusted EBIT.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        if (sales is None or abs(sales-(47828+16090))>1.5 or
+            ebit is None or abs(ebit-(9573+3204))>1.5):
+            return None
+        result={'value':(10374+3479)*1e6,'sources':(
+            'https://www.epirocgroup.com/content/dam/epiroc/corporate/documents/quarterly-results-presentations-/2026-q3/english/Epiroc%20Interim%20Report%20Q3%202026.pdf',
+            'https://www.epirocgroup.com/content/dam/epiroc/corporate/documents/quarterly-results-presentations-/2025-q4/Epiroc%20Interim%20Report%20Q4_2025.pdf',
+        )}
+        # IFRS cash from operating activities, not the company's APM.
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        if (ocf is not None and abs(ocf-(5020+3081))<=1.5 and
+            debt is not None and abs(debt-11222)<=1.5):
+            tax_rate=((9134-6951)+(3089-2347))/(9134+3089)
+            # Reconcile noncash items, pension cash and working capital.
+            # Gross investments include rental fleet, PPE and intangibles.
+            capex=818+208+808+352+447+215
+            result.update(
+                fcff=((9573+3204)*(1-tax_rate)+2391+776-410-157-32-33-2559+135-capex)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Epiroc R12: rapporterat EBIT efter effektiv skatt, plus av- och nedskrivningar '
+                           'och övriga kassaflödesjusteringar, inklusive pensionsutbetalningar och rörelsekapital, '
+                           'minus bruttoinvesteringar i uthyrningsutrustning, materiella och immateriella tillgångar. '
+                           'Historiskt FCFF före förvärv, tillgångsavyttringar och leasingamortering. '
+                           'Framtida nyttjanderättsinvesteringar behöver normaliseras.'))
+        return result
     if symbol in ('ATCO-A.ST','ATCO-B.ST'):
         # Atlas Copco Q3 2026 and Q4 2025, consolidated MSEK.
         # R12 = Jan-Sep 2026 + Oct-Dec 2025, not two overlapping YTD periods.
