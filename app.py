@@ -1996,6 +1996,38 @@ def abb_r12_ebita(symbol, record, period):
                            'Historiskt FCFF före förvärv, tillgångsavyttringar och leasingamortering. '
                            'Framtida nyttjanderättsinvesteringar behöver normaliseras.'))
         return result
+    if symbol=='ALFA.ST':
+        # Alfa Laval Q3 2026 pp. 4, 17, 20, 24 and 28; consolidated R12 MSEK.
+        # EBITA bridge adds back acquisition step-up amortization only.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        if (sales is None or abs(sales-71778)>1.5 or
+            (net_sales is not None and abs(net_sales-71778)>1.5) or
+            ebit is None or abs(ebit-11837)>1.5):
+            return None
+        result={'value':(11837+723)*1e6,'sources':(
+            'https://www.alfalaval.com/contentassets/5c29a03d3d1e437798d3f66b5d3c19cf/wkr0006.pdf',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        if (ocf is not None and abs(ocf-10419)<=1.5 and
+            debt is not None and abs(debt-13813)<=1.5):
+            tax_rate=2985/11195
+            # Interest is classified as financing; apply modeled tax to EBIT.
+            # Gross capex excludes acquisition payments and disposal proceeds.
+            result.update(
+                fcff=(11837*(1-tax_rate)+2833+395-131-1117-3165)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Alfa Laval R12: rapporterat EBIT efter effektiv skatt, plus avskrivningar '
+                           'och övriga icke-kassaflödespåverkande poster, inklusive rörelsekapitalets '
+                           'kassaflödeseffekt, minus bruttoinvesteringar i anläggningstillgångar. '
+                           'Räntor klassificeras som finansiering. Före förvärv, avyttringar och '
+                           'leasingamortering; framtida nyttjanderättsinvesteringar behöver normaliseras. '
+                           'EBITA avser rapporterat EBIT före avskrivning på förvärvsrelaterade övervärden.'))
+        return result
     if symbol=='INDT.ST':
         # Indutrade Q3 2026 pp. 1, 6, 17 and 27; consolidated R12 MSEK.
         if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
