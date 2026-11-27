@@ -16,6 +16,25 @@ def load_function(name, namespace):
     return namespace[name]
 
 class QualityTests(unittest.TestCase):
+    def test_reported_nav_is_current_currency_matched_and_sourced(self):
+        ns={"math":math,"pd":pd}
+        load_function("numeric",ns)
+        node=next(n for n in TREE.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=="REPORTED_NAV" for t in n.targets))
+        ns["REPORTED_NAV"]=ast.literal_eval(node.value)
+        calc=load_function("current_reported_nav",ns)
+        for symbol,amount in (("BALD-B.ST",97.03),("CATE.ST",468.87),("WALL-B.ST",65.0)):
+            result=calc(symbol,"SEK","2026-11-27")
+            self.assertEqual(result["nav"],amount)
+            self.assertEqual(result["date"],"2026-09-30")
+            self.assertTrue(result["source"].startswith("https://"))
+            self.assertIsNone(calc(symbol,"EUR","2026-11-27"))
+            self.assertIsNone(calc(symbol,"SEK","2026-09-29"))
+            self.assertIsNone(calc(symbol,"SEK","2027-04-01"))
+        self.assertIsNone(calc("BALD-A.ST","SEK","2026-11-27"))
+        ns["REPORTED_NAV"]["BAD.ST"]={"nav":10,"date":"2026-09-30","kind":"NAV"}
+        self.assertIsNone(calc("BAD.ST","SEK","2026-11-27"))
+        self.assertIn("nav=current_reported_nav(symbol,currency)",SOURCE)
+
     def test_screener_does_not_bypass_primary_r12_on_missing_target(self):
         calls=[]
         def engine(*args,**kwargs):
