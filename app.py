@@ -396,6 +396,33 @@ def yahoo_r12_bridge(income, cash, record, period, trailing=False):
         amort=total(cash,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'])
         if amort is not None:
             result['ebita']=bd_field(record,'operating_Income')*1e6+abs(amort)
+    if 'ebita' not in result:
+        # Derive intangible amortization only from a coherent D&A split on
+        # the same reconciled cash-flow statement. Never equate total D&A
+        # with amortization, or treat a missing depreciation row as zero.
+        # A depletion-inclusive total requires the matching depletion-inclusive
+        # depreciation line, not a plain depreciation-only line.
+        for da_label,dep_label in (
+            ('Depreciation And Amortization','Depreciation'),
+            ('Depreciation Amortization Depletion','Depreciation And Depletion'),
+        ):
+            if da_label not in cash.index or dep_label not in cash.index or not dates.isin(cash.columns).all():
+                continue
+            pairs=[(numeric(cash.at[da_label,d]),numeric(cash.at[dep_label,d])) for d in dates]
+            if not all(a is not None and b is not None and a>=b>=0 for a,b in pairs):
+                continue
+            amort=sum(a-b for a,b in pairs)
+            # Where the primary source supplies EBITDA, reconcile aggregate
+            # D&A as well; otherwise do not accept inconsistent definitions.
+            provider_ebitda=bd_field(record,'ebitda')
+            provider_ebit=bd_field(record,'operating_Income')
+            if provider_ebitda is not None:
+                reference=(provider_ebitda-provider_ebit)*1e6
+                aggregate=sum(a for a,b in pairs)
+                if reference<0 or abs(aggregate-reference)>max(0.5e6,0.02*max(abs(reference),aggregate)):
+                    continue
+            result['ebita']=provider_ebit*1e6+amort
+            break
     da=total(cash,['Depreciation And Amortization','Depreciation Amortization Depletion'])
     cap=total(cash,['Capital Expenditure'])
     wc=total(cash,['Change In Working Capital'])
