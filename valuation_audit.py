@@ -385,6 +385,22 @@ def tests():
         current=valuation_engine('VOLO-TEST.ST',{**info,'sector':'Industrials'},fin,cash,balance,{},pd.DataFrame())
         assert current['operating_period']=='2026-09-30'
         assert current['operating_inputs']['FCFF']<0 and 'DCF' not in current['models']
+        # A newer verified R12 with positive FCFF but missing EBITA must
+        # not silently reinstate the older annual EBITA and target.
+        globals()['borsapi_r12_records']=lambda *args: [{**r12_record,'ebita':None,'capital_Expenditure':25}]
+        current=valuation_engine('VOLO-TEST.ST',{**info,'sector':'Industrials'},fin,cash,balance,{},pd.DataFrame())
+        assert current['operating_period']=='2026-09-30'
+        assert current['operating_inputs']['EBIT']==90e6
+        assert abs(current['operating_inputs']['FCFF']-61.46e6)<1
+        assert 'EV/EBITA' not in current['models'] and current['target'] is None
+        # Missing R12 cash flow and debt cannot be borrowed from annual data.
+        globals()['borsapi_r12_records']=lambda *args: [{**r12_record,'capital_Expenditure':None,'net_Debt':None}]
+        current=valuation_engine('VOLO-TEST.ST',{**info,'sector':'Industrials'},fin,cash,balance,{},pd.DataFrame())
+        assert current['operating_period']=='2026-09-30'
+        assert current['operating_inputs']['EBITA']==100e6
+        assert current['operating_inputs']['FCFF'] is None
+        assert current['operating_inputs']['Nettoskuld'] is None
+        assert current['target'] is None
         globals()['borsapi_r12_records']=lambda *args: [{**r12_record,'currency':'USD'}]
         current=valuation_engine('VOLO-TEST.ST',{**info,'sector':'Industrials'},fin,cash,balance,{},pd.DataFrame())
         assert current['operating_period']=='2025-12-31'
@@ -542,7 +558,10 @@ if __name__=='__main__':
             if earnings is None: earnings=inputs.get('EBITA (beräknad)')
             debt,fx,shares,price=(inputs.get('Nettoskuld'),inputs.get('Valutakurs'),inputs.get('Antal aktier'),v.get('price'))
             applicable=v.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag')
-            multiple=(price*shares/fx+debt)/earnings if applicable and all(x is not None for x in (earnings,debt,fx,shares,price)) and min(earnings,fx,shares,price)>0 else None
+            preferred=numeric(info.get('_preferred_cap'))
+            # EV must include the verified market value of preferred capital.
+            # The report currency conversion applies to both equity components.
+            multiple=( (price*shares+preferred)/fx+debt)/earnings if applicable and info.get('_cap_verified') and all(x is not None for x in (earnings,debt,fx,shares,price,preferred)) and min(earnings,fx,shares,price)>0 and preferred>=0 else None
             r12_evidence=v.get('r12_ebita_evidence') or {}
             rows[-1].update({'r12_ebita_matched':bool(r12_evidence),'r12_ebita_source':r12_evidence.get('source'),
                              'model_period':v.get('operating_period',v.get('period')),
