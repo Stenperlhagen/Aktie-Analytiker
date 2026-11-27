@@ -16,7 +16,7 @@ from functools import lru_cache
 
 # Load exact production definitions without executing Streamlit UI.
 tree=ast.parse(pathlib.Path('app.py').read_text(encoding='utf-8'))
-names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_instrument_events','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_r12_response','request_borsdata','borsapi_market_cap_map','bd_field','yahoo_annual_statements','yahoo_r12_bridge','matched_yahoo_r12','comparable_yahoo_periods','fill_matching_statement_periods','abb_r12_ebita','reported_operating_metrics','trailing_dividend_yield','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
+names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','current_reported_nav','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_instrument_events','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_r12_response','request_borsdata','borsapi_market_cap_map','bd_field','yahoo_annual_statements','yahoo_r12_bridge','matched_yahoo_r12','comparable_yahoo_periods','fill_matching_statement_periods','abb_r12_ebita','reported_operating_metrics','trailing_dividend_yield','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
 nodes=[]
 for node in tree.body:
     if isinstance(node,ast.FunctionDef) and node.name in names:
@@ -67,6 +67,11 @@ def avanza_market_snapshot(symbol):
 def verified_capitalization(symbol,info,quick,fin,history):
     return {'market_cap':None,'shares':None,'source':'Offline audit','warnings':[],'verified':False}
 def tests():
+    # Exercise the exact NAV production helper in the extracted audit namespace.
+    nav=current_reported_nav('BALD-B.ST','SEK','2026-11-27')
+    assert nav and nav['nav']==97.03 and nav['date']=='2026-09-30'
+    assert current_reported_nav('BALD-B.ST','EUR','2026-11-27') is None
+    assert current_reported_nav('BALD-B.ST','SEK','2027-04-01') is None
     # Registry is a checked-in set of independently observed Avanza listing identities,
     # never a substitute for fresh detail validation in production.
     registry_path=pathlib.Path(__file__).with_name('avanza-registry.json')
@@ -514,7 +519,11 @@ if __name__=='__main__':
                     assert abs(v['buy_limit']-v['target']*.8)<1e-7, 'Inconsistent buy limit'
                     assert abs(v['upside']-(v['target']/v['price']-1)*100)<1e-7, 'Inconsistent upside'
             avanza=info.get('_avanza_snapshot') or {}
-            rows.append({'avanza_identity_verified':bool(avanza.get('verified')),'avanza_fresh_quote':bool(avanza.get('verified') and numeric(avanza.get('price')) is not None and avanza['price']>0),'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Source not recorded'),'fetch_errors':str(errors),'annual_reports':not fin.empty,'price_history':not hist.empty,'report_verified':False,'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
+            stamp=numeric(avanza.get('quote_timestamp'))
+            quote_age=dt.datetime.now(dt.timezone.utc).timestamp()-stamp/1000 if stamp is not None else None
+            fresh=bool(avanza.get('verified') and numeric(avanza.get('price')) is not None and avanza['price']>0 and quote_age is not None and 0<=quote_age<=7*86400 and avanza.get('currency')==v.get('currency'))
+            nav_only=set(v.get('models',{}))=={'Rapporterat NAV'}
+            rows.append({'avanza_identity_verified':bool(avanza.get('verified')),'avanza_fresh_quote':fresh,'avanza_quote_timestamp':stamp,'nav_reference_only':nav_only,'upside':v.get('upside'),'price_source':info.get('_price_source'),'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Source not recorded'),'fetch_errors':str(errors),'annual_reports':not fin.empty,'price_history':not hist.empty,'report_verified':bool((v.get('r12_ebita_evidence') or {}).get('source')=='Bolagsrapport (avstämd)' or (nav_only and v.get('nav_kind'))),'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
         except Exception as e:
             failures.append(symbol+': '+str(e))
             rows.append({'ticker':symbol,'missing':type(e).__name__+': '+str(e),'report_verified':False})
@@ -551,14 +560,18 @@ if __name__=='__main__':
     expected=set(ALL_COMPANIES.values())
     actual={r['ticker'] for r in rows}
     assert actual==expected and len(rows)==len(expected), 'Incomplete active universe audit'
-    missing_targets=[r['ticker'] for r in rows if not r.get('finite_positive_target')]
+    missing_targets=[r['ticker'] for r in rows if not r.get('finite_positive_target') or r.get('nav_reference_only')]
+    missing_upside=[r['ticker'] for r in rows if numeric(r.get('upside')) is None or r.get('nav_reference_only')]
+    print('Independent positive model targets:',len(rows)-len(missing_targets),'of',len(rows),flush=True)
+    print('NAV reference only:',sum(bool(r.get('nav_reference_only')) for r in rows),flush=True)
+    print('Comparable model upside coverage:',len(rows)-len(missing_upside),'of',len(rows),flush=True)
     missing_dual=[r['ticker'] for r in rows if r.get('dual_model_status') not in ('Ej tillämpligt','Underlag finns')]
     missing_identity=[r['ticker'] for r in rows if not r.get('avanza_identity_verified')]
     missing_quotes=[r['ticker'] for r in rows if not r.get('avanza_fresh_quote') or
                     numeric(r.get('price')) is None or r['price']<=0]
-    incomplete=bool(missing_targets or missing_dual or missing_identity or missing_quotes)
+    incomplete=bool(missing_targets or missing_upside or missing_dual or missing_identity or missing_quotes)
     print('Publication coverage gate:', 'NOT READY' if incomplete else 'PASS',flush=True)
-    print('Missing positive targets:',len(missing_targets),'Missing applicable dual models:',len(missing_dual),
+    print('Missing independent positive targets:',len(missing_targets),'Missing comparable upside:',len(missing_upside),'Missing applicable dual models:',len(missing_dual),
           'Missing verified identities:',len(missing_identity),'Missing fresh quotes:',len(missing_quotes),flush=True)
     if '--require-complete' in sys.argv and incomplete:
         raise AssertionError('Publication coverage gate failed: incomplete targets, models, identities or prices')
