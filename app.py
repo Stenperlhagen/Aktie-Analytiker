@@ -1969,6 +1969,36 @@ def abb_r12_ebita(symbol, record, period):
                            'Historiskt FCFF före förvärv, tillgångsavyttringar och leasingamortering. '
                            'Framtida nyttjanderättsinvesteringar behöver normaliseras.'))
         return result
+    if symbol=='INDT.ST':
+        # Indutrade Q3 2026 pp. 1, 6, 17 and 27; consolidated R12 MSEK.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        if (sales is None or abs(sales-34148)>1.5 or
+            (net_sales is not None and abs(net_sales-34148)>1.5) or
+            ebit is None or abs(ebit-4098)>1.5):
+            return None
+        result={'value':4844e6,'sources':(
+            'https://storage.mfn.se/27f063cf-1b04-4cf1-9e43-f6ad8c5dab89/interim-report-q3-2026.pdf',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        # Reconcile operating cash flow and full interest-bearing debt,
+        # including leases, acquisition consideration and pension liabilities.
+        if (ocf is not None and abs(ocf-4331)<=1.5 and
+            debt is not None and abs(debt-9574)<=1.5):
+            tax_rate=(3664-2813)/3664
+            result.update(
+                fcff=(4098*(1-tax_rate)+1827-156-477)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Indutrade R12: rapporterat EBIT efter effektiv skatt, plus rapporterade '
+                           'icke-kassaflödespåverkande poster och rörelsekapitalets kassaflödeseffekt, '
+                           'minus nettoinvesteringar i materiella och immateriella tillgångar. '
+                           'Exklusive förvärv, finansiella betalningar och leasingamortering; '
+                           'framtida nyttjanderättsinvesteringar behöver normaliseras.'))
+        return result
     if symbol in ('ATCO-A.ST','ATCO-B.ST'):
         # Atlas Copco Q3 2026 and Q4 2025, consolidated MSEK.
         # R12 = Jan-Sep 2026 + Oct-Dec 2025, not two overlapping YTD periods.
