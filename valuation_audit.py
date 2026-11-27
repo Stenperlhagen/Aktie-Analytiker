@@ -226,6 +226,17 @@ def tests():
     assert abb_r12_ebita('ALIF-A.ST',addlife,'2026-09-30') is None
     assert 'fcff' not in abb_r12_ebita('ALIF-B.ST',{**addlife,'net_Debt':3866},'2026-09-30')
     assert 'fcff' not in abb_r12_ebita('ALIF-B.ST',{**addlife,'cash_Flow_From_Operating_Activities':1000},'2026-09-30')
+    assa={'currency':'SEK','net_Sales':154088,'revenues':154088,'operating_Income':25702,
+          'cash_Flow_From_Operating_Activities':25041,'net_Debt':64212}
+    matched=abb_r12_ebita('ASSA-B.ST',assa,'2026-09-30')
+    assert matched['value']==27442e6
+    assert abs(matched['fcff']-(25702*(1-5747/22717)+6287-3129+814)*1e6)<1
+    assert abb_r12_ebita('ASSA-B.ST',{**assa,'currency':'USD'},'2026-09-30') is None
+    assert abb_r12_ebita('ASSA-B.ST',assa,'2026-06-30') is None
+    assert abb_r12_ebita('ASSA-B.ST',{**assa,'operating_Income':25690},'2026-09-30') is None
+    assert abb_r12_ebita('ASSA-A.ST',assa,'2026-09-30') is None
+    assert 'fcff' not in abb_r12_ebita('ASSA-B.ST',{**assa,'net_Debt':57039},'2026-09-30')
+    assert 'fcff' not in abb_r12_ebita('ASSA-B.ST',{**assa,'cash_Flow_From_Operating_Activities':24662},'2026-09-30')
     sand={'currency':'SEK','net_Sales':137625,'revenues':137625,'operating_Income':26376,
           'cash_Flow_From_Operating_Activities':21904,'net_Debt':36949}
     sandvik=abb_r12_ebita('SAND.ST',sand,'2026-09-30')
@@ -308,7 +319,7 @@ if __name__=='__main__':
     globals()['ecb_exchange_rates']=lru_cache(maxsize=1)(ecb_exchange_rates)
     ALL_COMPANIES={name:sym for name,sym in ALL_COMPANIES.items() if sym not in {'FNOX.ST','COALA.ST','ADDV-B.ST','ADDV-A.ST'}}
     if '--probe' in sys.argv:
-        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-B.ST','TRUE-B.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ALIF-B.ST','LAGR-B.ST','LIFCO-B.ST','SAND.ST'):
+        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-B.ST','TRUE-B.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ALIF-B.ST','LAGR-B.ST','LIFCO-B.ST','SAND.ST','ASSA-B.ST'):
             key=borsapi_key()
             info,hist,fin,cash,balance,quick,errors=fetch(symbol)
             annual,_=borsapi_reports(symbol,key)
@@ -353,7 +364,7 @@ if __name__=='__main__':
                               'matched components',sorted(bridge),flush=True)
                 except Exception as exc:
                     print(symbol,'Yahoo diagnostic failure',type(exc).__name__,flush=True)
-            if symbol in ('ABB.ST','LIFCO-B.ST','VOLO.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST','LAGR-B.ST','SAND.ST'):
+            if symbol in ('ABB.ST','LIFCO-B.ST','VOLO.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST','LAGR-B.ST','SAND.ST','ASSA-B.ST'):
                 if trailing:
                     record=trailing[0]
                     period=str(record.get('report_End_Date') or record.get('reportEndDate'))[:10]
