@@ -206,6 +206,17 @@ def tests():
     assert abb_r12_ebita('ALIF-A.ST',addlife,'2026-09-30') is None
     assert 'fcff' not in abb_r12_ebita('ALIF-B.ST',{**addlife,'net_Debt':3866},'2026-09-30')
     assert 'fcff' not in abb_r12_ebita('ALIF-B.ST',{**addlife,'cash_Flow_From_Operating_Activities':1000},'2026-09-30')
+    vol={'currency':'SEK','net_Sales':4594,'revenues':4594,'operating_Income':155,
+         'cash_Flow_From_Operating_Activities':566,'net_Debt':1669}
+    matched=abb_r12_ebita('VOLO.ST',vol,'2026-09-30')
+    assert matched['value']==245e6
+    assert abs(matched['fcff']-(155*(1-0.206)+306-12+85-97)*1e6)<1
+    assert abb_r12_ebita('VOLO.ST',{**vol,'net_Sales':6500},'2026-09-30') is None
+    assert abb_r12_ebita('VOLO.ST',{**vol,'currency':'EUR'},'2026-09-30') is None
+    assert abb_r12_ebita('VOLO.ST',{**vol,'operating_Income':235},'2026-09-30') is None
+    assert abb_r12_ebita('VOLO.ST',vol,'2026-06-30') is None
+    assert 'fcff' not in abb_r12_ebita('VOLO.ST',{**vol,'net_Debt':1331},'2026-09-30')
+    assert 'fcff' not in abb_r12_ebita('VOLO.ST',{**vol,'cash_Flow_From_Operating_Activities':321},'2026-09-30')
     lag={'currency':'SEK','revenues':11576,'net_Sales':11576,'operating_Income':1838,
          'cash_Flow_From_Operating_Activities':1498,'net_Debt':5190}
     matched=abb_r12_ebita('LAGR-B.ST',lag,'2026-09-30')
@@ -300,7 +311,7 @@ if __name__=='__main__':
                               'matched components',sorted(bridge),flush=True)
                 except Exception as exc:
                     print(symbol,'Yahoo diagnostic failure',type(exc).__name__,flush=True)
-            if symbol in ('ABB.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST','LAGR-B.ST'):
+            if symbol in ('ABB.ST','VOLO.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST','LAGR-B.ST'):
                 if trailing:
                     record=trailing[0]
                     period=str(record.get('report_End_Date') or record.get('reportEndDate'))[:10]
