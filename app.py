@@ -2474,8 +2474,12 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     if rfcff is None and all(v is not None for v in (rebit,rda,rcapex,rwc)):
                         rfcff=rebit*(1-0.206)+rda-abs(rcapex)+rwc
                     if rfcff is None: rfcff=bridge.get('fcff')
-                    preserves_models=(earnings is None or earnings_label=='EBIT' or rebita is not None) and (
-                        fcff is None or fcff<=0 or (rfcff is not None and rfcff>0))
+                    # Verified non-positive R12 cash flow is evidence, not
+                    # missing data. Do not select an older positive FCFF merely
+                    # because current cash flow cannot support a growth DCF.
+                    adverse_r12=(rfcff is not None and rfcff<=0)
+                    preserves_models=adverse_r12 or ((earnings is None or earnings_label=='EBIT' or rebita is not None) and (
+                        fcff is None or rfcff is not None))
                     if preserves_models and rccy and rccy==report and (not common or rdate>=pd.Timestamp(common[0])) and rebit is not None and rdebt is not None and rsales is not None and rsales>0:
                         earnings=rebita if rebita is not None else rebit
                         earnings_label='EBITA' if rebita is not None else 'EBIT'
