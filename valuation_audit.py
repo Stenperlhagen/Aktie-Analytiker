@@ -206,6 +206,17 @@ def tests():
     assert abb_r12_ebita('ALIF-A.ST',addlife,'2026-09-30') is None
     assert 'fcff' not in abb_r12_ebita('ALIF-B.ST',{**addlife,'net_Debt':3866},'2026-09-30')
     assert 'fcff' not in abb_r12_ebita('ALIF-B.ST',{**addlife,'cash_Flow_From_Operating_Activities':1000},'2026-09-30')
+    lifco={'currency':'SEK','net_Sales':29822,'revenues':29822,'operating_Income':5597,
+           'cash_Flow_From_Operating_Activities':5500,'net_Debt':12321}
+    matched=abb_r12_ebita('LIFCO-B.ST',lifco,'2026-09-30')
+    assert matched['value']==6764e6
+    assert abs(matched['fcff']-(5597*(1-0.206)+1987-80-420)*1e6)<1
+    assert abb_r12_ebita('LIFCO-B.ST',{**lifco,'currency':'EUR'},'2026-09-30') is None
+    assert abb_r12_ebita('LIFCO-B.ST',lifco,'2026-06-30') is None
+    assert abb_r12_ebita('LIFCO-B.ST',{**lifco,'operating_Income':6790},'2026-09-30') is None
+    assert abb_r12_ebita('LIFCO-B.ST',{**lifco,'net_Sales':28251},'2026-09-30') is None
+    assert 'fcff' not in abb_r12_ebita('LIFCO-B.ST',{**lifco,'net_Debt':9603},'2026-09-30')
+    assert 'fcff' not in abb_r12_ebita('LIFCO-B.ST',{**lifco,'cash_Flow_From_Operating_Activities':3514},'2026-09-30')
     vol={'currency':'SEK','net_Sales':4594,'revenues':4594,'operating_Income':155,
          'cash_Flow_From_Operating_Activities':566,'net_Debt':1669}
     matched=abb_r12_ebita('VOLO.ST',vol,'2026-09-30')
@@ -311,7 +322,7 @@ if __name__=='__main__':
                               'matched components',sorted(bridge),flush=True)
                 except Exception as exc:
                     print(symbol,'Yahoo diagnostic failure',type(exc).__name__,flush=True)
-            if symbol in ('ABB.ST','VOLO.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST','LAGR-B.ST'):
+            if symbol in ('ABB.ST','LIFCO-B.ST','VOLO.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST','LAGR-B.ST'):
                 if trailing:
                     record=trailing[0]
                     period=str(record.get('report_End_Date') or record.get('reportEndDate'))[:10]
