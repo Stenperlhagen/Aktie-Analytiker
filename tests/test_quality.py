@@ -16,6 +16,29 @@ def load_function(name, namespace):
     return namespace[name]
 
 class QualityTests(unittest.TestCase):
+    def test_screener_does_not_bypass_primary_r12_on_missing_target(self):
+        calls=[]
+        def engine(*args,**kwargs):
+            calls.append(kwargs)
+            if kwargs.get("use_roic") is False:
+                return {"target":100,"category":"Rörelsedrivande bolag","missing":[]}
+            return {"target":None,"category":"Rörelsedrivande bolag","missing":["FCFF <= 0"]}
+        ns={"fetch":lambda symbol: ({},None,None,None,None,{},{}),
+            "valuation_engine":engine,"roic_key":lambda:"configured",
+            "growth_stability":lambda fin:None,"val":lambda *args:None,
+            "valuation_category":lambda symbol:"Rörelsedrivande bolag"}
+        calc=load_function("screener_snapshot",ns)
+        result=calc("ABC.ST")
+        self.assertIsNone(result["target"])
+        self.assertEqual(calls,[{}])
+        self.assertIn("FCFF <= 0",result["missing"])
+        def failing(*args,**kwargs):
+            calls.append(kwargs)
+            raise RuntimeError("primary unavailable")
+        ns["valuation_engine"]=failing
+        self.assertIsNone(calc("ABC.ST")["target"])
+        self.assertEqual(calls,[{},{}])
+
     def test_numeric(self):
         numeric = load_function("numeric", {"math": math, "pd": pd})
         for x in (None, float("nan"), float("inf"), -float("inf"), "bad"):
