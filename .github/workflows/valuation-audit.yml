@@ -4,11 +4,13 @@ on:
     paths:
       - 'valuation_audit.py'
       - 'app.py'
+      - 'tests/test_quality.py'
       - '.github/workflows/valuation-audit.yml'
   pull_request:
     paths:
       - 'valuation_audit.py'
       - 'app.py'
+      - 'tests/test_quality.py'
       - '.github/workflows/valuation-audit.yml'
   schedule:
     - cron: '17 3 * * *'
@@ -45,6 +47,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install pandas requests pypdf yfinance
+      - run: python -m unittest discover -s tests -p 'test_quality.py'
       - run: python valuation_audit.py
       - name: Check live coverage when configured
         env:
