@@ -1736,6 +1736,37 @@ def abb_r12_ebita(symbol, record, period):
                                'Historiskt kassaflöde före förvärv och leasingamortering; framtida leasinginvesteringar '
                                'måste normaliseras separat. Nettoskuld inklusive leasing är avstämd.'))
         return result
+    if symbol=='ASSA-B.ST':
+        # ASSA ABLOY Q3 2026 pp. 11-13: consolidated SEK R12.
+        # The adjusted EBITA excludes a positive 12 MSEK comparability item.
+        # Use reported EBIT plus acquisition-related amortization instead.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'net_Sales')
+        if sales is None: sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        if sales is None or ebit is None or abs(sales-154088)>1.5 or abs(ebit-25702)>1.5:
+            return None
+        result={'value':(25702+1740)*1e6,'sources':(
+            'https://www.assaabloy.com/group/sv/documents/investors/interim-reports/2026/Q3%20Kvartalsrapport%202026.pdf',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        # Reconcile IFRS operating cash flow, not the alternative KPI:
+        # Q4 2025 = 7815+770+481-195-1461; 9M 2026 = 17631.
+        if (ocf is not None and abs(ocf-(17631+7815+770+481-195-1461))<=2 and
+            debt is not None and abs(debt-64212)<=1.5):
+            tax_rate=5747/22717
+            # Historical organic FCFF before acquisition flows and lease
+            # principal; capex is net investments as disclosed in the filing.
+            result.update(
+                fcff=(25702*(1-tax_rate)+6287-3129+814)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('ASSA ABLOY R12: rapporterat EBIT efter effektiv rapporterad skatt, '
+                           'plus av- och nedskrivningar, minus nettoinvesteringar och inklusive '
+                           'rörelsekapitalets kassaflödeseffekt. Historiskt FCFF före förvärv '
+                           'och leasingamortering; framtida leasinginvesteringar måste normaliseras.'))
+        return result
     if symbol=='SAND.ST':
         # Sandvik Q3 2026 pp. 1, 13, 15, 21 and Q4 2025 pp. 1, 15.
         # R12 = 9M 2026 + Q4 2025. Reverse the published IAC adjustments;
