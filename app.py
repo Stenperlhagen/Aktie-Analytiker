@@ -1736,6 +1736,43 @@ def abb_r12_ebita(symbol, record, period):
                                'Historiskt kassaflöde före förvärv och leasingamortering; framtida leasinginvesteringar '
                                'måste normaliseras separat. Nettoskuld inklusive leasing är avstämd.'))
         return result
+    if symbol in ('ATCO-A.ST','ATCO-B.ST'):
+        # Atlas Copco Q3 2026 and Q4 2025, consolidated MSEK.
+        # R12 = Jan-Sep 2026 + Oct-Dec 2025, not two overlapping YTD periods.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        ebit=27460+8470
+        sales=133434+42782
+        ebita=29451+9152
+        reported_sales=bd_field(record,'revenues')
+        reported_ebit=bd_field(record,'operating_Income')
+        if (reported_sales is None or abs(reported_sales-sales)>1.5 or
+            reported_ebit is None or abs(reported_ebit-ebit)>1.5):
+            return None
+        result={'value':ebita*1e6,'sources':(
+            'https://www.atlascopcogroup.com/content/dam/brands/atlas-copco-group/cision/20261022-en-Q3_2026.pdf',
+            'https://www.atlascopcogroup.com/content/dam/brands/atlas-copco-group/cision/20260127-en-Q4_2025.pdf.coredownload.pdf',
+        )}
+        # Q3 p. 13 and Q4 p. 14: rental equipment investment is in
+        # operating cash flow; include it in capex once, alongside PPE and
+        # intangible investments. Exclude disposal proceeds and acquisitions.
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        net_debt=bd_field(record,'net_Debt')
+        if (ocf is not None and abs(ocf-(23754+8393))<=1.5 and
+            net_debt is not None and abs(net_debt-14244)<=1.5):
+            tax_rate=((27047-21058)+(8338-6627))/(27047+8338)
+            da=7616+2673
+            capex=1380+513+2491+1105+1389+529
+            wc=-2984+649
+            result.update(
+                fcff=(ebit*(1-tax_rate)+da-capex+wc)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Atlas Copco R12: rapporterat EBIT efter effektiv skatt, plus av- och nedskrivningar, '
+                           'minus bruttoinvesteringar i uthyrningsutrustning, materiella och immateriella tillgångar, '
+                           'samt rörelsekapitalets kassaflödeseffekt. Historiskt FCFF före förvärv, '
+                           'avyttringar och framtida nyttjanderättsinvesteringar. EBITA följer bolagets definition '
+                           'exklusive förvärvsrelaterade immateriella av- och nedskrivningar.'))
+        return result
     if symbol!='ABB.ST' or str(period)[:10]!='2026-09-30' or record.get('currency')!='USD':
         return None
     # The 2025 and 2026 reports reconcile continuing operations on the same basis.
@@ -2349,6 +2386,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 audit.append('Bravida: historiskt FCFF före leasingamortering; verifiera framtida nyttjanderättsinvesteringar och engångsposter före köp-/säljsignal')
             if symbol=='BOKUS.ST' and r12_used and out.get('fcff_note'):
                 audit.append('Bokusgruppen: historiskt FCFF före leasingamortering; normalisera framtida nyttjanderättsinvesteringar före köp-/säljsignal')
+            if symbol in ('ATCO-A.ST','ATCO-B.ST') and r12_used and out.get('fcff_note'):
+                audit.append('Atlas Copco: historiskt FCFF före förvärv; verifiera framtida leasinginvesteringar och skillnader i A- och B-aktiernas marknadsvärde före signal')
             if symbol=='ADDT-B.ST' and r12_used and out.get('fcff_note'):
                 audit.append('Addtech: historiskt FCFF före förvärv; verifiera leasing, minoritetsintressen och framtida förvärvsfinansiering innan signal används')
             out['audit']=audit
