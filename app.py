@@ -1415,6 +1415,9 @@ PROPERTY_TICKERS={
 # Datum avser värderingsdatum, inte datum då börskursen hämtades.
 VOLATI_Q3_2026={'ebita_ltm':245_000_000.0,'net_debt':1_331_000_000.0,'ordinary_shares':79_406_571.0,'as_of':'2026-09-30','source':'https://www.mfn.se/a/volati/volati-delarsrapport-januari-september-2026'}
 REPORTED_NAV={
+    'BALD-B.ST':{'nav':97.03,'date':'2026-09-30','source':'https://www.balder.se/om-balder/press/rapporter/10232026-0800/fastighets-ab-balders--publ--del-rsrapport-januari-september-2026','kind':'Långsiktigt substansvärde'},
+    'CATE.ST':{'nav':468.87,'date':'2026-09-30','source':'https://www.catena.se/investerare/pressmeddelanden/?data=https%3A%2F%2Ffeed.mfn.se%2Fv1%2Ffeed%2Fcde4cc06-d748-445a-8d49-b6c023bbc9da%2Fitem%2Fc0495d63-155d-4657-9533-1217cedec34f.html','kind':'EPRA NRV'},
+    'WALL-B.ST':{'nav':65.00,'date':'2026-09-30','source':'https://www.wallenstam.se/sv/om_oss/Press_och_media/finansiella-rapporter/?pressItemId=2487989','kind':'Substansvärde'},
     'INVE-A.ST':{'nav':411.0,'date':'2026-09-30','source':'https://www.mfn.se/cis/a/investor/investor-delarsredogorelse-januari-september-2026-c66c331e.iframe','kind':'Justerat substansvärde'},
     'INVE-B.ST':{'nav':411.0,'date':'2026-09-30','source':'https://www.mfn.se/cis/a/investor/investor-delarsredogorelse-januari-september-2026-c66c331e.iframe','kind':'Justerat substansvärde'},
     'LUND-B.ST':{'nav':644.0,'date':'2026-11-23','source':'https://www.lundbergforetagen.se/sv/press/lundbergs-delarsrapport-januari-september-2026-2500329','kind':'Substansvärde efter uppskjuten skatt'},
@@ -1423,6 +1426,18 @@ REPORTED_NAV={
     'LATO-B.ST':{'nav':223.0,'date':'2026-11-02','source':'https://www.mfn.se/cis/a/latour/delarsrapport-januari-september-2026-d993ea5e.iframe','kind':'Substansvärde'},
     'INDU-C.ST':{'nav':517.0,'date':'2026-09-30','source':'https://mfn.se/a/industrivarden/delarsrapport-1-januari-30-september-2026.iframe','kind':'Substansvärde'}
 }
+def current_reported_nav(symbol, currency, as_of=None):
+    """Published SEK/share reference only; no unlabelled FX or stale report substitution."""
+    record=REPORTED_NAV.get(symbol)
+    if not record or currency!='SEK': return None
+    amount=numeric(record.get('nav'))
+    date=pd.to_datetime(record.get('date'),errors='coerce')
+    today=pd.Timestamp.today().normalize() if as_of is None else pd.Timestamp(as_of).normalize()
+    if (amount is None or amount<=0 or pd.isna(date) or
+        not 0<=(today-date).days<=180 or not record.get('source') or not record.get('kind')):
+        return None
+    return record
+
 def borsapi_key():
     try: return str(st.secrets.get('BORSAPI_API_KEY','')).strip()
     except Exception: return ''
@@ -2834,11 +2849,13 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
             out['inputs']={'Eget kapital':equity,'Antal aktier':shares,'ROE':roe,'Motiverat P/B':pb}
         if not out['models']: out['missing'].append('Positivt eget kapital, ROE, aktieantal och valuta')
     elif category in ('Fastigheter','Investmentbolag / kapitalförvaltning'):
-        nav=REPORTED_NAV.get(symbol)
-        if nav and currency=='SEK':
+        nav=current_reported_nav(symbol,currency)
+        if nav:
             out['models']['Rapporterat NAV']=nav['nav']
             out['period']=nav['date']
             out['source']=nav['source']
+            out['nav_kind']=nav['kind']
+            out.setdefault('audit',[]).append('Rapporterat substansvärde är ett referensvärde per aktie, inte en oberoende prognos. Kontrollera aktuell portfölj, avkastningskrav och eventuell substansrabatt före signal.')
         else: out['missing'].append('Rapporterat NAV eller verifierat driftnetto och direktavkastningskrav' if category=='Fastigheter' else 'Rapporterat substansvärde')
     elif category=='Läkemedel – royalty och pipeline': out['missing'].append('Sum-of-parts: normaliserade produkt- och royaltykassaflöden, riskjusterad pipeline, nettokassa och utspädning')
     elif category=='Forskningsbolag': out['missing'].append('rNPV: projektkassaflöden, sannolikheter, nettokassa och utspädning')
@@ -3845,8 +3862,8 @@ if valuation_result.get('category') in ('Investmentbolag / kapitalförvaltning',
                 break
     equity_fx=fx_rate(report_ccy,quote_ccy)
     pb=cap/(equity*equity_fx) if cap and equity and equity>0 and equity_fx and equity_fx>0 else None
-    nav_record=REPORTED_NAV.get(ticker)
-    nav=numeric(nav_record.get('nav')) if nav_record and quote_ccy=='SEK' and 0<=(pd.Timestamp.today().normalize()-pd.Timestamp(nav_record['date'])).days<=180 else None
+    nav_record=current_reported_nav(ticker,quote_ccy)
+    nav=numeric(nav_record.get('nav')) if nav_record else None
     overview_items=[overview_items[0],overview_items[1],
         ('Eget kapital (M)',show(equity/1e6,'',0) if equity is not None else 'Saknas'),
         ('Nettoresultat (M)',show(profit/1e6,'',0) if profit is not None else 'Saknas'),
