@@ -2651,7 +2651,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                         out['r12_ebita_evidence']={'value':rebita,'period':str(rdate.date()),'currency':rccy,
                                                    'net_debt':rdebt,'source':'Bolagsrapport (avstämd)' if filing else 'Yahoo Finance (avstämd R12)' if bridge.get('ebita') is not None else 'Börsdata Pro+',
                                                    'sources':filing['sources'] if filing else ()}
-                    # Do not discard a usable annual EBITA or FCFF model for an incomplete R12 bundle.
+                    # Keep all operating inputs on the same trailing report date.
                     rda=ramount('depreciation_And_Amortization')
                     rcapex=ramount('capital_Expenditure')
                     rwc=ramount('change_In_Working_Capital')
@@ -2659,13 +2659,14 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     if rfcff is None and all(v is not None for v in (rebit,rda,rcapex,rwc)):
                         rfcff=rebit*(1-0.206)+rda-abs(rcapex)+rwc
                     if rfcff is None: rfcff=bridge.get('fcff')
-                    # Verified non-positive R12 cash flow is evidence, not
-                    # missing data. Do not select an older positive FCFF merely
-                    # because current cash flow cannot support a growth DCF.
-                    adverse_r12=(rfcff is not None and rfcff<=0)
-                    preserves_models=adverse_r12 or ((earnings is None or earnings_label=='EBIT' or rebita is not None) and (
-                        fcff is None or rfcff is not None))
-                    if preserves_models and rccy and rccy==report and (not common or rdate>=pd.Timestamp(common[0])) and rebit is not None and rdebt is not None and rsales is not None and rsales>0:
+                    # A newer currency-matched R12 with reconciled revenue and EBIT
+                    # takes precedence even if an input is missing. An older annual
+                    # EBITA/FCFF/debt must not mask missing or adverse current data.
+                    current_r12=(pd.notna(rdate) and rdate<=pd.Timestamp.now().normalize() and
+                                 (not common or rdate>=pd.Timestamp(common[0])) and
+                                 bool(rccy) and rccy==report and rebit is not None and
+                                 rsales is not None and rsales>0)
+                    if current_r12:
                         earnings=rebita if rebita is not None else rebit
                         earnings_label='EBITA' if rebita is not None else 'EBIT'
                         debt=rdebt
@@ -2684,6 +2685,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                             out['source']+=' + bolagsrapport (avstämd EBITA)'
                         if rebita is None: out['missing'].append('R12: separat EBITA saknas.')
                         if rfcff is None: out['missing'].append('R12: FCFF saknar komplett underlag.')
+                        if rdebt is None: out['missing'].append('R12: nettoskuld saknar komplett underlag.')
             has_complete_model=earnings is not None and earnings_label!='EBIT' and fcff is not None and fcff>0 and debt is not None
             fallback_date=pd.Timestamp('2026-09-30')
             model_date=pd.to_datetime(out.get('period'),errors='coerce')
