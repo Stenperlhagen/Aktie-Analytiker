@@ -39,6 +39,27 @@ class QualityTests(unittest.TestCase):
         self.assertIsNone(calc("ABC.ST")["target"])
         self.assertEqual(calls,[{},{}])
 
+    def test_roko_r12_filing_includes_all_debt_and_unadjusted_ebita(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("abb_r12_ebita",ns)
+        record={"currency":"SEK","net_Sales":7754,"operating_Income":1326,
+                "cash_Flow_From_Operating_Activities":1329,"net_Debt":2811}
+        period="2026-09-30"
+        result=calc("ROKO-B.ST",record,period)
+        self.assertEqual(result["value"],1602e6)
+        self.assertEqual(result["net_debt"],5609e6)
+        self.assertAlmostEqual(result["fcff"],(1326*(1-333/1196)+482+15-86)*1e6)
+        for debt in (2044,4842,5609):
+            self.assertEqual(calc("ROKO-B.ST",{**record,"net_Debt":debt},period)["net_debt"],5609e6)
+        self.assertNotIn("net_debt",calc("ROKO-B.ST",{**record,"net_Debt":123},period))
+        self.assertNotIn("fcff",calc("ROKO-B.ST",{**record,"net_Debt":123},period))
+        self.assertNotIn("fcff",calc("ROKO-B.ST",{**record,"cash_Flow_From_Operating_Activities":1000},period))
+        self.assertIsNone(calc("ROKO-B.ST",{**record,"currency":"EUR"},period))
+        self.assertIsNone(calc("ROKO-B.ST",record,"2026-06-30"))
+        self.assertIsNone(calc("ROKO-B.ST",{**record,"operating_Income":1000},period))
+
     def test_numeric(self):
         numeric = load_function("numeric", {"math": math, "pd": pd})
         for x in (None, float("nan"), float("inf"), -float("inf"), "bad"):

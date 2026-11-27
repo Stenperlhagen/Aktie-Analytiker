@@ -2028,6 +2028,42 @@ def abb_r12_ebita(symbol, record, period):
                            'leasingamortering; framtida nyttjanderättsinvesteringar behöver normaliseras. '
                            'EBITA avser rapporterat EBIT före avskrivning på förvärvsrelaterade övervärden.'))
         return result
+    if symbol=='ROKO-B.ST':
+        # Röko Q3 2026 pp. 1, 10, 12, 25-26. R12 = FY 2025 + 9M 2026 - 9M 2025.
+        # Use all reported intangible amortisation, not Adj. EBITA (which excludes acquisition costs).
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'net_Sales')
+        if sales is None: sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        if sales is None or ebit is None or abs(sales-(6452+6078-4776))>1.5 or abs(ebit-(1051+1033-758))>1.5:
+            return None
+        result={'value':(1051+1033-758+242+214-180)*1e6,'sources':(
+            'https://storage.mfn.se/145548d3-0c30-4290-ab30-4aede238dc47/261023-roko-delarsrapport-q32026-final.pdf',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        # Recognise only the four precisely identifiable debt definitions.
+        # The enterprise-to-equity bridge must include both IFRS 16 liabilities
+        # and put/call option / contingent consideration debt (not double count).
+        if debt is not None and min(abs(debt-x) for x in (2044,2811,4842,5609))<=1.5:
+            result['net_debt']=5609e6
+            result['debt_note']='Röko Q3 2026: 2 044 MSEK räntebärande nettoskuld + 767 MSEK leasingskulder + 2 798 MSEK optionsskulder och tilläggsköpeskillingar.'
+        if ocf is not None and abs(ocf-(1073+973-717))<=1.5 and 'net_debt' in result:
+            pretax=1010+918-732
+            tax_rate=(pretax-(755+661-553))/pretax
+            noncash=422+371-311
+            wc=-24-71+110
+            capex=(15+7-13)+(52+65-40)
+            result.update(
+                fcff=((1051+1033-758)*(1-tax_rate)+noncash+wc-capex)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Röko R12: rapporterat EBIT efter effektiv skatt, plus ej kassaflödespåverkande poster '
+                           'och rörelsekapitalets kassaflödeseffekt, minus bruttoinvesteringar i materiella och '
+                           'immateriella tillgångar. Historiskt FCFF före förvärv, avyttringar och '
+                           'leasingamortering; normalisera framtida förvärv, leasinginvesteringar och '
+                           'utbetalningar för minoritetsandelar före prognos.'))
+        return result
     if symbol=='INDT.ST':
         # Indutrade Q3 2026 pp. 1, 6, 17 and 27; consolidated R12 MSEK.
         if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
@@ -2583,6 +2619,9 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                         elif abs(rebita-filing['value'])>0.6e6:
                             # Do not attach a conflicting filing to provider EBITA.
                             filing=None
+                    if filing and filing.get('net_debt') is not None:
+                        # Use a filing-reconciled, complete debt definition only for this same R12 period.
+                        rdebt=filing['net_debt']
                     if rebita is None and rebit is not None:
                         amort=ramount('amortization_Of_Intangibles')
                         if amort is not None: rebita=rebit+abs(amort)
@@ -2625,6 +2664,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                         if filing:
                             out['ebita_sources']=filing['sources']
                             if filing.get('fcff_note'): out['fcff_note']=filing['fcff_note']
+                            if filing.get('debt_note'): out['debt_note']=filing['debt_note']
                             if filing.get('fcff_tax_rate') is not None: out['fcff_tax_rate']=filing['fcff_tax_rate']
                             out['source']+=' + bolagsrapport (avstämd EBITA)'
                         if rebita is None: out['missing'].append('R12: separat EBITA saknas.')
@@ -2723,6 +2763,10 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 audit.append('Atlas Copco: historiskt FCFF före förvärv; verifiera framtida leasinginvesteringar och skillnader i A- och B-aktiernas marknadsvärde före signal')
             if symbol=='LAGR-B.ST' and r12_used and out.get('fcff_note'):
                 audit.append('Lagercrantz: historiskt FCFF före förvärv; verifiera framtida leasing, förvärvsfinansiering och minoritetsoptioner före signal')
+            if symbol=='ROKO-B.ST':
+                if not r12_used or not out.get('debt_note'):
+                    audit.append('Röko: nettoskuld inklusive leasing, köp-/säljoptioner och tilläggsköpeskillingar ej avstämd.')
+                audit.append('Röko: historiskt FCFF före förvärv; verifiera framtida förvärvsfinansiering, leasing och minoritetsutbetalningar före signal.')
             if symbol=='ALIF-B.ST' and r12_used and out.get('fcff_note'):
                 audit.append('AddLife: historiskt FCFF före förvärv; normalisera engångsposter, leasing och förvärvsfinansiering före signal')
             if symbol=='ADDT-B.ST' and r12_used and out.get('fcff_note'):
@@ -2740,6 +2784,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 out['assumptions']['EV/EBIT']=effective_multiple
             preferred_market=info.get('_preferred_cap')
             adjusted_debt=debt+preferred_market/fx if debt is not None and preferred_market is not None and fx and fx>0 else None
+            if symbol=='ROKO-B.ST' and (not r12_used or not out.get('debt_note')):
+                adjusted_debt=None  # Do not value the shares on an incomplete debt definition.
             multiple_value=comparable_ev_ebita(earnings,adjusted_debt,shares,effective_multiple,fx)
             if multiple_value is not None: out['models']['EV/EBIT' if use_ebit else 'EV/EBITA']=multiple_value
             else: out['missing'].append('EV/EBITA: jämförbar EBITA, nettoskuld, aktier eller valuta')
