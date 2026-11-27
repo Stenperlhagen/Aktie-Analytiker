@@ -1736,6 +1736,38 @@ def abb_r12_ebita(symbol, record, period):
                                'Historiskt kassaflöde före förvärv och leasingamortering; framtida leasinginvesteringar '
                                'måste normaliseras separat. Nettoskuld inklusive leasing är avstämd.'))
         return result
+    if symbol=='VOLO.ST':
+        # Volati Q3 2026, pp. 2, 15, 16, 27. R12 continuing operations
+        # exclude Salix (distributed June 2026); the IFRS cash-flow
+        # statement includes discontinued operations and cannot be used as FCFF.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'net_Sales')
+        if sales is None: sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        if sales is None or ebit is None or abs(sales-4594)>1.5 or abs(ebit-155)>1.5:
+            return None
+        result={'value':245e6,'sources':(
+            'https://www.volati.se/backnet/media_archive/original/a00ead089b7fc173aac6ad515b745056.pdf',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        # Balance-sheet debt including all IFRS 16 leases less cash, not
+        # Volati's alternative net-debt measure (excludes operating leases).
+        inclusive_debt=1464+19+281+115-210
+        if (ocf is not None and abs(ocf-566)<=1.5 and
+            debt is not None and abs(debt-inclusive_debt)<=1.5):
+            tax_rate=0.206
+            # Use only continuing-operations APM components on p. 27.
+            # Group IFRS operating cash flow is solely a reconciliation check.
+            result.update(
+                fcff=(155*(1-tax_rate)+(461-155)-12+85-97)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Volati R12 kvarvarande verksamhet: rapporterat EBIT efter antagen rörelseskatt 20,6 %, '
+                           'plus avskrivningar enligt EBITDA minus EBIT, justerat för övriga icke-kassaflödesposter, '
+                           'rörelsekapital och nettoinvesteringar. Salix ingår inte. Historiskt FCFF före förvärv '
+                           'och leasingamortering; framtida leasinginvesteringar och preferenskapital måste verifieras.'))
+        return result
     if symbol=='LAGR-B.ST':
         # Lagercrantz Q2 2026/27, pp. 12, 15, 17: exact R12 original SEK.
         if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
