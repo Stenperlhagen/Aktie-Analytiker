@@ -2851,7 +2851,9 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
     elif category in ('Fastigheter','Investmentbolag / kapitalförvaltning'):
         nav=current_reported_nav(symbol,currency)
         if nav:
-            out['models']['Rapporterat NAV']=nav['nav']
+            out['nav_reference']=nav['nav']
+            out['method']='Rapporterat substansvärde (referens)'
+            out['missing'].append('Oberoende värderingsmodell saknas; rapporterat NAV är inte en riktkurs.')
             out['period']=nav['date']
             out['source']=nav['source']
             out['nav_kind']=nav['kind']
@@ -2973,7 +2975,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
         out['upside']=(target/price-1)*100
         out['buy_limit']=target*0.8
         out['status']='Undervärderad enligt modellen' if out['upside']>=20 else 'Övervärderad enligt modellen' if out['upside']<=-20 else 'Rimligt värderad enligt modellen'
-    else: out['status']='Modellvärde – aktuell kurs saknas' if target is not None else 'Saknat underlag'
+    else: out['status']='Modellvärde – aktuell kurs saknas' if target is not None else 'Rapporterat NAV – riktkurs saknas' if out.get('nav_reference') is not None else 'Saknat underlag'
     if target is not None and out.get('audit'):
         out['status']='Preliminär värdering – kontroll krävs'
     return out
@@ -5095,6 +5097,10 @@ with four:
         if v.get('price') is not None: fig.add_vline(x=v['price'],line_dash='dash',line_color='#64748b',annotation_text='Aktuell kurs')
         fig.update_layout(template='plotly_white',height=max(230,65*len(model_rows)+80),margin=dict(l=10,r=85,t=35,b=15),xaxis_title=ccy,yaxis=dict(autorange='reversed'))
         st.plotly_chart(fig,use_container_width=True)
+    elif v.get('nav_reference') is not None:
+        st.metric('Rapporterat substansvärde per aktie (referens)',show(v['nav_reference'],' '+ccy,2))
+        st.caption(str(v.get('nav_kind') or 'NAV')+' · '+str(v.get('period') or '')+' · [Källa]('+str(v.get('source') or '')+')')
+        st.info('Substansvärdet är inte en oberoende riktkurs. Kurspotential beräknas först när en självständig modell finns.')
     else: st.info('Värderingsunderlag saknas.')
     implied=numeric(v.get('reverse_growth'))
     assumed=numeric(v.get('assumptions',{}).get('FCFF-tillväxt (%)'))

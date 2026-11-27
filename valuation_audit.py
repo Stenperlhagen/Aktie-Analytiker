@@ -72,6 +72,13 @@ def tests():
     assert nav and nav['nav']==97.03 and nav['date']=='2026-09-30'
     assert current_reported_nav('BALD-B.ST','EUR','2026-11-27') is None
     assert current_reported_nav('BALD-B.ST','SEK','2027-04-01') is None
+    from unittest.mock import patch
+    # Explicitly freeze the published report date, independent of runner clock.
+    with patch.dict(globals(),{'current_reported_nav':lambda symbol,currency: nav}):
+        nav_model=valuation_engine('BALD-B.ST',{'currentPrice':80,'currency':'SEK','financialCurrency':'SEK','sharesOutstanding':100,'marketCap':8000,'_cap_verified':True},pd.DataFrame(),pd.DataFrame(),pd.DataFrame(),{},pd.DataFrame(),use_roic=False)
+    assert nav_model['nav_reference']==97.03 and nav_model['nav_kind']
+    assert not nav_model['models'] and nav_model['target'] is None
+    assert nav_model.get('upside') is None and nav_model.get('buy_limit') is None
     # Registry is a checked-in set of independently observed Avanza listing identities,
     # never a substitute for fresh detail validation in production.
     registry_path=pathlib.Path(__file__).with_name('avanza-registry.json')
@@ -522,7 +529,9 @@ if __name__=='__main__':
             stamp=numeric(avanza.get('quote_timestamp'))
             quote_age=dt.datetime.now(dt.timezone.utc).timestamp()-stamp/1000 if stamp is not None else None
             fresh=bool(avanza.get('verified') and numeric(avanza.get('price')) is not None and avanza['price']>0 and quote_age is not None and 0<=quote_age<=7*86400 and avanza.get('currency')==v.get('currency'))
-            nav_only=set(v.get('models',{}))=={'Rapporterat NAV'}
+            nav_only=v.get('nav_reference') is not None and not v.get('models')
+            if nav_only:
+                assert v.get('target') is None and v.get('upside') is None and v.get('buy_limit') is None, 'NAV reference leaked into target or upside'
             rows.append({'avanza_identity_verified':bool(avanza.get('verified')),'avanza_fresh_quote':fresh,'avanza_quote_timestamp':stamp,'nav_reference_only':nav_only,'upside':v.get('upside'),'price_source':info.get('_price_source'),'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Source not recorded'),'fetch_errors':str(errors),'annual_reports':not fin.empty,'price_history':not hist.empty,'report_verified':bool((v.get('r12_ebita_evidence') or {}).get('source')=='Bolagsrapport (avstämd)' or (nav_only and v.get('nav_kind'))),'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
         except Exception as e:
             failures.append(symbol+': '+str(e))
