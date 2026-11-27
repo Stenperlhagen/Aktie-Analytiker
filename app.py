@@ -336,7 +336,7 @@ def yahoo_annual_statements(symbol,trade_currency,report_currency):
             if isinstance(frame,pd.DataFrame) and not frame.empty:
                 frame=frame.copy()
                 frame.columns=pd.to_datetime(frame.columns,errors='coerce',utc=True).tz_localize(None).normalize()
-                frame=frame.loc[:,frame.columns.notna() & ~frame.columns.duplicated()]
+                frame=frame.loc[:,frame.columns.notna() & ~frame.columns.duplicated(keep=False)]
                 statements.append(frame)
                 continue
         except Exception:
@@ -366,11 +366,13 @@ def yahoo_r12_bridge(income, cash, record, period, trailing=False):
         return abs(value-reference)<=max(0.5e6,0.02*max(abs(value),abs(reference)))
     revenue=total(income,['Total Revenue'])
     ebit=total(income,['Operating Income'])
+    reported_ebit=total(income,['Total Operating Income As Reported'])
     operating_revenue=total(income,['Operating Revenue'])
     # Yahoo Total Revenue can be consolidated net sales rather than total
     # operating revenue (other operating income is reported separately).
     if not ((matches(revenue,'revenues') or matches(revenue,'net_Sales') or
-             matches(operating_revenue,'net_Sales')) and matches(ebit,'operating_Income')): return {}
+             matches(operating_revenue,'net_Sales')) and
+            (matches(ebit,'operating_Income') or matches(reported_ebit,'operating_Income'))): return {}
     result={}
     explicit=total(income,['EBITA'])
     amort=total(income,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'])
@@ -433,7 +435,8 @@ def comparable_yahoo_periods(primary,secondary):
         left,right=numeric(primary.at[left_label,period]),numeric(secondary.at[right_label,period])
         return left is not None and right is not None and abs(left-right)<=max(0.5e6,0.02*max(abs(left),abs(right)))
     for period in primary.columns.intersection(secondary.columns):
-        if close(period,'Operating Income','Operating Income') and (
+        if (close(period,'Operating Income','Operating Income') or
+            close(period,'Operating Income','Total Operating Income As Reported')) and (
             close(period,'Total Revenue','Total Revenue') or
             close(period,'Net Sales','Total Revenue') or
             close(period,'Net Sales','Operating Revenue')):
@@ -513,6 +516,8 @@ def fetch(ticker):
     if av_error: errors['Avanza']=av_error
     if not info.get('currentPrice') and av.get('verified') and av.get('price') and av.get('currency')==info.get('currency'):
         info['currentPrice']=av['price']
+        info['regularMarketPrice']=av['price']
+        quick['last_price']=av['price']
         info['_price_source']='Avanza (reserv)'
     records,r12_error=borsapi_r12_response(ticker,borsapi_key())
     if r12_error: errors['Börsdata R12']=r12_error
