@@ -346,6 +346,7 @@ def tests():
     assert matched['value']==245e6
     assert abs(matched['fcff']-(155*(1-0.206)+306-12+85-97)*1e6)<1
     assert abb_r12_ebita('VOLO.ST',{**vol,'net_Sales':6500},'2026-09-30') is None
+    assert abb_r12_ebita('VOLO.ST',{**vol,'revenues':6500},'2026-09-30') is None
     assert abb_r12_ebita('VOLO.ST',{**vol,'currency':'EUR'},'2026-09-30') is None
     assert abb_r12_ebita('VOLO.ST',{**vol,'operating_Income':235},'2026-09-30') is None
     assert abb_r12_ebita('VOLO.ST',vol,'2026-06-30') is None
@@ -416,6 +417,19 @@ def tests():
         assert current['operating_inputs']['FCFF'] is None
         assert current['operating_inputs']['Nettoskuld'] is None
         assert current['target'] is None
+        # Volati IFRS group cash flow still includes discontinued Salix.
+        # A matched filing is required even if generic inputs look complete.
+        group_vol={**vol,'ebita':245,'depreciation_And_Amortization':306,
+                   'capital_Expenditure':97,'change_In_Working_Capital':85,
+                   'cash_Flow_From_Operating_Activities':321}
+        globals()['borsapi_r12_records']=lambda *args: [{**group_vol,'report_End_Date':'2026-09-30'}]
+        current=valuation_engine('VOLO.ST',{**info,'sector':'Industrials'},fin,cash,balance,{},pd.DataFrame())
+        assert current['operating_period']=='2026-09-30'
+        assert current['operating_inputs']['EBITA']==245e6
+        assert current['operating_inputs']['FCFF'] is None and 'DCF' not in current['models']
+        globals()['borsapi_r12_records']=lambda *args: [{**group_vol,**vol,'report_End_Date':'2026-09-30'}]
+        current=valuation_engine('VOLO.ST',{**info,'sector':'Industrials'},fin,cash,balance,{},pd.DataFrame())
+        assert abs(current['operating_inputs']['FCFF']-(155*(1-0.206)+306-12+85-97)*1e6)<1
         globals()['borsapi_r12_records']=lambda *args: [{**r12_record,'currency':'USD'}]
         current=valuation_engine('VOLO-TEST.ST',{**info,'sector':'Industrials'},fin,cash,balance,{},pd.DataFrame())
         assert current['operating_period']=='2025-12-31'
