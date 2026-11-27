@@ -3132,16 +3132,10 @@ def growth_stability(fin):
 def screener_snapshot(symbol):
     try:
         info,hist,fin,cash,balance,quick,errors=fetch(symbol)
-        try:
-            result=valuation_engine(symbol,info,fin,cash,balance,quick,hist)
-        except Exception as exc:
-            result=valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=False)
-            result['missing'].append('Primär modell: '+type(exc).__name__+': '+str(exc)[:200])
-        if result.get('target') is None and roic_key():
-            fallback=valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=False)
-            if fallback.get('target') is not None:
-                fallback['missing'].append('ROIC-underlag gav ingen riktkurs; extern reservmodell används.')
-                result=fallback
+        # The legacy flag disables primary R12 retrieval, not just ROIC.
+        # Never retry with older annual data merely because current R12 cannot
+        # support a target, or the primary model raised an exception.
+        result=valuation_engine(symbol,info,fin,cash,balance,quick,hist)
         result['website']=info.get('website')
         if result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
             result['stability']=growth_stability(fin)
@@ -3154,10 +3148,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v51-combined':
+if st.session_state.get('screener_model_version')!='unified-v52-primary-r12':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v51-combined'
+    st.session_state['screener_model_version']='unified-v52-primary-r12'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -3365,11 +3359,11 @@ if pe is None and price is not None and price>0 and quote_ccy:
                 eps_value,eps_origin=candidate,'ROIC'
                 break
         # Börsdata års-EPS får bara användas när årsperioden överensstämmer.
-        if eps_value is None and report_year and fin is not None and not fin.empty:
+        if eps_value is None and report_end and report.get('currency')==report_ccy and fin is not None and not fin.empty:
             for column in fin.columns:
-                try: column_year=str(pd.Timestamp(column).year)
+                try: column_date=str(pd.Timestamp(column).date())
                 except (TypeError,ValueError): continue
-                if column_year!=report_year: continue
+                if column_date!=report_end: continue
                 for row in ('Diluted EPS','Basic EPS'):
                     if row in fin.index:
                         candidate=numeric(fin.loc[row,column])
@@ -3414,7 +3408,7 @@ if _roic_income and market_cap is not None and market_cap>0 and quote_ccy:
     report_date=str(inc.get('period_end_date') or '')[:10]
     report_currency=inc.get('currency')
     ebita_annual=_record_number(inc,('is_ebita','ebita'))
-    if report_date and report_currency and ebita_annual is not None and ebita_annual>0:
+    if report_date and report_currency and report_currency==report_ccy and ebita_annual is not None and ebita_annual>0:
         balance_match=next((x for x in roic_balance if str(x.get('period_end_date') or '')[:10]==report_date and x.get('currency')==report_currency),None)
         debt_annual=_record_number(balance_match,(
             'bs_total_debt','total_debt','totalDebt','bs_short_long_term_debt_total',
@@ -3497,7 +3491,7 @@ valuation_result=screener_snapshot(ticker)
 # Selected company already has fetched statements; retry directly rather than relying on a cached failed snapshot.
 if valuation_result.get('target') is None:
     try:
-        direct_result=valuation_engine(ticker,info,fin,cash,balance,quick,hist,use_roic=False)
+        direct_result=valuation_engine(ticker,info,fin,cash,balance,quick,hist)
         if direct_result.get('target') is not None: valuation_result=direct_result
         else: valuation_result['missing']=list(dict.fromkeys(valuation_result.get('missing',[])+direct_result.get('missing',[])))
     except Exception as exc:
@@ -3542,7 +3536,7 @@ elif pe is None and report_ccy and quote_ccy and price and price>0:
             break
 if dividend_yield is None: dividend_yield=trailing_dividend_yield(ticker,valuation_price)
  # No unlabelled provider-period fallback for annual ROE or growth.
-if _roic_income:
+if _roic_income and report_ccy and _roic_income[0].get('currency')==report_ccy:
     latest=_roic_income[0]
     if revenue is None: revenue=_record_number(latest,('is_sales_revenue_turnover','revenue','total_revenue'))
     if margin is None:
@@ -3562,11 +3556,7 @@ if ev_ebita is None and report_ccy and quote_ccy and market_cap is not None and 
             operating=_annual_balance_value(fin,['Operating Income','EBIT'],period)
             amort=_annual_balance_value(fin,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
             if amort is None: amort=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
-            if amort is None:
-                total_da=_annual_balance_value(cash,['Depreciation And Amortization','Depreciation Amortization Depletion'],period)
-                depreciation=_annual_balance_value(cash,['Depreciation','Depreciation And Depletion'],period)
-                if total_da is not None and depreciation is not None and abs(total_da)>=abs(depreciation):
-                    amort=abs(total_da)-abs(depreciation)
+            # Only explicit intangible amortization is accepted in annual overview.
             if operating is not None and amort is not None: annual_ebita=operating+abs(amort)
         annual_debt=_annual_balance_value(balance,['Net Debt'],period)
         if annual_debt is None:
