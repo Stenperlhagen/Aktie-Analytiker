@@ -1736,6 +1736,41 @@ def abb_r12_ebita(symbol, record, period):
                                'Historiskt kassaflöde före förvärv och leasingamortering; framtida leasinginvesteringar '
                                'måste normaliseras separat. Nettoskuld inklusive leasing är avstämd.'))
         return result
+    if symbol=='SAND.ST':
+        # Sandvik Q3 2026 pp. 1, 13, 15, 21 and Q4 2025 pp. 1, 15.
+        # R12 = 9M 2026 + Q4 2025. Reverse the published IAC adjustments;
+        # the company's EBITA also excludes acquisition-related D&A/impairment.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'net_Sales')
+        if sales is None: sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        reported_ebit=20491+5885
+        if sales is None or ebit is None or abs(sales-(105164+32461))>1.5 or abs(ebit-reported_ebit)>1.5:
+            return None
+        result={'value':(22920-1041+6373-57)*1e6,'sources':(
+            'https://mb.cision.com/Main/208/4413645/4331953.pdf',
+            'https://gamma.home.sandvik/siteassets/investors/reports--presentations/interim-reports/2025/interim-report-q4-2025.pdf',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        if (ocf is not None and abs(ocf-(14499+7405))<=1.5 and
+            debt is not None and abs(debt-36949)<=1.5):
+            tax_rate=(4810+1366)/(19695+5566)
+            da=6032+1885
+            # Rental equipment capex is classified in operating cash flow;
+            # count it once in gross capex, alongside PPE and intangibles.
+            capex=824+209+2119+819+631+206
+            wc=-8130+450
+            result.update(
+                fcff=(reported_ebit*(1-tax_rate)+da-capex+wc)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Sandvik R12: EBIT efter effektiv rapporterad skatt, plus av- och nedskrivningar, '
+                           'minus bruttoinvesteringar i materiella och immateriella tillgångar samt '
+                           'uthyrningsutrustning, med rörelsekapitalets kassaflödeseffekt. Historiskt '
+                           'före förvärv och leasingamortering; normalisera framtida leasinginvesteringar '
+                           'och övriga icke-kassaflödesposter. Nettoskuld inklusive pensioner och leasing är avstämd.'))
+        return result
     if symbol=='LIFCO-B.ST':
         # Lifco Q3 2026 consolidated IFRS and APM reconciliation.
         # R12 = FY 2025 + 9M 2026 - 9M 2025. Use EBITA after acquisition
