@@ -1697,6 +1697,9 @@ def abb_r12_ebita(symbol, record, period):
     # Source pages are 1 (Bravida, Instalco), 11 and 14 (Addtech),
     # and 1, 15, 16, 18 and 28 (Bokusgruppen).
     filings={
+        # Volati Q3 2026 p. 2: IFRS 5 restated continuing operations after Salix distribution.
+        # Require both restated R12 anchors; never combine pre-demerger earnings with post-demerger debt.
+        'VOLO.ST':(4594,155,245,'https://storage.mfn.se/6ab6cdeb-5198-4c76-8f43-b6e00bdb21fc/volati-q3-report-2026.pdf'),
         'BOKUS.ST':(2210.3,106.7,152.6,'https://storage.mfn.se/81dda649-d26e-4ccd-9dfe-bcc080ed3b11/bokusgruppen-ab-publ-delarsrapport-januari-september-2026.pdf'),
         'BRAV.ST':(29614,1996,1996,'https://www.bravida.se/4aa4cd/contentassets/9f029b25d6b5454f975af1a2bbb580f6/en-bravidainterimreportjulyseptember2026.pdf'),
         'ADDT-B.ST':(23493,3288,3888,'https://attachment.news.eu.nasdaq.com/aefe28c8ca9dfc813d7f28af3fed5608b'),
