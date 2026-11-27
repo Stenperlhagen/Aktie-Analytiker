@@ -1736,6 +1736,38 @@ def abb_r12_ebita(symbol, record, period):
                                'Historiskt kassaflöde före förvärv och leasingamortering; framtida leasinginvesteringar '
                                'måste normaliseras separat. Nettoskuld inklusive leasing är avstämd.'))
         return result
+    if symbol=='LIFCO-B.ST':
+        # Lifco Q3 2026 consolidated IFRS and APM reconciliation.
+        # R12 = FY 2025 + 9M 2026 - 9M 2025. Use EBITA after acquisition
+        # expenses (6,764), not the adjusted headline amount (6,790).
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'net_Sales')
+        if sales is None: sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        if sales is None or ebit is None or abs(sales-29822)>1.5 or abs(ebit-5597)>1.5:
+            return None
+        result={'value':(6273+5054-4563)*1e6,'sources':(
+            'https://mfn.se/a/lifco/interim-report-january-september-2026',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        # Require debt including leases AND acquisition options.
+        if (ocf is not None and abs(ocf-(5124+3514-3138))<=1.5 and
+            debt is not None and abs(debt-12321)<=1.5):
+            tax_rate=0.206
+            da=1858+1486-1357
+            wc=(-29-146+263)+(-210-315-148)-(-360-450+305)
+            capex=(432+40)+(255+26)-(309+24)
+            result.update(
+                fcff=(5597*(1-tax_rate)+da+wc-capex)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Lifco R12: EBIT efter antagen rörelseskatt 20,6 %, plus avskrivningar, '
+                           'minus nettoinvesteringar och med rörelsekapitalets kassaflödeseffekt. '
+                           'Historiskt före förvärv och leasingamortering; framtida leasinginvesteringar '
+                           'och minoritetsintressen måste beaktas. Nettoskuld inklusive förvärvsoptioner '
+                           'och leasing är avstämd.'))
+        return result
     if symbol=='VOLO.ST':
         # Volati Q3 2026, pp. 2, 15, 16, 27. R12 continuing operations
         # exclude Salix (distributed June 2026); the IFRS cash-flow
