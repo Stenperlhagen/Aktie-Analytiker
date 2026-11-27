@@ -206,6 +206,17 @@ def tests():
     assert abb_r12_ebita('ALIF-A.ST',addlife,'2026-09-30') is None
     assert 'fcff' not in abb_r12_ebita('ALIF-B.ST',{**addlife,'net_Debt':3866},'2026-09-30')
     assert 'fcff' not in abb_r12_ebita('ALIF-B.ST',{**addlife,'cash_Flow_From_Operating_Activities':1000},'2026-09-30')
+    lag={'currency':'SEK','revenues':11576,'net_Sales':11576,'operating_Income':1838,
+         'cash_Flow_From_Operating_Activities':1498,'net_Debt':5190}
+    matched=abb_r12_ebita('LAGR-B.ST',lag,'2026-09-30')
+    assert matched['value']==2080e6
+    assert abs(matched['fcff_tax_rate']-335/1667)<1e-10
+    assert abs(matched['fcff']-(1838*(1-335/1667)+614-226-159-299+152)*1e6)<1
+    for wrong in ({'currency':'EUR'},{'operating_Income':1900},{'net_Sales':11000}):
+        assert abb_r12_ebita('LAGR-B.ST',{**lag,**wrong},'2026-09-30') is None
+    assert abb_r12_ebita('LAGR-B.ST',lag,'2026-06-30') is None
+    assert 'fcff' not in abb_r12_ebita('LAGR-B.ST',{**lag,'net_Debt':4659},'2026-09-30')
+    assert 'fcff' not in abb_r12_ebita('LAGR-B.ST',{**lag,'cash_Flow_From_Operating_Activities':1300},'2026-09-30')
     # No secondary provider may replace the annual frames passed by fetch().
     original_roic=roic_company_data
     original_reports=borsapi_reports
@@ -244,7 +255,7 @@ if __name__=='__main__':
     globals()['ecb_exchange_rates']=lru_cache(maxsize=1)(ecb_exchange_rates)
     ALL_COMPANIES={name:sym for name,sym in ALL_COMPANIES.items() if sym not in {'FNOX.ST','COALA.ST','ADDV-B.ST','ADDV-A.ST'}}
     if '--probe' in sys.argv:
-        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-B.ST','TRUE-B.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ALIF-B.ST'):
+        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-B.ST','TRUE-B.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ALIF-B.ST','LAGR-B.ST'):
             key=borsapi_key()
             info,hist,fin,cash,balance,quick,errors=fetch(symbol)
             annual,_=borsapi_reports(symbol,key)
@@ -289,7 +300,7 @@ if __name__=='__main__':
                               'matched components',sorted(bridge),flush=True)
                 except Exception as exc:
                     print(symbol,'Yahoo diagnostic failure',type(exc).__name__,flush=True)
-            if symbol in ('ABB.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST'):
+            if symbol in ('ABB.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST','LAGR-B.ST'):
                 if trailing:
                     record=trailing[0]
                     period=str(record.get('report_End_Date') or record.get('reportEndDate'))[:10]
