@@ -1736,6 +1736,32 @@ def abb_r12_ebita(symbol, record, period):
                                'Historiskt kassaflöde före förvärv och leasingamortering; framtida leasinginvesteringar '
                                'måste normaliseras separat. Nettoskuld inklusive leasing är avstämd.'))
         return result
+    if symbol=='LAGR-B.ST':
+        # Lagercrantz Q2 2026/27, pp. 12, 15, 17: exact R12 original SEK.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'net_Sales')
+        if sales is None: sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        if sales is None or ebit is None or abs(sales-11576)>1.5 or abs(ebit-1838)>1.5:
+            return None
+        result={'value':2080e6,'sources':(
+            'https://storage.mfn.se/032d3804-2ff2-41fb-9744-2bfd11515488/interim-report-q2-2026-27.pdf',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        # Reconcile IFRS 16/pension-inclusive debt, not operating net debt.
+        if (ocf is not None and abs(ocf-1498)<=1.5 and
+            debt is not None and abs(debt-5190)<=1.5):
+            tax_rate=(1667-1332)/1667
+            result.update(
+                fcff=(1838*(1-tax_rate)+(2452-1838)-226-159-299+152)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Lagercrantz R12: EBIT efter effektiv skatt, plus rapporterade avskrivningar, '
+                           'minus nettoinvesteringar utanför företagsförvärv och med rörelsekapitalets '
+                           'kassaflödeseffekt. Historisk FCFF före förvärv; framtida leasinginvesteringar, '
+                           'förvärvsfinansiering och optioner avseende minoritetsandelar behöver normaliseras.'))
+        return result
     if symbol=='ALIF-B.ST':
         # AddLife's official Q3 2026 report provides unadjusted consolidated
         # EBITA and the complete R12 cash-flow reconciliation in original SEK.
@@ -2423,6 +2449,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 audit.append('Bokusgruppen: historiskt FCFF före leasingamortering; normalisera framtida nyttjanderättsinvesteringar före köp-/säljsignal')
             if symbol in ('ATCO-A.ST','ATCO-B.ST') and r12_used and out.get('fcff_note'):
                 audit.append('Atlas Copco: historiskt FCFF före förvärv; verifiera framtida leasinginvesteringar och skillnader i A- och B-aktiernas marknadsvärde före signal')
+            if symbol=='LAGR-B.ST' and r12_used and out.get('fcff_note'):
+                audit.append('Lagercrantz: historiskt FCFF före förvärv; verifiera framtida leasing, förvärvsfinansiering och minoritetsoptioner före signal')
             if symbol=='ALIF-B.ST' and r12_used and out.get('fcff_note'):
                 audit.append('AddLife: historiskt FCFF före förvärv; normalisera engångsposter, leasing och förvärvsfinansiering före signal')
             if symbol=='ADDT-B.ST' and r12_used and out.get('fcff_note'):
