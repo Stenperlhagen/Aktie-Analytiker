@@ -1713,9 +1713,6 @@ def abb_r12_ebita(symbol, record, period):
     # Source pages are 1 (Bravida, Instalco), 11 and 14 (Addtech),
     # and 1, 15, 16, 18 and 28 (Bokusgruppen).
     filings={
-        # Volati Q3 2026 p. 2: IFRS 5 restated continuing operations after Salix distribution.
-        # Require both restated R12 anchors; never combine pre-demerger earnings with post-demerger debt.
-        'VOLO.ST':(4594,155,245,'https://storage.mfn.se/6ab6cdeb-5198-4c76-8f43-b6e00bdb21fc/volati-q3-report-2026.pdf'),
         'BOKUS.ST':(2210.3,106.7,152.6,'https://storage.mfn.se/81dda649-d26e-4ccd-9dfe-bcc080ed3b11/bokusgruppen-ab-publ-delarsrapport-januari-september-2026.pdf'),
         'BRAV.ST':(29614,1996,1996,'https://www.bravida.se/4aa4cd/contentassets/9f029b25d6b5454f975af1a2bbb580f6/en-bravidainterimreportjulyseptember2026.pdf'),
         'ADDT-B.ST':(23493,3288,3888,'https://attachment.news.eu.nasdaq.com/aefe28c8ca9dfc813d7f28af3fed5608b'),
@@ -1914,7 +1911,9 @@ def abb_r12_ebita(symbol, record, period):
         sales=bd_field(record,'net_Sales')
         if sales is None: sales=bd_field(record,'revenues')
         ebit=bd_field(record,'operating_Income')
-        if sales is None or ebit is None or abs(sales-4594)>1.5 or abs(ebit-155)>1.5:
+        total_sales=bd_field(record,'revenues')
+        if (sales is None or ebit is None or abs(sales-4594)>1.5 or abs(ebit-155)>1.5 or
+            (total_sales is not None and abs(total_sales-4594)>1.5)):
             return None
         result={'value':245e6,'sources':(
             'https://www.volati.se/backnet/media_archive/original/a00ead089b7fc173aac6ad515b745056.pdf',
@@ -2675,9 +2674,12 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     rcapex=ramount('capital_Expenditure')
                     rwc=ramount('change_In_Working_Capital')
                     rfcff=filing.get('fcff') if filing else None
-                    if rfcff is None and all(v is not None for v in (rebit,rda,rcapex,rwc)):
-                        rfcff=rebit*(1-0.206)+rda-abs(rcapex)+rwc
-                    if rfcff is None: rfcff=bridge.get('fcff')
+                    # Volati's consolidated IFRS cash flow includes the distributed Salix business.
+                    # Only the explicitly reconciled continuing-operations filing can supply R12 FCFF.
+                    if symbol!='VOLO.ST':
+                        if rfcff is None and all(v is not None for v in (rebit,rda,rcapex,rwc)):
+                            rfcff=rebit*(1-0.206)+rda-abs(rcapex)+rwc
+                        if rfcff is None: rfcff=bridge.get('fcff')
                     # A newer currency-matched R12 with reconciled revenue and EBIT
                     # takes precedence even if an input is missing. An older annual
                     # EBITA/FCFF/debt must not mask missing or adverse current data.
