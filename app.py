@@ -1736,6 +1736,41 @@ def abb_r12_ebita(symbol, record, period):
                                'Historiskt kassaflöde före förvärv och leasingamortering; framtida leasinginvesteringar '
                                'måste normaliseras separat. Nettoskuld inklusive leasing är avstämd.'))
         return result
+    if symbol=='ALIF-B.ST':
+        # AddLife's official Q3 2026 report provides unadjusted consolidated
+        # EBITA and the complete R12 cash-flow reconciliation in original SEK.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'net_Sales')
+        if sales is None: sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        if sales is None or ebit is None or abs(sales-10698)>1.5 or abs(ebit-1079)>1.5:
+            return None
+        root='https://reports.add.life/en/interim-report-q3-2026/financial-information/'
+        result={'value':1501e6,'sources':(
+            root+'other-information/alternative-performance-measures/',
+            root+'group-summary/consolidated-cash-flow-statement/',
+            'https://reports.add.life/en/interim-report-q3-2026/summary/',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        net_debt=bd_field(record,'net_Debt')
+        # Net interest-bearing debt includes leases, pensions, contingent
+        # consideration and provisions. Reject different provider definitions.
+        if (ocf is not None and abs(ocf-1393)<=1.5 and
+            net_debt is not None and abs(net_debt-4746)<=1.5):
+            tax_rate=(894-646)/894
+            # EBIT + noncash adjustments + working-capital cash effect, minus
+            # net investments in non-current assets and assumed operating tax.
+            # Acquisition payments and lease principal are not included.
+            result.update(
+                fcff=(1079*(1-tax_rate)+740-9-279)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('AddLife R12: EBIT efter rapporterad effektiv skatt, plus kassaflödesjusteringar '
+                           'för poster utan kassaflöde, inklusive rörelsekapitalets kassaflödeseffekt, '
+                           'minus nettoinvesteringar i anläggningstillgångar. Historiskt FCFF före förvärv '
+                           'och leasingamortering; normalisera förvärv, avyttringsvinster, omvärderade '
+                           'tilläggsköpeskillingar och framtida leasinginvesteringar före prognos.'))
+        return result
     if symbol in ('ATCO-A.ST','ATCO-B.ST'):
         # Atlas Copco Q3 2026 and Q4 2025, consolidated MSEK.
         # R12 = Jan-Sep 2026 + Oct-Dec 2025, not two overlapping YTD periods.
@@ -2388,6 +2423,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 audit.append('Bokusgruppen: historiskt FCFF före leasingamortering; normalisera framtida nyttjanderättsinvesteringar före köp-/säljsignal')
             if symbol in ('ATCO-A.ST','ATCO-B.ST') and r12_used and out.get('fcff_note'):
                 audit.append('Atlas Copco: historiskt FCFF före förvärv; verifiera framtida leasinginvesteringar och skillnader i A- och B-aktiernas marknadsvärde före signal')
+            if symbol=='ALIF-B.ST' and r12_used and out.get('fcff_note'):
+                audit.append('AddLife: historiskt FCFF före förvärv; normalisera engångsposter, leasing och förvärvsfinansiering före signal')
             if symbol=='ADDT-B.ST' and r12_used and out.get('fcff_note'):
                 audit.append('Addtech: historiskt FCFF före förvärv; verifiera leasing, minoritetsintressen och framtida förvärvsfinansiering innan signal används')
             out['audit']=audit
