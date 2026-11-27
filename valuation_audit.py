@@ -207,6 +207,13 @@ def tests():
     assert abs(abb['fcff']-(6716*(1-1601/6702)+880-1077+208)*1e6)<1
     assert abb_r12_ebita('ABB.ST',{'currency':'USD','operating_Income':6000},'2026-09-30') is None
     bokus={'currency':'SEK','revenues':2210.3,'operating_Income':106.7}
+    # Volati: continuing operations only, following the Salix distribution.
+    volati={'currency':'SEK','revenues':4594,'operating_Income':155}
+    assert abb_r12_ebita('VOLO.ST',volati,'2026-09-30')['value']==245e6
+    assert abb_r12_ebita('VOLO.ST',{**volati,'revenues':7000},'2026-09-30') is None
+    assert abb_r12_ebita('VOLO.ST',{**volati,'operating_Income':300},'2026-09-30') is None
+    assert abb_r12_ebita('VOLO.ST',{**volati,'currency':'USD'},'2026-09-30') is None
+    assert abb_r12_ebita('VOLO.ST',volati,'2026-06-30') is None
     official=abb_r12_ebita('BOKUS.ST',bokus,'2026-09-30')
     assert official['value']==152.6e6 and 'fcff' not in official
     bokus_full={**bokus,'cash_Flow_From_Operating_Activities':268.6,'net_Debt':453.0}
