@@ -2431,7 +2431,14 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
             has_complete_model=earnings is not None and earnings_label!='EBIT' and fcff is not None and fcff>0 and debt is not None
             fallback_date=pd.Timestamp('2026-09-30')
             model_date=pd.to_datetime(out.get('period'),errors='coerce')
-            allow_report_fallback=(not has_complete_model and
+            # Legacy point-in-time snapshots must never replace an already
+            # reconciled R12 bundle or usable annual operating model. In
+            # particular, a missing EBITA is not permission to erase a
+            # verified FCFF, or to substitute older hard-coded share counts.
+            has_usable_annual=(earnings is not None and debt is not None and
+                               (earnings_label!='EBIT' or fcff is not None))
+            allow_report_fallback=(not has_complete_model and not r12_used and not has_usable_annual and
+                                   report=='SEK' and currency=='SEK' and
                                    0<=(pd.Timestamp.today().normalize()-fallback_date).days<=180 and
                                    (pd.isna(model_date) or model_date<=fallback_date))
             if allow_report_fallback and symbol=='VOLO.ST':
