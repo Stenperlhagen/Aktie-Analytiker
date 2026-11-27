@@ -373,6 +373,14 @@ def tests():
     assert abb_r12_ebita('ALFA.ST',alfa,'2026-06-30') is None
     assert 'fcff' not in abb_r12_ebita('ALFA.ST',{**alfa,'net_Debt':10260},'2026-09-30')
     assert 'fcff' not in abb_r12_ebita('ALFA.ST',{**alfa,'cash_Flow_From_Operating_Activities':7023},'2026-09-30')
+    # AFRY: use the reported unadjusted EBITA for the exact consolidated R12.
+    afry={'currency':'SEK','revenues':25276,'net_Sales':25276,'operating_Income':1448}
+    afry_r12=abb_r12_ebita('AFRY.ST',afry,'2026-09-30')
+    assert afry_r12['value']==1613e6 and 'fcff' not in afry_r12
+    assert abb_r12_ebita('AFRY.ST',{**afry,'revenues':25295},'2026-09-30')['value']==1613e6
+    for wrong in ({'currency':'EUR'},{'operating_Income':1613},{'net_Sales':25758},{'revenues':18629}):
+        assert abb_r12_ebita('AFRY.ST',{**afry,**wrong},'2026-09-30') is None
+    assert abb_r12_ebita('AFRY.ST',afry,'2026-06-30') is None
     # A genuine negative current cash flow must not be masked by positive
     # annual earnings/cash flow; mismatched currency must remain rejected.
     old_r12=borsapi_r12_records
@@ -475,7 +483,7 @@ if __name__=='__main__':
     globals()['ecb_exchange_rates']=lru_cache(maxsize=1)(ecb_exchange_rates)
     ALL_COMPANIES={name:sym for name,sym in ALL_COMPANIES.items() if sym not in {'FNOX.ST','COALA.ST','ADDV-B.ST','ADDV-A.ST'}}
     if '--probe' in sys.argv:
-        for symbol in ('ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-B.ST','TRUE-B.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ALIF-B.ST','LAGR-B.ST','LIFCO-B.ST','SAND.ST','ASSA-B.ST','EPI-A.ST','INDT.ST','ALFA.ST'):
+        for symbol in ('AFRY.ST','ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-B.ST','TRUE-B.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ALIF-B.ST','LAGR-B.ST','LIFCO-B.ST','SAND.ST','ASSA-B.ST','EPI-A.ST','INDT.ST','ALFA.ST'):
             key=borsapi_key()
             info,hist,fin,cash,balance,quick,errors=fetch(symbol)
             annual,_=borsapi_reports(symbol,key)
@@ -520,7 +528,7 @@ if __name__=='__main__':
                               'matched components',sorted(bridge),flush=True)
                 except Exception as exc:
                     print(symbol,'Yahoo diagnostic failure',type(exc).__name__,flush=True)
-            if symbol in ('ABB.ST','LIFCO-B.ST','VOLO.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST','LAGR-B.ST','SAND.ST','ASSA-B.ST','EPI-A.ST','INDT.ST'):
+            if symbol in ('AFRY.ST','ABB.ST','LIFCO-B.ST','VOLO.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST','LAGR-B.ST','SAND.ST','ASSA-B.ST','EPI-A.ST','INDT.ST'):
                 if trailing:
                     record=trailing[0]
                     period=str(record.get('report_End_Date') or record.get('reportEndDate'))[:10]
