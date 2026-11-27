@@ -393,6 +393,28 @@ def tests():
     assert comparable_yahoo_periods(fin,supplemental).empty
     supplemental.loc['Total Revenue',p]=1000e6
     assert list(comparable_yahoo_periods(fin,supplemental))==[p]
+    # The R12 amortization bridge requires matching four-quarter OCF,
+    # a coherent depreciation split and reconciliation to provider EBITDA.
+    dates=pd.DatetimeIndex(['2026-09-30','2026-06-30','2026-03-31','2025-12-31'])
+    income=pd.DataFrame([[250e6]*4,[50e6]*4],index=['Total Revenue','Operating Income'],columns=dates)
+    flows=pd.DataFrame([[60e6]*4,[20e6]*4,[15e6]*4],index=[
+        'Operating Cash Flow','Depreciation And Amortization','Depreciation'],columns=dates)
+    rec={'revenues':1000,'operating_Income':200,'ebitda':280,'cash_Flow_From_Operating_Activities':240}
+    assert yahoo_r12_bridge(income,flows,rec,'2026-09-30')['ebita']==220e6
+    assert 'ebita' not in yahoo_r12_bridge(income,flows.drop(index='Depreciation'),rec,'2026-09-30')
+    assert 'ebita' not in yahoo_r12_bridge(income,flows,{**rec,'cash_Flow_From_Operating_Activities':200},'2026-09-30')
+    assert 'ebita' not in yahoo_r12_bridge(income,flows,{**rec,'ebitda':310},'2026-09-30')
+    broken=flows.copy()
+    broken.loc['Depreciation',dates[0]]=21e6
+    assert 'ebita' not in yahoo_r12_bridge(income,broken,rec,'2026-09-30')
+    missing=flows.copy()
+    missing.loc['Depreciation',dates[0]]=float('nan')
+    assert 'ebita' not in yahoo_r12_bridge(income,missing,rec,'2026-09-30')
+    depletion=flows.rename(index={'Depreciation And Amortization':'Depreciation Amortization Depletion'})
+    assert 'ebita' not in yahoo_r12_bridge(income,depletion,rec,'2026-09-30')
+    depletion=depletion.rename(index={'Depreciation':'Depreciation And Depletion'})
+    assert yahoo_r12_bridge(income,depletion,rec,'2026-09-30')['ebita']==220e6
+    assert yahoo_r12_bridge(income.sum(axis=1).to_frame(dates[0]),flows.sum(axis=1).to_frame(dates[0]),rec,'2026-09-30',trailing=True)['ebita']==220e6
     print('Mathematical regression tests passed')
 
 if __name__=='__main__':
@@ -448,11 +470,11 @@ if __name__=='__main__':
                         print(symbol,'Yahoo',attrs[0],'income periods',int(needed.isin(frames[0].columns).sum()),
                               'cash periods',int(needed.isin(frames[1].columns).sum()),
                               'income labels',sorted(str(x) for x in frames[0].index if any(k in str(x).lower() for k in ('revenue','operating income','amort','ebita'))),
-                              'cash labels',sorted(str(x) for x in frames[1].index if any(k in str(x).lower() for k in ('amort','cash flow','capital expenditure','working capital'))),
+                              'cash labels',sorted(str(x) for x in frames[1].index if any(k in str(x).lower() for k in ('amort','depreciation','depletion','cash flow','capital expenditure','working capital'))),
                               'matched components',sorted(bridge),flush=True)
                 except Exception as exc:
                     print(symbol,'Yahoo diagnostic failure',type(exc).__name__,flush=True)
-            if symbol in ('ABB.ST','LIFCO-B.ST','VOLO.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST','LAGR-B.ST','SAND.ST','ASSA-B.ST'):
+            if symbol in ('ABB.ST','LIFCO-B.ST','VOLO.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST','LAGR-B.ST','SAND.ST','ASSA-B.ST','EPI-A.ST','INDT.ST'):
                 if trailing:
                     record=trailing[0]
                     period=str(record.get('report_End_Date') or record.get('reportEndDate'))[:10]
