@@ -281,6 +281,32 @@ def tests():
     assert abb_r12_ebita('LAGR-B.ST',lag,'2026-06-30') is None
     assert 'fcff' not in abb_r12_ebita('LAGR-B.ST',{**lag,'net_Debt':4659},'2026-09-30')
     assert 'fcff' not in abb_r12_ebita('LAGR-B.ST',{**lag,'cash_Flow_From_Operating_Activities':1300},'2026-09-30')
+    # A genuine negative current cash flow must not be masked by positive
+    # annual earnings/cash flow; mismatched currency must remain rejected.
+    old_r12=borsapi_r12_records
+    old_yahoo=matched_yahoo_r12
+    r12_record={'report_End_Date':'2026-09-30','currency':'SEK','revenues':1000,
+                'operating_Income':90,'ebita':100,'net_Debt':200,
+                'depreciation_And_Amortization':20,'capital_Expenditure':120,
+                'change_In_Working_Capital':-5}
+    try:
+        globals()['matched_yahoo_r12']=lambda *args: {}
+        globals()['borsapi_r12_records']=lambda *args: [r12_record]
+        current=valuation_engine('VOLO-TEST.ST',{**info,'sector':'Industrials'},fin,cash,balance,{},pd.DataFrame())
+        assert current['operating_period']=='2026-09-30'
+        assert abs(current['operating_inputs']['FCFF']-(90*(1-0.206)+20-120-5)*1e6)<1
+        assert 'DCF' not in current['models'] and current['target'] is None
+        globals()['borsapi_r12_records']=lambda *args: [{**r12_record,'ebita':None}]
+        current=valuation_engine('VOLO-TEST.ST',{**info,'sector':'Industrials'},fin,cash,balance,{},pd.DataFrame())
+        assert current['operating_period']=='2026-09-30'
+        assert current['operating_inputs']['FCFF']<0 and 'DCF' not in current['models']
+        globals()['borsapi_r12_records']=lambda *args: [{**r12_record,'currency':'USD'}]
+        current=valuation_engine('VOLO-TEST.ST',{**info,'sector':'Industrials'},fin,cash,balance,{},pd.DataFrame())
+        assert current['operating_period']=='2025-12-31'
+        assert current['operating_inputs']['FCFF']>0
+    finally:
+        globals()['borsapi_r12_records']=old_r12
+        globals()['matched_yahoo_r12']=old_yahoo
     # No secondary provider may replace the annual frames passed by fetch().
     original_roic=roic_company_data
     original_reports=borsapi_reports
