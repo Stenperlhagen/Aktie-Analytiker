@@ -273,10 +273,10 @@ def avanza_market_snapshot(symbol):
                     ids.add(candidate)
             except (OSError,ValueError,KeyError,TypeError):
                 pass
-            if not ids:
+            def discover_ids():
                 response=session.post(root+'/_api/search/filtered-search',json={'query':isin,'searchFilter':{'types':['STOCK']},'pagination':{'from':0,'size':50}},timeout=12)
                 response.raise_for_status()
-                ids=set()
+                found=set()
                 def visit(hit,kind=None):
                     if not isinstance(hit,dict): return
                     kind=str(hit.get('type') or hit.get('instrumentType') or kind or '').upper()
@@ -286,24 +286,34 @@ def avanza_market_snapshot(symbol):
                     if isinstance(hit.get('instrument'),dict): visit(hit['instrument'],kind)
                     path=urllib.parse.urlsplit(str(hit.get('path') or '')).path
                     match=re.search(r'(?:^|/)(?:om-aktien[.]html|stock)/([0-9]+)(?:/|$)',path)
-                    if match: ids.add(match.group(1))
+                    if match: found.add(match.group(1))
                     if kind=='STOCK' or hit.get('tickerSymbol'):
                         for field in ('orderBookId','orderbookId','id'):
                             value=str(hit.get(field) or '')
-                            if value.isdigit(): ids.add(value)
+                            if value.isdigit(): found.add(value)
                 for hit in response.json().get('hits') or []: visit(hit)
-                if len(ids)>10: return {},'Avanza: för många kandidater'
-            matches=[]
-            for iid in sorted(ids):
-                response=session.get(root+'/_api/market-guide/stock/'+iid,timeout=12)
-                if response.status_code==404: continue
-                response.raise_for_status()
-                data=response.json()
-                listing=data.get('listing') or {}
-                markets={venue(listing.get(k)) for k in ('marketPlaceCode','marketPlaceName')}-{None}
-                if (str(data.get('orderbookId'))==iid and str(data.get('isin') or '').upper()==isin and
-                    norm(listing.get('tickerSymbol'))==ticker and listing.get('currency')==currency and markets=={market}):
-                    matches.append((iid,data))
+                return found
+            def verify(candidates):
+                verified=[]
+                for iid in sorted(candidates):
+                    response=session.get(root+'/_api/market-guide/stock/'+iid,timeout=12)
+                    if response.status_code==404: continue
+                    response.raise_for_status()
+                    data=response.json()
+                    listing=data.get('listing') or {}
+                    markets={venue(listing.get(k)) for k in ('marketPlaceCode','marketPlaceName')}-{None}
+                    if (str(data.get('orderbookId'))==iid and str(data.get('isin') or '').upper()==isin and
+                        norm(listing.get('tickerSymbol'))==ticker and listing.get('currency')==currency and markets=={market}):
+                        verified.append((iid,data))
+                return verified
+            # A registry entry is not authoritative after a listing migration.
+            # A failed detail match must trigger exact ISIN rediscovery, not
+            # leave the listing permanently broken until the next registry edit.
+            matches=verify(ids)
+            if not matches:
+                discovered=discover_ids()
+                if len(discovered)>10: return {},'Avanza: för många kandidater'
+                matches=verify(discovered-ids)
         if len(matches)!=1: return {},'Avanza: ingen entydig fyrfältsmatch'
         iid,data=matches[0]
         quote=data.get('quote') or {}
@@ -313,7 +323,7 @@ def avanza_market_snapshot(symbol):
         # Require explicit recent millisecond quote timestamp; identity alone is not a live price.
         if price is None or price<=0 or timestamp is None or not 0<=time.time()-timestamp/1000<=7*86400:
             price=None
-        return {'price':price,'market_cap':None,'currency':currency,'id':iid,'isin':isin,'market':market,'verified':True,'url':root+'/aktier/om-aktien.html/'+iid},''
+        return {'price':price,'market_cap':None,'currency':currency,'id':iid,'isin':isin,'market':market,'quote_timestamp':timestamp if price is not None else None,'verified':True,'url':root+'/aktier/om-aktien.html/'+iid},''
     except Exception as exc:
         return {},'Avanza: '+type(exc).__name__
 
