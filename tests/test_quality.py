@@ -248,6 +248,24 @@ class QualityTests(unittest.TestCase):
         self.assertIsNone(calc("AFRY.ST",{**record,"operating_Income":1387},date))
         self.assertIsNone(calc("AFRY.ST",record,"2026-06-30"))
 
+    def test_aak_r12_fcff_matches_original_sek_filing(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("official_r12_fcff",ns)
+        record={"currency":"SEK","revenues":46318,"net_Sales":45976,
+                "operating_Income":4777,"cash_Flow_From_Operating_Activities":4260}
+        end="2026-09-30"
+        result=calc("AAK.ST",record,end)
+        self.assertAlmostEqual(result["fcff"],(4777*(1-1068/4624)+849-114-283-1434)*1e6)
+        self.assertNotIn("ebita",result)
+        self.assertIsNotNone(calc("AAK.ST",{**record,"revenues":45976},end))
+        for key,value in (("currency","EUR"),("net_Sales",45000),("revenues",47000),
+                          ("operating_Income",4675),("cash_Flow_From_Operating_Activities",3972)):
+            self.assertIsNone(calc("AAK.ST",{**record,key:value},end))
+        self.assertIsNone(calc("AAK.ST",record,"2025-12-31"))
+        self.assertIsNone(calc("AAK.ST",{**record,"cash_Flow_From_Operating_Activities":None},end))
+
     def test_loomis_r12_fcff_uses_ifrs_cash_flows(self):
         ns={"math":math,"pd":pd,"re":re}
         load_function("numeric",ns)
