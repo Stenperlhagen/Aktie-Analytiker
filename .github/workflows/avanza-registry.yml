@@ -1,0 +1,162 @@
+name: Verified Avanza listing registry
+on:
+  push:
+    paths:
+      - '.github/workflows/avanza-registry.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  registry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas yfinance requests pypdf
+      - name: Verify listings against authenticated Börsdata instrument catalog
+        env:
+          BORSAPI_API_KEY: ${{ secrets.BORSAPI_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os, json, re, time, datetime, collections, urllib.parse, unicodedata
+          import requests
+          from valuation_audit import ALL_COMPANIES
+          from pathlib import Path
+
+          key = os.environ.get('BORSAPI_API_KEY', '').strip()
+          if not key:
+              raise SystemExit('Börsdata secret unavailable')
+          response = requests.get('https://apiservice.borsdata.se/v1/instruments', params={'authKey': key}, timeout=25)
+          if not response.ok:
+              raise SystemExit('Börsdata catalog HTTP '+str(response.status_code))
+          instruments = response.json()['instruments']
+          symbols = sorted(set(ALL_COMPANIES.values()))
+          def norm(value):
+              return re.sub(r'[^A-Z0-9]', '', unicodedata.normalize('NFKD', str(value or '').upper()))
+          def venue(value):
+              value = norm(value)
+              if value in {'STOCKHOLM','NASDAQSTOCKHOLM','NASDAQOMXSTOCKHOLM','OMXSTOCKHOLM','XSTO','STOCKHOLMSBORSEN','NASDAQSTOCKHOLMLARGECAP','NASDAQSTOCKHOLMMIDCAP','NASDAQSTOCKHOLMSMALLCAP','NASDAQOMXSTOCKHOLMLARGECAP','NASDAQOMXSTOCKHOLMMIDCAP','NASDAQOMXSTOCKHOLMSMALLCAP'}:
+                  return 'XSTO'
+              if value in {'FNSE','FIRSTNORTHSTOCKHOLM','FIRSTNORTHSWEDEN','NASDAQFIRSTNORTHGROWTHMARKET'}:
+                  return 'FNSE'
+              if value in {'COPENHAGEN','NASDAQCOPENHAGEN','NASDAQOMXCOPENHAGEN','OMXCOPENHAGEN','XCSE','KOPENHAMN'}:
+                  return 'XCSE'
+              return None
+          root = 'https://www.avanza.se'
+          session = requests.Session()
+          session.headers.update({'Accept':'application/json','User-Agent':'EquityLab listing verification'})
+          def candidate_ids(payload):
+              # Search response is discovery only; identity is checked against detail.
+              ids=set()
+              def visit(hit, kind=None):
+                  if not isinstance(hit,dict): return
+                  kind=str(hit.get('type') or hit.get('instrumentType') or kind or '').upper()
+                  if kind and kind!='STOCK': return
+                  for field in ('topHits','hits'):
+                      for child in hit.get(field) or []: visit(child,kind)
+                  inst=hit.get('instrument')
+                  if isinstance(inst,dict): visit(inst,kind)
+                  path=urllib.parse.urlsplit(str(hit.get('path') or '')).path
+                  match=re.search(r'(?:^|/)(?:om-aktien\.html|stock)/([0-9]+)(?:/|$)',path)
+                  if match: ids.add(match.group(1))
+                  if kind=='STOCK' or hit.get('tickerSymbol'):
+                      for field in ('orderBookId','orderbookId','id'):
+                          value=str(hit.get(field) or '')
+                          if re.fullmatch(r'[0-9]+',value): ids.add(value)
+              for hit in payload.get('hits') or []: visit(hit)
+              return ids
+          assert candidate_ids({'hits':[{'type':'STOCK','path':'/aktier/om-aktien.html/123/example'}]})=={'123'}
+          assert candidate_ids({'hits':[{'instrumentType':'STOCK','topHits':[{'id':'456'}]},{'type':'FUND','id':'789'}]})=={'456'}
+          rows = []
+          for symbol in symbols:
+              row = {'symbol':symbol,'verified':False}
+              try:
+                  matches = [x for x in instruments if str(x.get('yahoo') or '').upper() == symbol.upper()]
+                  if len(matches) != 1:
+                      row['catalog_diagnostics']=[{k:x.get(k) for k in ('insId','name','ticker','yahoo','isin','stockPriceCurrency','marketId')} for x in instruments if norm(str(x.get('ticker') or ''))==norm(symbol.rsplit('.',1)[0]) or str(x.get('yahoo') or '').upper()==symbol.upper()][:10]
+                      raise ValueError('Börsdata listing not unique')
+                  ref = matches[0]
+                  isin = str(ref.get('isin') or '').upper()
+                  if not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]', isin):
+                      raise ValueError('Börsdata ISIN missing')
+                  expected_currency, expected_market = {'ST':('SEK','XSTO'),'CO':('DKK','XCSE')}[symbol.rsplit('.',1)[1]]
+                  # Venue/currency exceptions confirmed in issuer and exchange notices.
+                  # https://view.news.eu.nasdaq.com/view?id=b29dda465d7daa8759d2a679fdf7701ba&lang=en&src=rss
+                  # https://view.news.eu.nasdaq.com/view?id=b653256112bd393e4faaf75ae85df2f1d&lang=en&src=micro
+                  # https://view.news.eu.nasdaq.com/view?id=be12ca027b0588df3190bec12e55ea277&lang=en&src=listed
+                  # https://view.news.eu.nasdaq.com/view?id=ba6e3784a0a87d647ff64ae777897c4d2&lang=en&src=listed
+                  if symbol in ('BOKUS.ST','SUS.ST','SES.ST'): expected_market='FNSE'
+                  if symbol=='VSURE.ST': expected_currency='EUR'
+                  bd_currency=str(ref.get('stockPriceCurrency') or '').upper()
+                  if bd_currency and bd_currency!=expected_currency:
+                      raise ValueError('Börsdata currency conflicts with exchange listing')
+                  ticker = norm(symbol.rsplit('.',1)[0])
+                  row.update(isin=isin,borsdata_id=ref.get('insId'),expected_currency=expected_currency,expected_market=expected_market)
+                  search = session.post(root+'/_api/search/filtered-search',json={'query':isin,'searchFilter':{'types':['STOCK']},'pagination':{'from':0,'size':50}},timeout=12)
+                  if search.status_code in (403,429):
+                      row['error']='Avanza HTTP '+str(search.status_code)
+                      rows.append(row)
+                      print(symbol,row['error'],flush=True)
+                      break
+                  search.raise_for_status()
+                  hits = search.json().get('hits',[])
+                  ids = candidate_ids(search.json())
+                  row['search_hit_count']=len(hits)
+                  row['candidate_count']=len(ids)
+                  if hits and not ids:
+                      row['search_sample']=[{k:h.get(k) for k in ('type','instrumentType','path','id','orderBookId','orderbookId','tickerSymbol','title') if k in h} for h in hits[:3] if isinstance(h,dict)]
+                  if len(ids)>10:
+                      raise ValueError('Too many candidates from ISIN search')
+                  candidates = []
+                  for iid in sorted(ids):
+                      detail = session.get(root+'/_api/market-guide/stock/'+iid,timeout=12)
+                      if detail.status_code in (403,429):
+                          raise requests.HTTPError('Avanza access restriction',response=detail)
+                      if detail.status_code==404: continue
+                      detail.raise_for_status()
+                      data = detail.json()
+                      listing = data.get('listing') or {}
+                      observed = {'orderbook_id':iid,'isin':data.get('isin'),'ticker':listing.get('tickerSymbol'),'currency':listing.get('currency'),'market_code':listing.get('marketPlaceCode'),'market_name':listing.get('marketPlaceName'),'quote_timestamp':(data.get('quote') or {}).get('updated')}
+                      row.setdefault('observed',[]).append(observed)
+                      actual_markets = {venue(listing.get(k)) for k in ('marketPlaceCode','marketPlaceName')} - {None}
+                      if (str(data.get('orderbookId'))==iid and str(data.get('isin') or '').upper()==isin and norm(listing.get('tickerSymbol'))==ticker and listing.get('currency')==expected_currency and actual_markets=={expected_market}):
+                          candidates.append(observed)
+                      time.sleep(.35)
+                  if len(candidates)!=1:
+                      raise ValueError('No unique four-field match')
+                  row.update(verified=True,match=candidates[0],verified_at=datetime.datetime.now(datetime.timezone.utc).isoformat())
+              except requests.HTTPError as e:
+                  row['error']='HTTP '+str(e.response.status_code if e.response is not None else 'unknown')
+              except ValueError as e:
+                  row['error']=str(e)[:100]
+              except Exception as e:
+                  row['error']=type(e).__name__
+              rows.append(row)
+              if row.get('error') in ('HTTP 403','HTTP 429'): break
+              print(symbol,'verified' if row['verified'] else row.get('error','unknown'),'hits',row.get('search_hit_count'),'candidates',row.get('candidate_count'),'observed',json.dumps(row.get('observed',[])[:2],ensure_ascii=False),'sample',json.dumps(row.get('search_sample',[]),ensure_ascii=False),'catalog',json.dumps(row.get('catalog_diagnostics',[]),ensure_ascii=False),flush=True)
+              time.sleep(.35)
+          done={r['symbol'] for r in rows}
+          rows.extend({'symbol':s,'verified':False,'error':'Not attempted after provider access restriction'} for s in symbols if s not in done)
+          ids=collections.Counter(r['match']['orderbook_id'] for r in rows if r['verified'])
+          for r in rows:
+              if r['verified'] and ids[r['match']['orderbook_id']]!=1:
+                  r['verified']=False
+                  r['error']='Duplicate orderbook ID across universe'
+          verified={r['symbol']:r['match'] | {'verified_at':r['verified_at'],'borsdata_id':r['borsdata_id']} for r in rows if r['verified']}
+          Path('avanza-registry.json').write_text(json.dumps(verified,indent=2),encoding='utf-8')
+          Path('avanza-registry-audit.json').write_text(json.dumps(rows,indent=2),encoding='utf-8')
+          print('Verified Avanza listings:',len(verified),'of',len(symbols))
+          print('Missing:',collections.Counter(r.get('error') for r in rows if not r['verified']))
+          if len(verified)!=len(symbols):
+              raise SystemExit('Incomplete Avanza coverage; do not promote registry')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: avanza-registry-evidence
+          path: |
+            avanza-registry.json
+            avanza-registry-audit.json

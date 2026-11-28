@@ -1,0 +1,1765 @@
+{
+  "source_run": 45860147772,
+  "listings": {
+    "AAK.ST": {
+      "orderbook_id": "26268",
+      "isin": "SE0011337708",
+      "ticker": "AAK",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710041874,
+      "verified_at": "2026-11-26T16:35:51.7317125Z"
+    },
+    "ABB.ST": {
+      "orderbook_id": "5447",
+      "isin": "CH0012221716",
+      "ticker": "ABB",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710038740,
+      "verified_at": "2026-11-26T16:35:53.1178841Z"
+    },
+    "ACAD.ST": {
+      "orderbook_id": "667476",
+      "isin": "SE0007897079",
+      "ticker": "ACAD",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710036684,
+      "verified_at": "2026-11-26T16:35:54.0439548Z"
+    },
+    "ACE.ST": {
+      "orderbook_id": "941919",
+      "isin": "SE0010573113",
+      "ticker": "ACE",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795709566578,
+      "verified_at": "2026-11-26T16:35:54.9672776Z"
+    },
+    "ADDT-B.ST": {
+      "orderbook_id": "5537",
+      "isin": "SE0014781795",
+      "ticker": "ADDT B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710041279,
+      "verified_at": "2026-11-26T16:35:55.8873009Z"
+    },
+    "AFRY.ST": {
+      "orderbook_id": "5301",
+      "isin": "SE0005999836",
+      "ticker": "AFRY",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710041058,
+      "verified_at": "2026-11-26T16:35:58.5839834Z"
+    },
+    "ALFA.ST": {
+      "orderbook_id": "5580",
+      "isin": "SE0000695876",
+      "ticker": "ALFA",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710054574,
+      "verified_at": "2026-11-26T16:36:09.4010277Z"
+    },
+    "ALIF-B.ST": {
+      "orderbook_id": "643541",
+      "isin": "SE0014401378",
+      "ticker": "ALIF B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710051722,
+      "verified_at": "2026-11-26T16:36:10.3213473Z"
+    },
+    "ALIG.ST": {
+      "orderbook_id": "572678",
+      "isin": "SE0007158910",
+      "ticker": "ALIG",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710060512,
+      "verified_at": "2026-11-26T16:36:11.2591090Z"
+    },
+    "ALIV-SDB.ST": {
+      "orderbook_id": "5236",
+      "isin": "SE0021309614",
+      "ticker": "ALIV SDB",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710034675,
+      "verified_at": "2026-11-26T16:36:12.1817728Z"
+    },
+    "ALLEI.ST": {
+      "orderbook_id": "1455120",
+      "isin": "SE0017615644",
+      "ticker": "ALLEI",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710069100,
+      "verified_at": "2026-11-26T16:36:13.1035149Z"
+    },
+    "ANOD-B.ST": {
+      "orderbook_id": "5442",
+      "isin": "SE0017885767",
+      "ticker": "ANOD B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710028335,
+      "verified_at": "2026-11-26T16:36:14.0330413Z"
+    },
+    "AQ.ST": {
+      "orderbook_id": "5534",
+      "isin": "SE0022062196",
+      "ticker": "AQ",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710038244,
+      "verified_at": "2026-11-26T16:36:14.9850278Z"
+    },
+    "ARJO-B.ST": {
+      "orderbook_id": "810953",
+      "isin": "SE0010468116",
+      "ticker": "ARJO B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710069068,
+      "verified_at": "2026-11-26T16:36:25.7861895Z"
+    },
+    "ASKER.ST": {
+      "orderbook_id": "2006454",
+      "isin": "SE0024171458",
+      "ticker": "ASKER",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710076797,
+      "verified_at": "2026-11-26T16:36:26.7101636Z"
+    },
+    "ASSA-B.ST": {
+      "orderbook_id": "5271",
+      "isin": "SE0007100581",
+      "ticker": "ASSA B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710075437,
+      "verified_at": "2026-11-26T16:36:27.6346270Z"
+    },
+    "ATCO-B.ST": {
+      "orderbook_id": "5235",
+      "isin": "SE0017486897",
+      "ticker": "ATCO B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710083726,
+      "verified_at": "2026-11-26T16:36:28.5598170Z"
+    },
+    "ATRLJ-B.ST": {
+      "orderbook_id": "5374",
+      "isin": "SE0024320832",
+      "ticker": "ATRLJ B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710081563,
+      "verified_at": "2026-11-26T16:36:29.4883224Z"
+    },
+    "ATT.ST": {
+      "orderbook_id": "612517",
+      "isin": "SE0007666110",
+      "ticker": "ATT",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710085770,
+      "verified_at": "2026-11-26T16:36:30.4127004Z"
+    },
+    "AVARDA.ST": {
+      "orderbook_id": "666685",
+      "isin": "SE0025666969",
+      "ticker": "AVARDA",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710085653,
+      "verified_at": "2026-11-26T16:36:31.3362723Z"
+    },
+    "AXFO.ST": {
+      "orderbook_id": "5465",
+      "isin": "SE0006993770",
+      "ticker": "AXFO",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710084157,
+      "verified_at": "2026-11-26T16:36:32.2601872Z"
+    },
+    "AZA.ST": {
+      "orderbook_id": "5361",
+      "isin": "SE0012454072",
+      "ticker": "AZA",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710078102,
+      "verified_at": "2026-11-26T16:36:33.1850129Z"
+    },
+    "AZN.ST": {
+      "orderbook_id": "5431",
+      "isin": "GB0009895292",
+      "ticker": "AZN",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710079581,
+      "verified_at": "2026-11-26T16:36:35.0368848Z"
+    },
+    "BACTI-B.ST": {
+      "orderbook_id": "488231",
+      "isin": "SE0005878741",
+      "ticker": "BACTI B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795709934594,
+      "verified_at": "2026-11-26T16:36:35.9636698Z"
+    },
+    "BALD-B.ST": {
+      "orderbook_id": "5459",
+      "isin": "SE0017832488",
+      "ticker": "BALD B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710087958,
+      "verified_at": "2026-11-26T16:36:36.8834682Z"
+    },
+    "BEIA-B.ST": {
+      "orderbook_id": "5303",
+      "isin": "SE0011090547",
+      "ticker": "BEIA B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710032639,
+      "verified_at": "2026-11-26T16:36:37.8074096Z"
+    },
+    "BEIJ-B.ST": {
+      "orderbook_id": "5274",
+      "isin": "SE0015949748",
+      "ticker": "BEIJ B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710096330,
+      "verified_at": "2026-11-26T16:36:38.7345829Z"
+    },
+    "BERG-B.ST": {
+      "orderbook_id": "5275",
+      "isin": "SE0000101362",
+      "ticker": "BERG B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710038525,
+      "verified_at": "2026-11-26T16:36:39.6565378Z"
+    },
+    "BETS-B.ST": {
+      "orderbook_id": "5482",
+      "isin": "SE0022726485",
+      "ticker": "BETS B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710081580,
+      "verified_at": "2026-11-26T16:36:40.5773559Z"
+    },
+    "BHG.ST": {
+      "orderbook_id": "838544",
+      "isin": "SE0010948588",
+      "ticker": "BHG",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710095111,
+      "verified_at": "2026-11-26T16:36:41.5025287Z"
+    },
+    "BILI-A.ST": {
+      "orderbook_id": "5276",
+      "isin": "SE0009921588",
+      "ticker": "BILI A",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710078709,
+      "verified_at": "2026-11-26T16:36:42.4266715Z"
+    },
+    "BILL.ST": {
+      "orderbook_id": "5556",
+      "isin": "SE0000862997",
+      "ticker": "BILL",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710093566,
+      "verified_at": "2026-11-26T16:36:43.3514845Z"
+    },
+    "BIOA-B.ST": {
+      "orderbook_id": "791946",
+      "isin": "SE0010323311",
+      "ticker": "BIOA B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710095590,
+      "verified_at": "2026-11-26T16:36:44.2768774Z"
+    },
+    "BMAX.ST": {
+      "orderbook_id": "233288",
+      "isin": "SE0003303627",
+      "ticker": "BMAX",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710085708,
+      "verified_at": "2026-11-26T16:36:45.1986277Z"
+    },
+    "BOKUS.ST": {
+      "orderbook_id": "1235162",
+      "isin": "SE0016074256",
+      "ticker": "BOKUS",
+      "currency": "SEK",
+      "market_code": "FNSE",
+      "market_name": "First North Stockholm",
+      "quote_timestamp": 1795709588978,
+      "verified_at": "2026-11-26T16:36:46.1258580Z"
+    },
+    "BOL.ST": {
+      "orderbook_id": "5564",
+      "isin": "SE0020050417",
+      "ticker": "BOL",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710101190,
+      "verified_at": "2026-11-26T16:36:47.0518392Z"
+    },
+    "BONEX.ST": {
+      "orderbook_id": "765299",
+      "isin": "SE0009858152",
+      "ticker": "BONEX",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710091568,
+      "verified_at": "2026-11-26T16:36:47.9763800Z"
+    },
+    "BOOZT.ST": {
+      "orderbook_id": "757760",
+      "isin": "SE0009888738",
+      "ticker": "BOOZT",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710102284,
+      "verified_at": "2026-11-26T16:36:49.3581347Z"
+    },
+    "BRAV.ST": {
+      "orderbook_id": "602637",
+      "isin": "SE0007491303",
+      "ticker": "BRAV",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710085758,
+      "verified_at": "2026-11-26T16:36:50.2781885Z"
+    },
+    "BUFAB.ST": {
+      "orderbook_id": "462932",
+      "isin": "SE0025010671",
+      "ticker": "BUFAB",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710085770,
+      "verified_at": "2026-11-26T16:36:51.2002371Z"
+    },
+    "BURE.ST": {
+      "orderbook_id": "5277",
+      "isin": "SE0000195810",
+      "ticker": "BURE",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710089003,
+      "verified_at": "2026-11-26T16:36:52.1250029Z"
+    },
+    "CAMX.ST": {
+      "orderbook_id": "613452",
+      "isin": "SE0007692850",
+      "ticker": "CAMX",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710085770,
+      "verified_at": "2026-11-26T16:36:53.0499776Z"
+    },
+    "CAST.ST": {
+      "orderbook_id": "5353",
+      "isin": "SE0000379190",
+      "ticker": "CAST",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710102711,
+      "verified_at": "2026-11-26T16:36:53.9722437Z"
+    },
+    "CATE.ST": {
+      "orderbook_id": "41007",
+      "isin": "SE0001664707",
+      "ticker": "CATE",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710106782,
+      "verified_at": "2026-11-26T16:36:54.9037923Z"
+    },
+    "CIBUS.ST": {
+      "orderbook_id": "831975",
+      "isin": "SE0010832204",
+      "ticker": "CIBUS",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710108907,
+      "verified_at": "2026-11-26T16:36:55.8279529Z"
+    },
+    "CLA-B.ST": {
+      "orderbook_id": "163148",
+      "isin": "SE0002626861",
+      "ticker": "CLA B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710106588,
+      "verified_at": "2026-11-26T16:36:56.7475602Z"
+    },
+    "CLAS-B.ST": {
+      "orderbook_id": "5457",
+      "isin": "SE0000584948",
+      "ticker": "CLAS B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710111112,
+      "verified_at": "2026-11-26T16:36:57.6703529Z"
+    },
+    "CORE-B.ST": {
+      "orderbook_id": "811076",
+      "isin": "SE0010714287",
+      "ticker": "CORE B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710097460,
+      "verified_at": "2026-11-26T16:36:58.6024164Z"
+    },
+    "CTT.ST": {
+      "orderbook_id": "5425",
+      "isin": "SE0000418923",
+      "ticker": "CTT",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710063772,
+      "verified_at": "2026-11-26T16:36:59.9124297Z"
+    },
+    "CYNCA.ST": {
+      "orderbook_id": "126555",
+      "isin": "SE0030587176",
+      "ticker": "CYNCA",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710110925,
+      "verified_at": "2026-11-26T16:37:00.8523524Z"
+    },
+    "DIOS.ST": {
+      "orderbook_id": "43267",
+      "isin": "SE0001634262",
+      "ticker": "DIOS",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710115183,
+      "verified_at": "2026-11-26T16:37:01.7900234Z"
+    },
+    "DOM.ST": {
+      "orderbook_id": "611718",
+      "isin": "SE0007691613",
+      "ticker": "DOM",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710110371,
+      "verified_at": "2026-11-26T16:37:02.7295650Z"
+    },
+    "DUNI.ST": {
+      "orderbook_id": "102327",
+      "isin": "SE0000616716",
+      "ticker": "DUNI",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710096654,
+      "verified_at": "2026-11-26T16:37:03.6639159Z"
+    },
+    "DYVOX.ST": {
+      "orderbook_id": "1314432",
+      "isin": "SE0017105620",
+      "ticker": "DYVOX",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710103046,
+      "verified_at": "2026-11-26T16:37:04.6000644Z"
+    },
+    "EAST.ST": {
+      "orderbook_id": "100687",
+      "isin": "SE0022050183",
+      "ticker": "EAST",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710007702,
+      "verified_at": "2026-11-26T16:37:05.5356164Z"
+    },
+    "EKTA-B.ST": {
+      "orderbook_id": "5280",
+      "isin": "SE0000163628",
+      "ticker": "EKTA B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710119015,
+      "verified_at": "2026-11-26T16:37:06.4776980Z"
+    },
+    "ELAN-B.ST": {
+      "orderbook_id": "5311",
+      "isin": "SE0000119299",
+      "ticker": "ELAN B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795709880959,
+      "verified_at": "2026-11-26T16:37:07.4149783Z"
+    },
+    "ELUX-B.ST": {
+      "orderbook_id": "5238",
+      "isin": "SE0016589188",
+      "ticker": "ELUX B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710118032,
+      "verified_at": "2026-11-26T16:37:08.3502322Z"
+    },
+    "EMBRAC-B.ST": {
+      "orderbook_id": "707695",
+      "isin": "SE0023615885",
+      "ticker": "EMBRAC B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710118233,
+      "verified_at": "2026-11-26T16:37:09.2861882Z"
+    },
+    "ENGCON-B.ST": {
+      "orderbook_id": "1418985",
+      "isin": "SE0017769847",
+      "ticker": "ENGCON B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710124368,
+      "verified_at": "2026-11-26T16:37:10.2223833Z"
+    },
+    "EPI-A.ST": {
+      "orderbook_id": "861430",
+      "isin": "SE0015658109",
+      "ticker": "EPI A",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710126389,
+      "verified_at": "2026-11-26T16:37:11.1605909Z"
+    },
+    "EQT.ST": {
+      "orderbook_id": "1001617",
+      "isin": "SE0012853455",
+      "ticker": "EQT",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710123643,
+      "verified_at": "2026-11-26T16:37:12.0951042Z"
+    },
+    "ERIC-B.ST": {
+      "orderbook_id": "5240",
+      "isin": "SE0000108656",
+      "ticker": "ERIC B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710125411,
+      "verified_at": "2026-11-26T16:37:13.5129535Z"
+    },
+    "ESSITY-B.ST": {
+      "orderbook_id": "764241",
+      "isin": "SE0009922164",
+      "ticker": "ESSITY B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710123602,
+      "verified_at": "2026-11-26T16:37:14.4465837Z"
+    },
+    "EVO.ST": {
+      "orderbook_id": "549768",
+      "isin": "SE0012673267",
+      "ticker": "EVO",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710127953,
+      "verified_at": "2026-11-26T16:37:15.3814961Z"
+    },
+    "FABG.ST": {
+      "orderbook_id": "5300",
+      "isin": "SE0011166974",
+      "ticker": "FABG",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710126430,
+      "verified_at": "2026-11-26T16:37:16.3116404Z"
+    },
+    "FOI-B.ST": {
+      "orderbook_id": "488741",
+      "isin": "CH0242214887",
+      "ticker": "FOI B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795709792521,
+      "verified_at": "2026-11-26T16:37:17.2483755Z"
+    },
+    "GARO.ST": {
+      "orderbook_id": "643540",
+      "isin": "SE0015812417",
+      "ticker": "GARO",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795709693558,
+      "verified_at": "2026-11-26T16:37:18.1833089Z"
+    },
+    "GETI-B.ST": {
+      "orderbook_id": "5282",
+      "isin": "SE0000202624",
+      "ticker": "GETI B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710126652,
+      "verified_at": "2026-11-26T16:37:19.1203979Z"
+    },
+    "GRNG.ST": {
+      "orderbook_id": "510194",
+      "isin": "SE0006288015",
+      "ticker": "GRNG",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710116741,
+      "verified_at": "2026-11-26T16:37:20.0553901Z"
+    },
+    "HEBA-B.ST": {
+      "orderbook_id": "5363",
+      "isin": "SE0017911480",
+      "ticker": "HEBA B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710125689,
+      "verified_at": "2026-11-26T16:37:20.9885213Z"
+    },
+    "HEM.ST": {
+      "orderbook_id": "1220100",
+      "isin": "SE0015671995",
+      "ticker": "HEM",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710120794,
+      "verified_at": "2026-11-26T16:37:21.9253089Z"
+    },
+    "HEXA-B.ST": {
+      "orderbook_id": "5286",
+      "isin": "SE0015961909",
+      "ticker": "HEXA B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710137888,
+      "verified_at": "2026-11-26T16:37:22.8630980Z"
+    },
+    "HM-B.ST": {
+      "orderbook_id": "5364",
+      "isin": "SE0000106270",
+      "ticker": "HM B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710131591,
+      "verified_at": "2026-11-26T16:37:23.8009417Z"
+    },
+    "HMS.ST": {
+      "orderbook_id": "98412",
+      "isin": "SE0009997018",
+      "ticker": "HMS",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710089724,
+      "verified_at": "2026-11-26T16:37:24.8131437Z"
+    },
+    "HNSA.ST": {
+      "orderbook_id": "98087",
+      "isin": "SE0002148817",
+      "ticker": "HNSA",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710131019,
+      "verified_at": "2026-11-26T16:37:25.7473232Z"
+    },
+    "HOLM-B.ST": {
+      "orderbook_id": "5251",
+      "isin": "SE0011090018",
+      "ticker": "HOLM B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710135072,
+      "verified_at": "2026-11-26T16:37:26.6853263Z"
+    },
+    "HPOL-B.ST": {
+      "orderbook_id": "130828",
+      "isin": "SE0007074281",
+      "ticker": "HPOL B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710110395,
+      "verified_at": "2026-11-26T16:37:27.6168247Z"
+    },
+    "HUFV-A.ST": {
+      "orderbook_id": "5287",
+      "isin": "SE0000170375",
+      "ticker": "HUFV A",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710142983,
+      "verified_at": "2026-11-26T16:37:28.5543802Z"
+    },
+    "HUSQ-B.ST": {
+      "orderbook_id": "45189",
+      "isin": "SE0001662230",
+      "ticker": "HUSQ B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710118107,
+      "verified_at": "2026-11-26T16:37:29.4906220Z"
+    },
+    "INDT.ST": {
+      "orderbook_id": "26607",
+      "isin": "SE0001515552",
+      "ticker": "INDT",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710145016,
+      "verified_at": "2026-11-26T16:37:30.4284358Z"
+    },
+    "INDU-C.ST": {
+      "orderbook_id": "5245",
+      "isin": "SE0000107203",
+      "ticker": "INDU C",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710141933,
+      "verified_at": "2026-11-26T16:37:31.3605182Z"
+    },
+    "INSTAL.ST": {
+      "orderbook_id": "752039",
+      "isin": "SE0017483506",
+      "ticker": "INSTAL",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710139060,
+      "verified_at": "2026-11-26T16:37:32.2987817Z"
+    },
+    "INVE-B.ST": {
+      "orderbook_id": "5247",
+      "isin": "SE0015811963",
+      "ticker": "INVE B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710148805,
+      "verified_at": "2026-11-26T16:37:33.2319463Z"
+    },
+    "INWI.ST": {
+      "orderbook_id": "507540",
+      "isin": "SE0006220018",
+      "ticker": "INWI",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710143208,
+      "verified_at": "2026-11-26T16:37:34.1676435Z"
+    },
+    "KAR.ST": {
+      "orderbook_id": "949326",
+      "isin": "SE0012323715",
+      "ticker": "KAR",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710074896,
+      "verified_at": "2026-11-26T16:37:35.1057700Z"
+    },
+    "KEOC.ST": {
+      "orderbook_id": "678596",
+      "isin": "SE0008374383",
+      "ticker": "KEOC",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710120295,
+      "verified_at": "2026-11-26T16:37:36.0432929Z"
+    },
+    "KINV-B.ST": {
+      "orderbook_id": "5369",
+      "isin": "SE0022060521",
+      "ticker": "KINV B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710120526,
+      "verified_at": "2026-11-26T16:37:36.9790831Z"
+    },
+    "KNOW.ST": {
+      "orderbook_id": "5428",
+      "isin": "SE0000421273",
+      "ticker": "KNOW",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710144846,
+      "verified_at": "2026-11-26T16:37:37.9159215Z"
+    },
+    "LAGR-B.ST": {
+      "orderbook_id": "5536",
+      "isin": "SE0014990966",
+      "ticker": "LAGR B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710143771,
+      "verified_at": "2026-11-26T16:37:38.8545104Z"
+    },
+    "LATO-B.ST": {
+      "orderbook_id": "5321",
+      "isin": "SE0010100958",
+      "ticker": "LATO B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710149068,
+      "verified_at": "2026-11-26T16:37:39.7948176Z"
+    },
+    "LIAB.ST": {
+      "orderbook_id": "59810",
+      "isin": "SE0001852419",
+      "ticker": "LIAB",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710125159,
+      "verified_at": "2026-11-26T16:37:40.7337282Z"
+    },
+    "LIFCO-B.ST": {
+      "orderbook_id": "520898",
+      "isin": "SE0015949201",
+      "ticker": "LIFCO B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710142242,
+      "verified_at": "2026-11-26T16:37:41.7165709Z"
+    },
+    "LIME.ST": {
+      "orderbook_id": "910303",
+      "isin": "SE0011870195",
+      "ticker": "LIME",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710158485,
+      "verified_at": "2026-11-26T16:37:42.6525278Z"
+    },
+    "LOOMIS.ST": {
+      "orderbook_id": "154930",
+      "isin": "SE0014504817",
+      "ticker": "LOOMIS",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710107606,
+      "verified_at": "2026-11-26T16:37:43.5912542Z"
+    },
+    "LUMI.ST": {
+      "orderbook_id": "7010",
+      "isin": "CA5503721063",
+      "ticker": "LUMI",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710150126,
+      "verified_at": "2026-11-26T16:37:44.9953777Z"
+    },
+    "LUND-B.ST": {
+      "orderbook_id": "5375",
+      "isin": "SE0000108847",
+      "ticker": "LUND B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710157963,
+      "verified_at": "2026-11-26T16:37:45.9293023Z"
+    },
+    "MCAP.ST": {
+      "orderbook_id": "46487",
+      "isin": "SE0009160872",
+      "ticker": "MCAP",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795709965931,
+      "verified_at": "2026-11-26T16:37:47.3056300Z"
+    },
+    "MCOV-B.ST": {
+      "orderbook_id": "756355",
+      "isin": "SE0009778848",
+      "ticker": "MCOV B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710160036,
+      "verified_at": "2026-11-26T16:37:48.2308042Z"
+    },
+    "MILDEF.ST": {
+      "orderbook_id": "1235164",
+      "isin": "SE0016074249",
+      "ticker": "MILDEF",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710158195,
+      "verified_at": "2026-11-26T16:37:49.1571762Z"
+    },
+    "MIPS.ST": {
+      "orderbook_id": "740416",
+      "isin": "SE0009216278",
+      "ticker": "MIPS",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710100480,
+      "verified_at": "2026-11-26T16:37:50.0808676Z"
+    },
+    "MMGR-B.ST": {
+      "orderbook_id": "1374804",
+      "isin": "SE0017562523",
+      "ticker": "MMGR B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710150340,
+      "verified_at": "2026-11-26T16:37:51.0090524Z"
+    },
+    "MSON-B.ST": {
+      "orderbook_id": "5444",
+      "isin": "SE0000565228",
+      "ticker": "MSON B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710118774,
+      "verified_at": "2026-11-26T16:37:51.9328206Z"
+    },
+    "MTRS.ST": {
+      "orderbook_id": "755803",
+      "isin": "SE0009806607",
+      "ticker": "MTRS",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710165104,
+      "verified_at": "2026-11-26T16:37:52.8591920Z"
+    },
+    "MYCR.ST": {
+      "orderbook_id": "5466",
+      "isin": "SE0025158629",
+      "ticker": "MYCR",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710112660,
+      "verified_at": "2026-11-26T16:37:53.7829552Z"
+    },
+    "NCC-B.ST": {
+      "orderbook_id": "5294",
+      "isin": "SE0000117970",
+      "ticker": "NCC B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710122089,
+      "verified_at": "2026-11-26T16:37:54.7050712Z"
+    },
+    "NDA-SE.ST": {
+      "orderbook_id": "5249",
+      "isin": "FI4000297767",
+      "ticker": "NDA SE",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710165127,
+      "verified_at": "2026-11-26T16:37:56.5658128Z"
+    },
+    "NELLY.ST": {
+      "orderbook_id": "262988",
+      "isin": "SE0015245535",
+      "ticker": "NELLY",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710168194,
+      "verified_at": "2026-11-26T16:37:57.4908241Z"
+    },
+    "NEWA-B.ST": {
+      "orderbook_id": "5324",
+      "isin": "SE0020356970",
+      "ticker": "NEWA B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710155270,
+      "verified_at": "2026-11-26T16:37:58.4128539Z"
+    },
+    "NIBE-B.ST": {
+      "orderbook_id": "5325",
+      "isin": "SE0015988019",
+      "ticker": "NIBE B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710170978,
+      "verified_at": "2026-11-26T16:37:59.3357241Z"
+    },
+    "NOLA-B.ST": {
+      "orderbook_id": "5327",
+      "isin": "SE0015962477",
+      "ticker": "NOLA B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710085671,
+      "verified_at": "2026-11-26T16:38:00.2617152Z"
+    },
+    "NP3.ST": {
+      "orderbook_id": "522855",
+      "isin": "SE0006342333",
+      "ticker": "NP3",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710168160,
+      "verified_at": "2026-11-26T16:38:01.1890477Z"
+    },
+    "OEM-B.ST": {
+      "orderbook_id": "5329",
+      "isin": "SE0017766843",
+      "ticker": "OEM B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710176543,
+      "verified_at": "2026-11-26T16:38:02.1135556Z"
+    },
+    "PDX.ST": {
+      "orderbook_id": "661786",
+      "isin": "SE0008294953",
+      "ticker": "PDX",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710163854,
+      "verified_at": "2026-11-26T16:38:03.0359586Z"
+    },
+    "PEAB-B.ST": {
+      "orderbook_id": "5330",
+      "isin": "SE0000106205",
+      "ticker": "PEAB B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710182932,
+      "verified_at": "2026-11-26T16:38:03.9677287Z"
+    },
+    "PLAZ-B.ST": {
+      "orderbook_id": "445784",
+      "isin": "SE0004977692",
+      "ticker": "PLAZ B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710166415,
+      "verified_at": "2026-11-26T16:38:04.8932939Z"
+    },
+    "PNDX-B.ST": {
+      "orderbook_id": "572898",
+      "isin": "SE0007100359",
+      "ticker": "PNDX B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710169904,
+      "verified_at": "2026-11-26T16:38:05.8181047Z"
+    },
+    "ROKO-B.ST": {
+      "orderbook_id": "1993897",
+      "isin": "SE0023950795",
+      "ticker": "ROKO B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710161018,
+      "verified_at": "2026-11-26T16:38:06.7429236Z"
+    },
+    "RUSTA.ST": {
+      "orderbook_id": "1655314",
+      "isin": "SE0020848356",
+      "ticker": "RUSTA",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710183662,
+      "verified_at": "2026-11-26T16:38:07.6656036Z"
+    },
+    "RVRC.ST": {
+      "orderbook_id": "1241651",
+      "isin": "SE0015962485",
+      "ticker": "RVRC",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710179325,
+      "verified_at": "2026-11-26T16:38:08.5925137Z"
+    },
+    "SAAB-B.ST": {
+      "orderbook_id": "5401",
+      "isin": "SE0021921269",
+      "ticker": "SAAB B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710175264,
+      "verified_at": "2026-11-26T16:38:09.5178708Z"
+    },
+    "SAGA-B.ST": {
+      "orderbook_id": "405815",
+      "isin": "SE0005127818",
+      "ticker": "SAGA B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710158780,
+      "verified_at": "2026-11-26T16:38:10.4428702Z"
+    },
+    "SALIX.ST": {
+      "orderbook_id": "2510303",
+      "isin": "SE0028329540",
+      "ticker": "SALIX",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710178553,
+      "verified_at": "2026-11-26T16:38:11.3780148Z"
+    },
+    "SAMPO-SEK.ST": {
+      "orderbook_id": "1501882",
+      "isin": "FI4000552500",
+      "ticker": "SAMPO SEK",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710187505,
+      "verified_at": "2026-11-26T16:38:13.3814204Z"
+    },
+    "SAND.ST": {
+      "orderbook_id": "5471",
+      "isin": "SE0000667891",
+      "ticker": "SAND",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710184580,
+      "verified_at": "2026-11-26T16:38:14.3060218Z"
+    },
+    "SAVE.ST": {
+      "orderbook_id": "1162349",
+      "isin": "SE0015192067",
+      "ticker": "SAVE",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710190385,
+      "verified_at": "2026-11-26T16:38:15.2319684Z"
+    },
+    "SCA-B.ST": {
+      "orderbook_id": "5263",
+      "isin": "SE0000112724",
+      "ticker": "SCA B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710188202,
+      "verified_at": "2026-11-26T16:38:16.1590707Z"
+    },
+    "SCST.ST": {
+      "orderbook_id": "488892",
+      "isin": "SE0005999760",
+      "ticker": "SCST",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710187745,
+      "verified_at": "2026-11-26T16:38:17.0831786Z"
+    },
+    "SDIP-B.ST": {
+      "orderbook_id": "752256",
+      "isin": "SE0003756758",
+      "ticker": "SDIP B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710183435,
+      "verified_at": "2026-11-26T16:38:18.0079686Z"
+    },
+    "SEB-A.ST": {
+      "orderbook_id": "5255",
+      "isin": "SE0000148884",
+      "ticker": "SEB A",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710197679,
+      "verified_at": "2026-11-26T16:38:18.9331549Z"
+    },
+    "SECT-B.ST": {
+      "orderbook_id": "5426",
+      "isin": "SE0022419784",
+      "ticker": "SECT B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710188520,
+      "verified_at": "2026-11-26T16:38:19.8589198Z"
+    },
+    "SECU-B.ST": {
+      "orderbook_id": "5270",
+      "isin": "SE0000163594",
+      "ticker": "SECU B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710163900,
+      "verified_at": "2026-11-26T16:38:20.7837694Z"
+    },
+    "SES.ST": {
+      "orderbook_id": "487396",
+      "isin": "SE0005877560",
+      "ticker": "SES",
+      "currency": "SEK",
+      "market_code": "FNSE",
+      "market_name": "First North Stockholm",
+      "quote_timestamp": 1795710186535,
+      "verified_at": "2026-11-26T16:38:21.7060024Z"
+    },
+    "SEZI.ST": {
+      "orderbook_id": "132471",
+      "isin": "SE0002478776",
+      "ticker": "SEZI",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710172712,
+      "verified_at": "2026-11-26T16:38:22.6312261Z"
+    },
+    "SF.ST": {
+      "orderbook_id": "614237",
+      "isin": "SE0015346135",
+      "ticker": "SF",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710191553,
+      "verified_at": "2026-11-26T16:38:23.5590571Z"
+    },
+    "SFAB.ST": {
+      "orderbook_id": "1310582",
+      "isin": "SE0017082548",
+      "ticker": "SFAB",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710156509,
+      "verified_at": "2026-11-26T16:38:24.4832036Z"
+    },
+    "SHB-A.ST": {
+      "orderbook_id": "5264",
+      "isin": "SE0007100599",
+      "ticker": "SHB A",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710196652,
+      "verified_at": "2026-11-26T16:38:25.4068242Z"
+    },
+    "SHOT.ST": {
+      "orderbook_id": "613140",
+      "isin": "SE0007640156",
+      "ticker": "SHOT",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710203599,
+      "verified_at": "2026-11-26T16:38:26.3328331Z"
+    },
+    "SINCH.ST": {
+      "orderbook_id": "599956",
+      "isin": "SE0016101844",
+      "ticker": "SINCH",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710186223,
+      "verified_at": "2026-11-26T16:38:27.2607812Z"
+    },
+    "SINT.ST": {
+      "orderbook_id": "5406",
+      "isin": "SE0000950982",
+      "ticker": "SINT",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795709983512,
+      "verified_at": "2026-11-26T16:38:28.1860185Z"
+    },
+    "SKA-B.ST": {
+      "orderbook_id": "5257",
+      "isin": "SE0000113250",
+      "ticker": "SKA B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710203565,
+      "verified_at": "2026-11-26T16:38:29.1128171Z"
+    },
+    "SKF-B.ST": {
+      "orderbook_id": "5259",
+      "isin": "SE0000108227",
+      "ticker": "SKF B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710208044,
+      "verified_at": "2026-11-26T16:38:30.0390034Z"
+    },
+    "SKIS-B.ST": {
+      "orderbook_id": "5339",
+      "isin": "SE0012141687",
+      "ticker": "SKIS B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710165866,
+      "verified_at": "2026-11-26T16:38:30.9622399Z"
+    },
+    "SLEEP.ST": {
+      "orderbook_id": "1236426",
+      "isin": "SE0015961404",
+      "ticker": "SLEEP",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795709717018,
+      "verified_at": "2026-11-26T16:38:31.8847177Z"
+    },
+    "SLP-B.ST": {
+      "orderbook_id": "1370669",
+      "isin": "SE0017565476",
+      "ticker": "SLP B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710207137,
+      "verified_at": "2026-11-26T16:38:32.8103404Z"
+    },
+    "SOBI.ST": {
+      "orderbook_id": "51308",
+      "isin": "SE0000872095",
+      "ticker": "SOBI",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710206111,
+      "verified_at": "2026-11-26T16:38:34.0786342Z"
+    },
+    "SOF-B.ST": {
+      "orderbook_id": "5418",
+      "isin": "SE0000323305",
+      "ticker": "SOF B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710180614,
+      "verified_at": "2026-11-26T16:38:35.0136256Z"
+    },
+    "SSAB-B.ST": {
+      "orderbook_id": "5261",
+      "isin": "SE0000120669",
+      "ticker": "SSAB B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710210465,
+      "verified_at": "2026-11-26T16:38:36.4148392Z"
+    },
+    "STE-R.ST": {
+      "orderbook_id": "5422",
+      "isin": "FI0009007611",
+      "ticker": "STE R",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710198170,
+      "verified_at": "2026-11-26T16:38:37.3565591Z"
+    },
+    "STEF-B.ST": {
+      "orderbook_id": "273449",
+      "isin": "SE0006543344",
+      "ticker": "STEF B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710205642,
+      "verified_at": "2026-11-26T16:38:38.2928153Z"
+    },
+    "STG.CO": {
+      "orderbook_id": "632578",
+      "isin": "DK0060696300",
+      "ticker": "STG",
+      "currency": "DKK",
+      "market_code": "XCSE",
+      "market_name": "Köpenhamnsbörsen",
+      "quote_timestamp": 1795710000075,
+      "verified_at": "2026-11-26T16:38:39.2302193Z"
+    },
+    "STOR-B.ST": {
+      "orderbook_id": "1284767",
+      "isin": "SE0016797732",
+      "ticker": "STOR B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710209374,
+      "verified_at": "2026-11-26T16:38:40.1726451Z"
+    },
+    "STORY-B.ST": {
+      "orderbook_id": "32576",
+      "isin": "SE0007439443",
+      "ticker": "STORY B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710207392,
+      "verified_at": "2026-11-26T16:38:41.1084773Z"
+    },
+    "SUS.ST": {
+      "orderbook_id": "764878",
+      "isin": "SE0014428512",
+      "ticker": "SUS",
+      "currency": "SEK",
+      "market_code": "FNSE",
+      "market_name": "First North Stockholm",
+      "quote_timestamp": 1795710195620,
+      "verified_at": "2026-11-26T16:38:42.0431386Z"
+    },
+    "SVIK.ST": {
+      "orderbook_id": "5500",
+      "isin": "SE0000653230",
+      "ticker": "SVIK",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710150131,
+      "verified_at": "2026-11-26T16:38:42.9808444Z"
+    },
+    "SWEC-B.ST": {
+      "orderbook_id": "5409",
+      "isin": "SE0014960373",
+      "ticker": "SWEC B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710197451,
+      "verified_at": "2026-11-26T16:38:43.9190902Z"
+    },
+    "SWED-A.ST": {
+      "orderbook_id": "5241",
+      "isin": "SE0000242455",
+      "ticker": "SWED A",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710219935,
+      "verified_at": "2026-11-26T16:38:44.8556064Z"
+    },
+    "SYNACT.ST": {
+      "orderbook_id": "674279",
+      "isin": "SE0008241491",
+      "ticker": "SYNACT",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710151886,
+      "verified_at": "2026-11-26T16:38:45.7932605Z"
+    },
+    "SYSR.ST": {
+      "orderbook_id": "97407",
+      "isin": "SE0016609499",
+      "ticker": "SYSR",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710215785,
+      "verified_at": "2026-11-26T16:38:46.7312928Z"
+    },
+    "TEL2-B.ST": {
+      "orderbook_id": "5386",
+      "isin": "SE0005190238",
+      "ticker": "TEL2 B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710220847,
+      "verified_at": "2026-11-26T16:38:47.6701108Z"
+    },
+    "TELIA.ST": {
+      "orderbook_id": "5479",
+      "isin": "SE0000667925",
+      "ticker": "TELIA",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710218629,
+      "verified_at": "2026-11-26T16:38:49.0720728Z"
+    },
+    "THULE.ST": {
+      "orderbook_id": "521491",
+      "isin": "SE0006422390",
+      "ticker": "THULE",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710219322,
+      "verified_at": "2026-11-26T16:38:50.0183887Z"
+    },
+    "TREL-B.ST": {
+      "orderbook_id": "5267",
+      "isin": "SE0000114837",
+      "ticker": "TREL B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710216753,
+      "verified_at": "2026-11-26T16:38:50.9533755Z"
+    },
+    "TROAX.ST": {
+      "orderbook_id": "551073",
+      "isin": "SE0012729366",
+      "ticker": "TROAX",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710128949,
+      "verified_at": "2026-11-26T16:38:51.8870737Z"
+    },
+    "TRUE-B.ST": {
+      "orderbook_id": "1286052",
+      "isin": "SE0016787071",
+      "ticker": "TRUE B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710225705,
+      "verified_at": "2026-11-26T16:38:52.8242886Z"
+    },
+    "VBG-B.ST": {
+      "orderbook_id": "5342",
+      "isin": "SE0000115107",
+      "ticker": "VBG B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710205649,
+      "verified_at": "2026-11-26T16:38:53.7638777Z"
+    },
+    "VIT-B.ST": {
+      "orderbook_id": "5526",
+      "isin": "SE0007871363",
+      "ticker": "VIT B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710219563,
+      "verified_at": "2026-11-26T16:38:54.7003769Z"
+    },
+    "VITR.ST": {
+      "orderbook_id": "5508",
+      "isin": "SE0011205202",
+      "ticker": "VITR",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710226421,
+      "verified_at": "2026-11-26T16:38:55.6366154Z"
+    },
+    "VOLO.ST": {
+      "orderbook_id": "709195",
+      "isin": "SE0009143662",
+      "ticker": "VOLO",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710201038,
+      "verified_at": "2026-11-26T16:38:56.5760330Z"
+    },
+    "VOLV-B.ST": {
+      "orderbook_id": "5269",
+      "isin": "SE0000115446",
+      "ticker": "VOLV B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710232533,
+      "verified_at": "2026-11-26T16:38:57.5114944Z"
+    },
+    "VSURE.ST": {
+      "orderbook_id": "2185531",
+      "isin": "GB00BVMN1558",
+      "ticker": "VSURE",
+      "currency": "EUR",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710235567,
+      "verified_at": "2026-11-26T16:38:58.4468675Z"
+    },
+    "WALL-B.ST": {
+      "orderbook_id": "5344",
+      "isin": "SE0017780133",
+      "ticker": "WALL B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710233054,
+      "verified_at": "2026-11-26T16:38:59.3834880Z"
+    },
+    "WBGR-B.ST": {
+      "orderbook_id": "1148804",
+      "isin": "SE0014453874",
+      "ticker": "WBGR B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710198451,
+      "verified_at": "2026-11-26T16:39:00.3206670Z"
+    },
+    "WIHL.ST": {
+      "orderbook_id": "18813",
+      "isin": "SE0018012635",
+      "ticker": "WIHL",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710213452,
+      "verified_at": "2026-11-26T16:39:01.2541187Z"
+    },
+    "XANO-B.ST": {
+      "orderbook_id": "5415",
+      "isin": "SE0018014151",
+      "ticker": "XANO B",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710239397,
+      "verified_at": "2026-11-26T16:39:02.1966450Z"
+    },
+    "YUBICO.ST": {
+      "orderbook_id": "1206860",
+      "isin": "SE0015657788",
+      "ticker": "YUBICO",
+      "currency": "SEK",
+      "market_code": "XSTO",
+      "market_name": "Stockholmsbörsen",
+      "quote_timestamp": 1795710240212,
+      "verified_at": "2026-11-26T16:39:03.1324090Z"
+    }
+  }
+}

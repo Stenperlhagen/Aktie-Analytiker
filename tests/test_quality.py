@@ -16,6 +16,135 @@ def load_function(name, namespace):
     return namespace[name]
 
 class QualityTests(unittest.TestCase):
+    def test_rusta_and_securitas_r12_reported_ebita(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("abb_r12_ebita",ns)
+        fixtures=[
+            ("RUSTA.ST","2026-07-31",12913,13165,1002,1002),
+            ("SECU-B.ST","2026-09-30",151042,151122,10938,11484),
+        ]
+        for symbol,period,sales,revenue,ebit,ebita in fixtures:
+            with self.subTest(symbol=symbol):
+                record={"currency":"SEK","net_Sales":sales,"revenues":revenue,
+                        "operating_Income":ebit}
+                result=calc(symbol,record,period)
+                self.assertEqual(result["value"],ebita*1e6)
+                self.assertTrue(result["sources"][0].startswith("https://"))
+                self.assertNotIn("fcff",result)
+                for key,value in (("currency","EUR"),("net_Sales",sales+20),
+                                  ("revenues",revenue+1000),("operating_Income",ebit+100)):
+                    self.assertIsNone(calc(symbol,{**record,key:value},period))
+                self.assertIsNone(calc(symbol,record,"2025-12-31"))
+                self.assertIsNone(calc(symbol,{"currency":"SEK","operating_Income":ebit},period))
+
+    def test_rusta_r12_fcff_requires_ifrs_cash_and_debt(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("abb_r12_ebita",ns)
+        record={"currency":"SEK","net_Sales":12913,"revenues":13165,
+                "operating_Income":1002,"cash_Flow_From_Operating_Activities":1949,
+                "net_Debt":4819}
+        date="2026-07-31"
+        result=calc("RUSTA.ST",record,date)
+        self.assertEqual(result["value"],1002e6)
+        self.assertAlmostEqual(result["fcff"],(1002*(1-177/767)+1036+19+9+270-500)*1e6)
+        self.assertAlmostEqual(result["fcff_tax_rate"],177/767)
+        for revenue in (12913,13165,12939):
+            variant=calc("RUSTA.ST",{**record,"revenues":revenue},date)
+            self.assertEqual(variant["value"],1002e6)
+            self.assertAlmostEqual(variant["fcff"],result["fcff"])
+        self.assertIsNone(calc("RUSTA.ST",{**record,"revenues":13000},date))
+        self.assertIsNone(calc("RUSTA.ST",{**record,"net_Sales":12939},date))
+        for key,value in (("net_Debt",-587),("cash_Flow_From_Operating_Activities",1663),
+                          ("net_Debt",None),("cash_Flow_From_Operating_Activities",None)):
+            self.assertNotIn("fcff",calc("RUSTA.ST",{**record,key:value},date))
+        self.assertIsNone(calc("RUSTA.ST",record,"2026-04-30"))
+
+    def test_sinch_r12_fcff_unlevers_reported_cash_flow(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("official_r12_fcff",ns)
+        record={"currency":"SEK","net_Sales":27199,"revenues":28026,
+                "operating_Income":1133,"cash_Flow_From_Operating_Activities":3320,
+                "net_Debt":6813}
+        date="2026-09-30"
+        result=calc("SINCH.ST",record,date)
+        self.assertAlmostEqual(result["fcff"],(2698+255*(1-.206))*1e6)
+        self.assertNotIn("ebita",result)
+        self.assertTrue(result["sources"][0].startswith("https://www.group.sinch.com/"))
+        for key,value in (("currency","USD"),("revenues",26000),("net_Sales",26000),
+                          ("operating_Income",2000),("cash_Flow_From_Operating_Activities",3000),
+                          ("net_Debt",6144)):
+            self.assertIsNone(calc("SINCH.ST",{**record,key:value},date))
+        self.assertIsNone(calc("SINCH.ST",record,"2026-06-30"))
+
+    def test_reported_nav_is_current_currency_matched_and_sourced(self):
+        ns={"math":math,"pd":pd}
+        load_function("numeric",ns)
+        node=next(n for n in TREE.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=="REPORTED_NAV" for t in n.targets))
+        ns["REPORTED_NAV"]=ast.literal_eval(node.value)
+        calc=load_function("current_reported_nav",ns)
+        for symbol,amount in (("BALD-B.ST",97.03),("CATE.ST",468.87),("WALL-B.ST",65.0)):
+            result=calc(symbol,"SEK","2026-11-27")
+            self.assertEqual(result["nav"],amount)
+            self.assertEqual(result["date"],"2026-09-30")
+            self.assertTrue(result["source"].startswith("https://"))
+            self.assertIsNone(calc(symbol,"EUR","2026-11-27"))
+            self.assertIsNone(calc(symbol,"SEK","2026-09-29"))
+            self.assertIsNone(calc(symbol,"SEK","2027-04-01"))
+        self.assertIsNone(calc("BALD-A.ST","SEK","2026-11-27"))
+        ns["REPORTED_NAV"]["BAD.ST"]={"nav":10,"date":"2026-09-30","kind":"NAV"}
+        self.assertIsNone(calc("BAD.ST","SEK","2026-11-27"))
+        self.assertIn("nav=current_reported_nav(symbol,currency)",SOURCE)
+
+    def test_screener_does_not_bypass_primary_r12_on_missing_target(self):
+        calls=[]
+        def engine(*args,**kwargs):
+            calls.append(kwargs)
+            if kwargs.get("use_roic") is False:
+                return {"target":100,"category":"Rörelsedrivande bolag","missing":[]}
+            return {"target":None,"category":"Rörelsedrivande bolag","missing":["FCFF <= 0"]}
+        ns={"fetch":lambda symbol: ({},None,None,None,None,{},{}),
+            "valuation_engine":engine,"roic_key":lambda:"configured",
+            "growth_stability":lambda fin:None,"val":lambda *args:None,
+            "valuation_category":lambda symbol:"Rörelsedrivande bolag"}
+        calc=load_function("screener_snapshot",ns)
+        result=calc("ABC.ST")
+        self.assertIsNone(result["target"])
+        self.assertEqual(calls,[{}])
+        self.assertIn("FCFF <= 0",result["missing"])
+        def failing(*args,**kwargs):
+            calls.append(kwargs)
+            raise RuntimeError("primary unavailable")
+        ns["valuation_engine"]=failing
+        self.assertIsNone(calc("ABC.ST")["target"])
+        self.assertEqual(calls,[{},{}])
+
+    def test_roko_r12_filing_includes_all_debt_and_unadjusted_ebita(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("abb_r12_ebita",ns)
+        record={"currency":"SEK","net_Sales":7754,"operating_Income":1326,
+                "cash_Flow_From_Operating_Activities":1329,"net_Debt":2811}
+        period="2026-09-30"
+        result=calc("ROKO-B.ST",record,period)
+        self.assertEqual(result["value"],1602e6)
+        self.assertEqual(result["net_debt"],5609e6)
+        self.assertAlmostEqual(result["fcff"],(1326*(1-333/1196)+482+15-86)*1e6)
+        for debt in (2044,4842,5609):
+            self.assertEqual(calc("ROKO-B.ST",{**record,"net_Debt":debt},period)["net_debt"],5609e6)
+        self.assertNotIn("net_debt",calc("ROKO-B.ST",{**record,"net_Debt":123},period))
+        self.assertNotIn("fcff",calc("ROKO-B.ST",{**record,"net_Debt":123},period))
+        self.assertNotIn("fcff",calc("ROKO-B.ST",{**record,"cash_Flow_From_Operating_Activities":1000},period))
+        self.assertIsNone(calc("ROKO-B.ST",{**record,"currency":"EUR"},period))
+        self.assertIsNone(calc("ROKO-B.ST",record,"2026-06-30"))
+        self.assertIsNone(calc("ROKO-B.ST",{**record,"operating_Income":1000},period))
+
     def test_numeric(self):
         numeric = load_function("numeric", {"math": math, "pd": pd})
         for x in (None, float("nan"), float("inf"), -float("inf"), "bad"):
@@ -85,6 +214,194 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(metric("Omsättning",36_962e6,"USD","SEK",10),("Omsättning (MSEK)","369 620"))
         self.assertEqual(metric("EBITA",6_911e6,"USD","SEK",None),("EBITA (MUSD)","6 911"))
         self.assertEqual(metric("Kassa",0,"SEK","SEK",1),("Kassa (MSEK)","0"))
+
+    def test_yahoo_r12_bridge_reconciles_all_four_quarters(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("yahoo_r12_bridge",ns)
+        periods=pd.to_datetime(["2026-09-30","2026-06-30","2026-03-31","2025-12-31"])
+        income=pd.DataFrame([[250e6]*4,[25e6]*4,[2e6]*4],index=["Total Revenue","Operating Income","Amortization Of Intangibles"],columns=periods)
+        cash=pd.DataFrame([[30e6]*4,[5e6]*4,[-6e6]*4,[-1e6]*4],index=["Operating Cash Flow","Depreciation And Amortization","Capital Expenditure","Change In Working Capital"],columns=periods)
+        record={"revenues":1000,"operating_Income":100,"cash_Flow_From_Operating_Activities":120}
+        result=calc(income,cash,record,periods[0])
+        self.assertAlmostEqual(result["ebita"],108e6)
+        self.assertAlmostEqual(result["fcff"],71.4e6)
+        self.assertEqual(calc(income.iloc[:,:3],cash,record,periods[0]),{})
+        self.assertEqual(calc(income,cash,{**record,"revenues":1500},periods[0]),{})
+        self.assertNotIn("fcff",calc(income,cash,{**record,"cash_Flow_From_Operating_Activities":200},periods[0]))
+        self.assertNotIn("ebita",calc(income.drop(index="Amortization Of Intangibles"),cash,record,periods[0]))
+        self.assertNotIn("fcff",calc(income,cash.drop(index="Change In Working Capital"),record,periods[0]))
+
+    def test_yahoo_trailing_bridge_requires_dated_and_reconciled_flows(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("yahoo_r12_bridge",ns)
+        end=pd.Timestamp("2026-09-30")
+        income=pd.DataFrame({end:[1010e6,1000e6,100e6,8e6]},index=["Total Revenue","Operating Revenue","Operating Income","Amortization Of Intangibles Income Statement"])
+        cash=pd.DataFrame({end:[120e6,20e6,-24e6,-4e6]},index=["Operating Cash Flow","Depreciation And Amortization","Capital Expenditure","Change In Working Capital"])
+        record={"revenues":1100,"net_Sales":1000,"operating_Income":100,"cash_Flow_From_Operating_Activities":120}
+        self.assertEqual(calc(income,cash,record,end),{})
+        result=calc(income,cash,record,end,trailing=True)
+        self.assertAlmostEqual(result["ebita"],108e6)
+        self.assertAlmostEqual(result["fcff"],71.4e6)
+        self.assertEqual(calc(income,cash,record,end-pd.offsets.MonthEnd(3),trailing=True),{})
+        self.assertEqual(calc(income,cash,{**record,"net_Sales":900},end,trailing=True),{})
+        self.assertNotIn("fcff",calc(income,cash,{**record,"cash_Flow_From_Operating_Activities":200},end,trailing=True))
+        self.assertNotIn("ebita",calc(income.rename(index={"Amortization Of Intangibles Income Statement":"Amortization Cash Flow"}),cash,record,end,trailing=True))
+
+    def test_yahoo_reconciles_net_sales_without_overwriting_revenue(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        annual=load_function("comparable_yahoo_periods",ns)
+        fill=load_function("fill_matching_statement_periods",ns)
+        trailing=load_function("yahoo_r12_bridge",ns)
+        end=pd.Timestamp("2026-09-30")
+        primary=pd.DataFrame({end:[1100e6,1000e6,100e6]},index=["Total Revenue","Net Sales","Operating Income"])
+        income=pd.DataFrame({end:[1000e6,100e6,8e6]},index=["Total Revenue","Operating Income","Amortization Of Intangibles"])
+        cash=pd.DataFrame({end:[120e6,20e6,-24e6,-4e6]},index=["Operating Cash Flow","Depreciation And Amortization","Capital Expenditure","Change In Working Capital"])
+        record={"revenues":1100,"net_Sales":1000,"operating_Income":100,"cash_Flow_From_Operating_Activities":120}
+        self.assertEqual(list(annual(primary,income)),[end])
+        merged=fill(primary,income,annual(primary,income))
+        self.assertEqual(merged.at["Total Revenue",end],1100e6)
+        self.assertEqual(merged.at["Amortization Of Intangibles",end],8e6)
+        self.assertAlmostEqual(trailing(income,cash,record,end,trailing=True)["ebita"],108e6)
+        wrong=income.copy()
+        wrong.at["Operating Income",end]=90e6
+        self.assertTrue(annual(primary,wrong).empty)
+        self.assertEqual(trailing(wrong,cash,record,end,trailing=True),{})
+        self.assertEqual(trailing(income,cash,{**record,"net_Sales":900},end,trailing=True),{})
+
+    def test_yahoo_matches_reported_ebit_not_adjusted_ebit(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        annual=load_function("comparable_yahoo_periods",ns)
+        fill=load_function("fill_matching_statement_periods",ns)
+        trailing=load_function("yahoo_r12_bridge",ns)
+        end=pd.Timestamp("2026-09-30")
+        primary=pd.DataFrame({end:[1000e6,100e6]},index=["Total Revenue","Operating Income"])
+        income=pd.DataFrame({end:[1000e6,90e6,100e6,8e6]},index=["Total Revenue","Operating Income","Total Operating Income As Reported","Amortization Of Intangibles"])
+        cash=pd.DataFrame({end:[120e6,20e6,-24e6,-4e6]},index=["Operating Cash Flow","Depreciation And Amortization","Capital Expenditure","Change In Working Capital"])
+        record={"revenues":1000,"operating_Income":100,"cash_Flow_From_Operating_Activities":120}
+        self.assertEqual(list(annual(primary,income)),[end])
+        self.assertEqual(fill(primary,income,annual(primary,income)).at["Operating Income",end],100e6)
+        result=trailing(income,cash,record,end,trailing=True)
+        self.assertAlmostEqual(result["ebita"],108e6)
+        self.assertAlmostEqual(result["fcff"],71.4e6)
+        income.at["Total Operating Income As Reported",end]=80e6
+        self.assertTrue(annual(primary,income).empty)
+        self.assertEqual(trailing(income,cash,record,end,trailing=True),{})
+
+    def test_afry_r12_fcff_requires_reconciled_lease_inclusive_debt(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("abb_r12_ebita",ns)
+        record={"currency":"SEK","revenues":25295,"net_Sales":25276,
+                "operating_Income":1448,"cash_Flow_From_Operating_Activities":2153,
+                "net_Debt":6285}
+        date="2026-09-30"
+        result=calc("AFRY.ST",record,date)
+        self.assertEqual(result["value"],1613e6)
+        self.assertAlmostEqual(result["fcff"],(1448*(1-323/1182)+815+69+512-80)*1e6)
+        self.assertIn("nettoinvesteringar",result["fcff_note"])
+        self.assertNotIn("fcff",calc("AFRY.ST",{**record,"net_Debt":4843},date))
+        self.assertNotIn("fcff",calc("AFRY.ST",{**record,"cash_Flow_From_Operating_Activities":2220},date))
+        self.assertIsNone(calc("AFRY.ST",{**record,"currency":"EUR"},date))
+        self.assertIsNone(calc("AFRY.ST",{**record,"operating_Income":1387},date))
+        self.assertIsNone(calc("AFRY.ST",record,"2026-06-30"))
+
+    def test_aak_r12_fcff_matches_original_sek_filing(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("official_r12_fcff",ns)
+        record={"currency":"SEK","revenues":46318,"net_Sales":45976,
+                "operating_Income":4777,"cash_Flow_From_Operating_Activities":4260}
+        end="2026-09-30"
+        result=calc("AAK.ST",record,end)
+        self.assertAlmostEqual(result["fcff"],(4777*(1-1068/4624)+849-114-283-1434)*1e6)
+        self.assertNotIn("ebita",result)
+        self.assertIsNotNone(calc("AAK.ST",{**record,"revenues":45976},end))
+        for key,value in (("currency","EUR"),("net_Sales",45000),("revenues",47000),
+                          ("operating_Income",4675),("cash_Flow_From_Operating_Activities",3972)):
+            self.assertIsNone(calc("AAK.ST",{**record,key:value},end))
+        self.assertIsNone(calc("AAK.ST",record,"2025-12-31"))
+        self.assertIsNone(calc("AAK.ST",{**record,"cash_Flow_From_Operating_Activities":None},end))
+
+    def test_thule_r12_fcff_matches_cash_and_income_without_inventing_ebita(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("official_r12_fcff",ns)
+        record={"currency":"SEK","revenues":10431,"net_Sales":10431,
+                "operating_Income":1784,"cash_Flow_From_Operating_Activities":1695}
+        end="2026-09-30"
+        result=calc("THULE.ST",record,end)
+        self.assertAlmostEqual(result["fcff"],(1784*(1-389/1634)+362-30-399)*1e6)
+        self.assertEqual(len(result["sources"]),2)
+        self.assertNotIn("ebita",result)
+        self.assertIsNone(calc("THULE.ST",record,"2026-06-30"))
+        for field,value in (("currency","EUR"),("net_Sales",10000),
+                            ("operating_Income",1806),("cash_Flow_From_Operating_Activities",1641)):
+            self.assertIsNone(calc("THULE.ST",{**record,field:value},end))
+
+    def test_loomis_r12_fcff_uses_ifrs_cash_flows(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("official_r12_fcff",ns)
+        record={"currency":"SEK","revenues":31253,"net_Sales":31253,
+                "operating_Income":3651,"cash_Flow_From_Operating_Activities":5243}
+        end="2026-09-30"
+        result=calc("LOOMIS.ST",record,end)
+        self.assertAlmostEqual(result["fcff"],(3651*(1-987/3009)+3241+871-645-1425)*1e6)
+        self.assertIn("Hermes",result["fcff_note"])
+        self.assertNotIn("ebita",result)
+        self.assertIsNone(calc("LOOMIS.ST",{**record,"currency":"USD"},end))
+        self.assertIsNone(calc("LOOMIS.ST",record,"2026-06-30"))
+        self.assertIsNone(calc("LOOMIS.ST",{**record,"cash_Flow_From_Operating_Activities":3613},end))
+        self.assertIsNone(calc("LOOMIS.ST",{**record,"operating_Income":4291},end))
+        self.assertIsNone(calc("LOOMIS.ST",{**record,"net_Sales":30000},end))
+
+    def test_yahoo_isin_reverse_requires_unambiguous_exchange_and_live_identity(self):
+        isin="SE0016074256"
+        other="SE0020050417"
+        quote={"symbol":"ABC-B.ST","quoteType":"EQUITY","exchange":"STO","isYahooFinance":True}
+        search=Mock()
+        search.return_value.quotes=[quote]
+        yf=Mock(Search=search)
+        av=Mock(return_value=({"verified":True,"isin":isin,"currency":"SEK","market":"XSTO"},""))
+        ns={"re":re,"yf":yf,"avanza_market_snapshot":av}
+        reverse=load_function("yahoo_isin_reverse_match",ns)
+        matches=load_function("yahoo_identity_matches",ns)
+        identity={"isin":isin,"stockPriceCurrency":"SEK"}
+        profile={"symbol":"ABC-B.ST","currency":"SEK","exchange":"STO","financialCurrency":"SEK"}
+        listing=Mock()
+        listing.get_isin.return_value="-"
+        self.assertTrue(matches(listing,profile,"ABC-B.ST",identity,"SEK","SEK"))
+        self.assertEqual(search.call_args.args,(isin,))
+        self.assertFalse(search.call_args.kwargs["enable_fuzzy_query"])
+        search.return_value.quotes=[quote,{**quote,"symbol":"ABC-A.ST"}]
+        self.assertFalse(matches(listing,profile,"ABC-B.ST",identity,"SEK","SEK"))
+        search.return_value.quotes=[{**quote,"exchange":"NYQ"}]
+        self.assertFalse(reverse(isin,"ABC-B.ST",("STO",)))
+        search.return_value.quotes=[{**quote,"isin":other}]
+        self.assertFalse(reverse(isin,"ABC-B.ST",("STO",)))
+        search.return_value.quotes=[quote]
+        listing.get_isin.return_value=other
+        self.assertFalse(matches(listing,profile,"ABC-B.ST",identity,"SEK","SEK"))
+        listing.get_isin.return_value=isin
+        self.assertTrue(matches(listing,profile,"ABC-B.ST",identity,"SEK","SEK"))
+        self.assertFalse(matches(listing,{**profile,"isin":other},"ABC-B.ST",identity,"SEK","SEK"))
+        self.assertFalse(matches(listing,{**profile,"currency":"EUR"},"ABC-B.ST",identity,"SEK","SEK"))
+        self.assertFalse(matches(listing,{**profile,"financialCurrency":"USD"},"ABC-B.ST",identity,"SEK","SEK"))
+        listing.get_isin.return_value="-"
+        av.return_value=({"verified":False,"isin":isin,"currency":"SEK","market":"XSTO"},"")
+        self.assertFalse(matches(listing,profile,"ABC-B.ST",identity,"SEK","SEK"))
 
     def test_emission(self):
         calc = load_function("emission_adjustment", {})

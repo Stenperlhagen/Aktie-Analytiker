@@ -14,13 +14,13 @@ st.markdown('''<style>.block-container{max-width:1300px;padding-top:2rem}div[dat
 # Swedish large-cap-oriented starter universe. Entries are not asserted to be an exhaustive, live Nasdaq classification.
 GROUPS={
 'Industri': {'ABB':'ABB.ST','Addtech B':'ADDT-B.ST','AFRY':'AFRY.ST','Alfa Laval':'ALFA.ST','Assa Abloy B':'ASSA-B.ST','Atlas Copco A':'ATCO-A.ST','Atlas Copco B':'ATCO-B.ST','Beijer Ref B':'BEIJ-B.ST','Bravida':'BRAV.ST','Bufab':'BUFAB.ST','Epiroc A':'EPI-A.ST','Indutrade':'INDT.ST','Lifco B':'LIFCO-B.ST','Nibe B':'NIBE-B.ST','Saab B':'SAAB-B.ST','Sandvik':'SAND.ST','Securitas B':'SECU-B.ST','Skanska B':'SKA-B.ST','Sweco B':'SWEC-B.ST','Trelleborg B':'TREL-B.ST','Volvo B':'VOLV-B.ST','Volvo A':'VOLV-A.ST','Munters':'MTRS.ST','Mycronic':'MYCR.ST','Loomis':'LOOMIS.ST','NCC B':'NCC-B.ST','Peab B':'PEAB-B.ST','SKF B':'SKF-B.ST','Systemair':'SYSR.ST','Lindab':'LIAB.ST','Alimak':'ALIG.ST','Clas Ohlson B':'CLAS-B.ST','AQ Group':'AQ.ST','Beijer Alma B':'BEIA-B.ST'},
-'Bank och finans': {'Investor B':'INVE-B.ST','Investor A':'INVE-A.ST','Industrivärden C':'INDU-C.ST','SEB A':'SEB-A.ST','Handelsbanken A':'SHB-A.ST','Swedbank A':'SWED-A.ST','Nordea':'NDA-SE.ST','Avanza':'AZA.ST','Nordnet':'SAVE.ST','EQT':'EQT.ST','Latour B':'LATO-B.ST','Lundbergföretagen B':'LUND-B.ST','Kinnevik B':'KINV-B.ST','Bure Equity':'BURE.ST','Sampo':'SAMPO-SDB.ST','Storskogen B':'STOR-B.ST'},
+'Bank och finans': {'Investor B':'INVE-B.ST','Investor A':'INVE-A.ST','Industrivärden C':'INDU-C.ST','SEB A':'SEB-A.ST','Handelsbanken A':'SHB-A.ST','Swedbank A':'SWED-A.ST','Nordea':'NDA-SE.ST','Avanza':'AZA.ST','Nordnet':'SAVE.ST','EQT':'EQT.ST','Latour B':'LATO-B.ST','Lundbergföretagen B':'LUND-B.ST','Kinnevik B':'KINV-B.ST','Bure Equity':'BURE.ST','Sampo':'SAMPO-SEK.ST','Storskogen B':'STOR-B.ST'},
 'Fastigheter': {'Balder B':'BALD-B.ST','Castellum':'CAST.ST','Catena':'CATE.ST','Fabege':'FABG.ST','Sagax B':'SAGA-B.ST','Wallenstam B':'WALL-B.ST','Wihlborgs':'WIHL.ST','Hufvudstaden A':'HUFV-A.ST','Atrium Ljungberg B':'ATRLJ-B.ST','Pandox B':'PNDX-B.ST','NP3 Fastigheter':'NP3.ST','Hemnet':'HEM.ST','Corem B':'CORE-B.ST'},
 'Teknik och telekom': {'Ericsson B':'ERIC-B.ST','Hexagon B':'HEXA-B.ST','Tele2 B':'TEL2-B.ST','Telia':'TELIA.ST','Sinch':'SINCH.ST','Truecaller B':'TRUE-B.ST','Vitec B':'VIT-B.ST','Addnode B':'ANOD-B.ST','Lagercrantz B':'LAGR-B.ST','HMS Networks':'HMS.ST','Yubico':'YUBICO.ST'},
 'Hälsovård': {'AstraZeneca':'AZN.ST','Getinge B':'GETI-B.ST','Sobi':'SOBI.ST','Elekta B':'EKTA-B.ST','Sectra B':'SECT-B.ST','BioArctic B':'BIOA-B.ST','Camurus':'CAMX.ST','Bonesupport':'BONEX.ST','Vitrolife':'VITR.ST','Medicover B':'MCOV-B.ST','AddLife B':'ALIF-B.ST'},
 'Konsument och övrigt': {'H&M B':'HM-B.ST','Evolution':'EVO.ST','Essity B':'ESSITY-B.ST','Axfood':'AXFO.ST','AAK':'AAK.ST','Electrolux B':'ELUX-B.ST','Husqvarna B':'HUSQ-B.ST','Thule':'THULE.ST','Dometic':'DOM.ST','Scandic Hotels':'SHOT.ST','SkiStar B':'SKIS-B.ST','Betsson B':'BETS-B.ST','Embracer B':'EMBRAC-B.ST','Autoliv':'ALIV-SDB.ST','Bilia A':'BILI-A.ST','New Wave B':'NEWA-B.ST','Mips':'MIPS.ST'},
 'Material och skog': {'Boliden':'BOL.ST','SSAB B':'SSAB-B.ST','SCA B':'SCA-B.ST','Holmen B':'HOLM-B.ST','Billerud':'BILL.ST','Stora Enso R':'STE-R.ST','Gränges':'GRNG.ST','Hexpol B':'HPOL-B.ST','Alleima':'ALLEI.ST','Lundin Mining':'LUMI.ST'},
-'Övriga bolag': {'Volati AB':'VOLO.ST','Salix Group':'SALIX.ST','Röko':'ROKO.ST','Asker Healthcare':'ASKER.ST','Verisure':'VSURE.ST','Paradox Interactive':'PDX.ST'}
+'Övriga bolag': {'Volati AB':'VOLO.ST','Salix Group':'SALIX.ST','Röko':'ROKO-B.ST','Asker Healthcare':'ASKER.ST','Verisure':'VSURE.ST','Paradox Interactive':'PDX.ST'}
 }
 CAT={n:(t,g) for g,items in GROUPS.items() for n,t in items.items()}
 
@@ -233,61 +233,190 @@ def roic_annual_cashflow(identifier, api_key):
 
 @st.cache_data(ttl=1800,show_spinner=False)
 def avanza_market_snapshot(symbol):
-    """Experimental read-only cross-check. Never assume search result ordering or units."""
+    """Discover by Börsdata ISIN; verify exact orderbook identity before using quotes."""
+    import unicodedata
+    import time
     root='https://www.avanza.se'
-    ticker=symbol.removesuffix('.ST').removesuffix('.CO').replace('-',' ').upper()
-    norm=lambda x: re.sub(r'[^A-Z0-9]','',str(x or '').upper())
-    currency='DKK' if symbol.endswith('.CO') else 'SEK' if symbol.endswith('.ST') else None
+    norm=lambda x: re.sub(r'[^A-Z0-9]','',unicodedata.normalize('NFKD',str(x or '').upper()))
+    identity,error=borsapi_instrument(symbol,borsapi_key())
+    isin=str(identity.get('isin') or '').upper()
+    if not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]',isin):
+        return {},'Avanza: verifierad Börsdata-ISIN saknas'
+    ticker=norm(symbol.rsplit('.',1)[0])
+    # Exchange announcements corroborate these exceptions to suffix-based defaults.
+    # BOKUS/SUS/SES: Nasdaq First North; VSURE: XSTO trading currency EUR.
+    market='FNSE' if symbol in ('BOKUS.ST','SUS.ST','SES.ST') else 'XCSE' if symbol.endswith('.CO') else 'XSTO' if symbol.endswith('.ST') else None
+    currency='EUR' if symbol=='VSURE.ST' else 'DKK' if symbol.endswith('.CO') else 'SEK' if symbol.endswith('.ST') else None
+    bd_currency=str(identity.get('stockPriceCurrency') or '').upper()
+    if not market or not currency or (bd_currency and bd_currency!=currency):
+        return {},'Avanza: handelsvaluta eller handelsplats ej bekräftad'
+    def venue(x):
+        n=norm(x)
+        if n in ('XSTO','STOCKHOLMSBORSEN','NASDAQSTOCKHOLM','STOCKHOLM'): return 'XSTO'
+        if n in ('FNSE','FIRSTNORTHSTOCKHOLM','FIRSTNORTHSWEDEN','NASDAQFIRSTNORTHGROWTHMARKET'): return 'FNSE'
+        if n in ('XCSE','KOPENHAMNSBORSEN','NASDAQCOPENHAGEN','COPENHAGEN'): return 'XCSE'
+        return None
     try:
         headers={'Accept':'application/json','User-Agent':'EquityLab market data'}
         with requests.Session() as session:
-            response=session.post(root+'/_api/search/filtered-search',json={'query':ticker,'searchFilter':{'types':['STOCK']},'pagination':{'from':0,'size':20}},headers=headers,timeout=8)
-            response.raise_for_status()
-            hits=response.json().get('hits',[])
-            matches={}
-            for hit in hits:
-                inst=hit.get('instrument',hit)
-                if not isinstance(inst,dict): continue
-                if norm(inst.get('tickerSymbol') or inst.get('symbol'))!=norm(ticker): continue
-                iid=str(inst.get('id') or inst.get('orderbookId') or '')
-                if iid.isdigit(): matches[iid]=inst
-            if len(matches)!=1: return {},'Avanza: ingen entydig tickermatch'
-            iid=next(iter(matches))
-            response=session.get(root+'/_api/market-guide/stock/'+iid,headers=headers,timeout=8)
-            response.raise_for_status()
-            data=response.json()
-        listing=data.get('listing',{})
-        quote=data.get('quote',{})
-        if norm(listing.get('tickerSymbol') or listing.get('symbol'))!=norm(ticker):
-            return {},'Avanza: aktieslag kunde inte bekräftas'
-        ccy=listing.get('currency') or quote.get('currency')
-        if ccy!=currency: return {},'Avanza: handelsvaluta kunde inte bekräftas'
+            session.headers.update(headers)
+            # The authenticated registry is discovery only: always revalidate the actual detail response.
+            import json
+            from pathlib import Path
+            ids=set()
+            try:
+                entries=json.loads(Path(__file__).with_name('avanza-registry.json').read_text(encoding='utf-8'))['listings']
+                entry=entries.get(symbol,{})
+                candidate=str(entry.get('orderbook_id') or '')
+                if (candidate.isdigit() and entry.get('isin')==isin and
+                    norm(entry.get('ticker'))==ticker and entry.get('currency')==currency and entry.get('market_code')==market):
+                    ids.add(candidate)
+            except (OSError,ValueError,KeyError,TypeError):
+                pass
+            def discover_ids():
+                response=session.post(root+'/_api/search/filtered-search',json={'query':isin,'searchFilter':{'types':['STOCK']},'pagination':{'from':0,'size':50}},timeout=12)
+                response.raise_for_status()
+                found=set()
+                def visit(hit,kind=None):
+                    if not isinstance(hit,dict): return
+                    kind=str(hit.get('type') or hit.get('instrumentType') or kind or '').upper()
+                    if kind and kind!='STOCK': return
+                    for field in ('topHits','hits'):
+                        for child in hit.get(field) or []: visit(child,kind)
+                    if isinstance(hit.get('instrument'),dict): visit(hit['instrument'],kind)
+                    path=urllib.parse.urlsplit(str(hit.get('path') or '')).path
+                    match=re.search(r'(?:^|/)(?:om-aktien[.]html|stock)/([0-9]+)(?:/|$)',path)
+                    if match: found.add(match.group(1))
+                    if kind=='STOCK' or hit.get('tickerSymbol'):
+                        for field in ('orderBookId','orderbookId','id'):
+                            value=str(hit.get(field) or '')
+                            if value.isdigit(): found.add(value)
+                for hit in response.json().get('hits') or []: visit(hit)
+                return found
+            def verify(candidates):
+                verified=[]
+                for iid in sorted(candidates):
+                    response=session.get(root+'/_api/market-guide/stock/'+iid,timeout=12)
+                    if response.status_code==404: continue
+                    response.raise_for_status()
+                    data=response.json()
+                    listing=data.get('listing') or {}
+                    markets={venue(listing.get(k)) for k in ('marketPlaceCode','marketPlaceName')}-{None}
+                    if (str(data.get('orderbookId'))==iid and str(data.get('isin') or '').upper()==isin and
+                        norm(listing.get('tickerSymbol'))==ticker and listing.get('currency')==currency and markets=={market}):
+                        verified.append((iid,data))
+                return verified
+            # A registry entry is not authoritative after a listing migration.
+            # A failed detail match must trigger exact ISIN rediscovery, not
+            # leave the listing permanently broken until the next registry edit.
+            matches=verify(ids)
+            if not matches:
+                discovered=discover_ids()
+                if len(discovered)>10: return {},'Avanza: för många kandidater'
+                matches=verify(discovered-ids)
+        if len(matches)!=1: return {},'Avanza: ingen entydig fyrfältsmatch'
+        iid,data=matches[0]
+        quote=data.get('quote') or {}
         price=numeric(quote.get('last'))
         if price is None: price=numeric(quote.get('lastPrice'))
-        fundamental=data.get('keyIndicators') or data.get('fundamental') or {}
-        raw=fundamental.get('marketCapital') or fundamental.get('marketCap')
-        cap=None
-        # Accept explicit units only; never infer millions from magnitude.
-        if isinstance(raw,dict):
-            unit=str(raw.get('unit') or '').upper()
-            amount=numeric(raw.get('value'))
-            if amount is not None and raw.get('currency')==ccy:
-                if unit in ('MILLION','MILLIONS','MSEK','MDKK'): cap=amount*1e6
-                elif unit in ('ABSOLUTE','SEK','DKK'): cap=amount
-        if price is not None and price<=0: price=None
-        return {'price':price,'market_cap':cap,'currency':ccy,'id':iid,'url':root+'/aktier/om-aktien.html/'+iid},''
+        timestamp=numeric(quote.get('updated'))
+        # Require explicit recent millisecond quote timestamp; identity alone is not a live price.
+        if price is None or price<=0 or timestamp is None or not 0<=time.time()-timestamp/1000<=7*86400:
+            price=None
+        return {'price':price,'market_cap':None,'currency':currency,'id':iid,'isin':isin,'market':market,'quote_timestamp':timestamp if price is not None else None,'verified':True,'url':root+'/aktier/om-aktien.html/'+iid},''
     except Exception as exc:
         return {},'Avanza: '+type(exc).__name__
+
+@st.cache_data(ttl=1800,show_spinner=False)
+def yahoo_isin_reverse_match(isin,symbol,expected_exchanges):
+    """Non-fuzzy reverse lookup: return evidence, never guess an ISIN from a name."""
+    normalize=lambda value: re.sub(r'[^A-Z0-9]','',str(value or '').upper())
+    try:
+        quotes=yf.Search(isin,max_results=20,news_count=0,lists_count=0,
+                         include_cb=False,enable_fuzzy_query=False,timeout=8).quotes
+        if not isinstance(quotes,list): return False
+        candidates=[q for q in quotes if isinstance(q,dict) and
+                    q.get('isYahooFinance') is True and
+                    str(q.get('quoteType') or '').upper()=='EQUITY' and
+                    normalize(q.get('exchange')) in expected_exchanges]
+        # A result for another share class on the same venue is ambiguous.
+        if len(candidates)!=1: return False
+        candidate=candidates[0]
+        if str(candidate.get('symbol') or '').upper()!=symbol.upper(): return False
+        returned=str(candidate.get('isin') or '').upper()
+        if returned and returned!=isin: return False
+        return True
+    except Exception:
+        return False
+
+def yahoo_identity_matches(listing,profile,symbol,identity,trade_currency,report_currency=None):
+    """Require a provider-confirmed instrument before consuming any Yahoo data."""
+    isin=str(identity.get('isin') or '').upper()
+    if not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]',isin):
+        return False
+    if not trade_currency or str(identity.get('stockPriceCurrency') or '').upper()!=trade_currency:
+        return False
+    first_north=symbol in ('BOKUS.ST','SUS.ST','SES.ST')
+    expected=({'FNSE','FIRSTNORTHSTOCKHOLM','FIRSTNORTHSWEDEN'} if first_north else
+              {'CPH','XCSE','COPENHAGEN','NASDAQCOPENHAGEN'} if symbol.endswith('.CO') else
+              {'STO','XSTO','STOCKHOLM','NASDAQSTOCKHOLM'} if symbol.endswith('.ST') else set())
+    normalize=lambda value: re.sub(r'[^A-Z0-9]','',str(value or '').upper())
+    if not (expected and
+            str(profile.get('symbol') or '').upper()==symbol.upper() and
+            str(profile.get('currency') or '').upper()==trade_currency and
+            normalize(profile.get('exchange')) in expected and
+            (report_currency is None or str(profile.get('financialCurrency') or '').upper()==report_currency)):
+        return False
+    try:
+        direct=str(listing.get_isin() or '').upper()
+    except Exception:
+        direct=''
+    # Never override an explicit, conflicting identifier with a search hit.
+    explicit=[str(profile.get('isin') or '').upper(),direct]
+    valid=[v for v in explicit if re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]',v)]
+    if valid: return all(v==isin for v in valid)
+    # Some international listings do not expose an ISIN through get_isin().
+    # Require a live independent Avanza identity plus a unique non-fuzzy
+    # Yahoo response to the exact ISIN, on the already matched venue.
+    av,_=avanza_market_snapshot(symbol)
+    market='FNSE' if first_north else 'XCSE' if symbol.endswith('.CO') else 'XSTO'
+    return bool(av.get('verified') and av.get('isin')==isin and
+                av.get('currency')==trade_currency and av.get('market')==market and
+                yahoo_isin_reverse_match(isin,symbol,tuple(sorted(expected))))
+
+@st.cache_data(ttl=1800,show_spinner=False)
+def matched_yahoo_quote(symbol, identity, trade_currency):
+    """Last resort only: exact instrument, venue, currency and dated close."""
+    isin=str(identity.get('isin') or '').upper()
+    if not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]',isin):
+        return {},'Yahoo: verifierad ISIN saknas'
+    if not trade_currency or str(identity.get('stockPriceCurrency') or '').upper()!=trade_currency:
+        return {},'Yahoo: handelsvaluta inte verifierad av Börsdata'
+    try:
+        listing=yf.Ticker(symbol)
+        profile=listing.get_info()
+        if not yahoo_identity_matches(listing,profile,symbol,identity,trade_currency):
+            return {},'Yahoo: instrument, valuta eller handelsplats avviker'
+        history=listing.history(period='1mo',interval='1d',auto_adjust=False)
+        if history.empty or 'Close' not in history.columns:
+            return {},'Yahoo: stängningskurs saknas'
+        date=pd.Timestamp(history.index[-1]).date()
+        price=numeric(history['Close'].iloc[-1])
+        if price is None or price<=0 or not 0<=(dt.date.today()-date).days<=7:
+            return {},'Yahoo: stängningskurs ogiltig eller inaktuell'
+        return {'price':price,'date':str(date),'currency':trade_currency,'isin':isin},''
+    except Exception as exc:
+        return {},'Yahoo: '+type(exc).__name__
+
 
 @st.cache_data(ttl=21600,show_spinner=False)
 def yahoo_annual_statements(symbol,trade_currency,report_currency):
     if not report_currency or not trade_currency: return None
     try:
+        identity,_=borsapi_instrument(symbol,borsapi_key())
         listing=yf.Ticker(symbol)
         profile=listing.get_info()
-        if (str(profile.get('symbol') or '').upper()!=symbol.upper() or
-            str(profile.get('currency') or '').upper()!=trade_currency or
-            str(profile.get('financialCurrency') or '').upper()!=report_currency):
+        if not yahoo_identity_matches(listing,profile,symbol,identity,trade_currency,report_currency):
             return None
     except Exception:
         return None
@@ -298,7 +427,7 @@ def yahoo_annual_statements(symbol,trade_currency,report_currency):
             if isinstance(frame,pd.DataFrame) and not frame.empty:
                 frame=frame.copy()
                 frame.columns=pd.to_datetime(frame.columns,errors='coerce',utc=True).tz_localize(None).normalize()
-                frame=frame.loc[:,frame.columns.notna() & ~frame.columns.duplicated()]
+                frame=frame.loc[:,frame.columns.notna() & ~frame.columns.duplicated(keep=False)]
                 statements.append(frame)
                 continue
         except Exception:
@@ -306,16 +435,129 @@ def yahoo_annual_statements(symbol,trade_currency,report_currency):
         statements.append(pd.DataFrame())
     return tuple(statements)
 
+def yahoo_r12_bridge(income, cash, record, period, trailing=False):
+    """Return only explicit components from four exact quarterly periods.
+    Independently reconcile quarterly flows to Börsdata R12 before using them.
+    All statement values are in original reporting currency, not millions.
+    """
+    end=pd.Timestamp(period).normalize()
+    if not end.is_month_end: return {}
+    dates=pd.DatetimeIndex([end] if trailing else [end-pd.offsets.MonthEnd(3*i) for i in range(4)])
+    def total(frame, labels):
+        if not dates.isin(frame.columns).all(): return None
+        for label in labels:
+            if label not in frame.index: continue
+            values=[numeric(frame.at[label,d]) for d in dates]
+            if all(x is not None for x in values): return sum(values)
+        return None
+    def matches(value,key):
+        reference=bd_field(record,key)
+        if value is None or reference is None: return False
+        reference*=1e6
+        return abs(value-reference)<=max(0.5e6,0.02*max(abs(value),abs(reference)))
+    revenue=total(income,['Total Revenue'])
+    ebit=total(income,['Operating Income'])
+    reported_ebit=total(income,['Total Operating Income As Reported'])
+    operating_revenue=total(income,['Operating Revenue'])
+    # Yahoo Total Revenue can be consolidated net sales rather than total
+    # operating revenue (other operating income is reported separately).
+    if not ((matches(revenue,'revenues') or matches(revenue,'net_Sales') or
+             matches(operating_revenue,'net_Sales')) and
+            (matches(ebit,'operating_Income') or matches(reported_ebit,'operating_Income'))): return {}
+    result={}
+    explicit=total(income,['EBITA'])
+    amort=total(income,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'])
+    if explicit is not None:
+        result['ebita']=explicit
+    elif amort is not None:
+        result['ebita']=bd_field(record,'operating_Income')*1e6+abs(amort)
+    ocf=total(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'])
+    if not matches(ocf,'cash_Flow_From_Operating_Activities'): return result
+    if 'ebita' not in result:
+        amort=total(cash,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'])
+        if amort is not None:
+            result['ebita']=bd_field(record,'operating_Income')*1e6+abs(amort)
+    if 'ebita' not in result:
+        # Derive intangible amortization only from a coherent D&A split on
+        # the same reconciled cash-flow statement. Never equate total D&A
+        # with amortization, or treat a missing depreciation row as zero.
+        # A depletion-inclusive total requires the matching depletion-inclusive
+        # depreciation line, not a plain depreciation-only line.
+        for da_label,dep_label in (
+            ('Depreciation And Amortization','Depreciation'),
+            ('Depreciation Amortization Depletion','Depreciation And Depletion'),
+        ):
+            if da_label not in cash.index or dep_label not in cash.index or not dates.isin(cash.columns).all():
+                continue
+            pairs=[(numeric(cash.at[da_label,d]),numeric(cash.at[dep_label,d])) for d in dates]
+            if not all(a is not None and b is not None and a>=b>=0 for a,b in pairs):
+                continue
+            amort=sum(a-b for a,b in pairs)
+            # Where the primary source supplies EBITDA, reconcile aggregate
+            # D&A as well; otherwise do not accept inconsistent definitions.
+            provider_ebitda=bd_field(record,'ebitda')
+            provider_ebit=bd_field(record,'operating_Income')
+            if provider_ebitda is not None:
+                reference=(provider_ebitda-provider_ebit)*1e6
+                aggregate=sum(a for a,b in pairs)
+                if reference<0 or abs(aggregate-reference)>max(0.5e6,0.02*max(abs(reference),aggregate)):
+                    continue
+            result['ebita']=provider_ebit*1e6+amort
+            break
+    da=total(cash,['Depreciation And Amortization','Depreciation Amortization Depletion'])
+    cap=total(cash,['Capital Expenditure'])
+    wc=total(cash,['Change In Working Capital'])
+    if all(x is not None for x in (da,cap,wc)):
+        result['fcff']=bd_field(record,'operating_Income')*1e6*(1-0.206)+da-abs(cap)+wc
+    return result
+
+@st.cache_data(ttl=1800,show_spinner=False)
+def matched_yahoo_r12(symbol, trade_currency, report_currency, record, period):
+    if not trade_currency or not report_currency or str(record.get('currency') or '').upper()!=report_currency:
+        return {}
+    try:
+        listing=yf.Ticker(symbol)
+        profile=listing.get_info()
+        identity,_=borsapi_instrument(symbol,borsapi_key())
+        if not yahoo_identity_matches(listing,profile,symbol,identity,trade_currency,report_currency):
+            return {}
+        def frames(attributes):
+            result=[]
+            for attribute in attributes:
+                try:
+                    frame=getattr(listing,attribute).copy()
+                    frame.columns=pd.to_datetime(frame.columns,errors='coerce',utc=True).tz_localize(None).normalize()
+                    frame=frame.loc[:,frame.columns.notna() & ~frame.columns.duplicated(keep=False)]
+                except Exception:
+                    frame=pd.DataFrame()
+                result.append(frame)
+            return result
+        result=yahoo_r12_bridge(*frames(('quarterly_income_stmt','quarterly_cashflow')),record,period)
+        if not all(key in result for key in ('ebita','fcff')):
+            # Yahoo exposes separately dated TTM statements. Reconcile the
+            # complete trailing flows independently; never sum a TTM column
+            # with quarterly observations or accept an undated TTM label.
+            ttm=yahoo_r12_bridge(*frames(('ttm_income_stmt','ttm_cashflow')),record,period,trailing=True)
+            for key,value in ttm.items():
+                result.setdefault(key,value)
+        return result
+    except Exception:
+        return {}
+
 def comparable_yahoo_periods(primary,secondary):
+    """Match annual income periods using explicit consolidated revenue and EBIT."""
     accepted=[]
+    def close(period,left_label,right_label):
+        if left_label not in primary.index or right_label not in secondary.index: return False
+        left,right=numeric(primary.at[left_label,period]),numeric(secondary.at[right_label,period])
+        return left is not None and right is not None and abs(left-right)<=max(0.5e6,0.02*max(abs(left),abs(right)))
     for period in primary.columns.intersection(secondary.columns):
-        anchors=[]
-        for line in ('Total Revenue','Operating Income'):
-            if line not in primary.index or line not in secondary.index: continue
-            left,right=numeric(primary.at[line,period]),numeric(secondary.at[line,period])
-            if left is not None and right is not None:
-                anchors.append(abs(left-right)<=0.02*max(abs(left),abs(right)))
-        if anchors and all(anchors): accepted.append(period)
+        if (close(period,'Operating Income','Operating Income') or
+            close(period,'Operating Income','Total Operating Income As Reported')) and (
+            close(period,'Total Revenue','Total Revenue') or
+            close(period,'Net Sales','Total Revenue') or
+            close(period,'Net Sales','Operating Revenue')):
+            accepted.append(period)
     return pd.DatetimeIndex(accepted)
 
 def fill_matching_statement_periods(primary,secondary,periods):
@@ -387,10 +629,21 @@ def fetch(ticker):
             info['longName']=inst.get('name') or inst.get('longName') or ticker
             info['website']=inst.get('url') or inst.get('website')
             break
-    av,_=avanza_market_snapshot(ticker)
-    if not info.get('currentPrice') and av.get('price') and av.get('currency')==info.get('currency'):
+    av,av_error=avanza_market_snapshot(ticker)
+    if av_error: errors['Avanza']=av_error
+    if not info.get('currentPrice') and av.get('verified') and av.get('price') and av.get('currency')==info.get('currency'):
         info['currentPrice']=av['price']
+        info['regularMarketPrice']=av['price']
+        quick['last_price']=av['price']
         info['_price_source']='Avanza (reserv)'
+    if not info.get('currentPrice'):
+        reserve,reserve_error=matched_yahoo_quote(ticker,identity,info.get('currency'))
+        if reserve_error: errors['Yahoo kurs']=reserve_error
+        if reserve.get('price') is not None:
+            info['currentPrice']=reserve['price']
+            info['regularMarketPrice']=reserve['price']
+            quick['last_price']=reserve['price']
+            info['_price_source']='Yahoo Finance (matchad reserv, stängning '+reserve['date']+')'
     records,r12_error=borsapi_r12_response(ticker,borsapi_key())
     if r12_error: errors['Börsdata R12']=r12_error
     if records:
@@ -406,15 +659,32 @@ def fetch(ticker):
     if not fin.empty:
         newest=max(fin.columns)
         has_ebita=any(row in fin.index and numeric(fin.at[row,newest]) is not None
-                      for row in ('EBITA','Amortization Of Intangibles'))
+                      for row in ('EBITA','Amortization Of Intangibles','Amortization Of Intangibles Income Statement'))
         has_fcff_inputs=all(row in cash.index and newest in cash.columns and numeric(cash.at[row,newest]) is not None
                             for row in ('Capital Expenditure','Depreciation And Amortization','Change In Working Capital'))
         if not (has_ebita and has_fcff_inputs):
             supplemental=yahoo_annual_statements(ticker,info.get('currency'),info.get('financialCurrency'))
             if supplemental:
                 periods=comparable_yahoo_periods(fin,supplemental[0])
-                combined=tuple(fill_matching_statement_periods(primary,secondary,periods)
-                               for primary,secondary in zip((fin,cash,balance),supplemental))
+                # Income agreement alone is not sufficient for cash-flow or
+                # balance-sheet lines: verify the same consolidated statement.
+                def statement_periods(primary,secondary,anchors):
+                    accepted=[]
+                    for period in periods.intersection(primary.columns).intersection(secondary.columns):
+                        pairs=[(numeric(primary.at[a,period]),numeric(secondary.at[b,period]))
+                               for a,b in anchors if a in primary.index and b in secondary.index]
+                        if len(pairs)==len(anchors) and all(
+                            a is not None and b is not None and abs(a-b)<=max(0.5e6,0.02*max(abs(a),abs(b)))
+                            for a,b in pairs):
+                            accepted.append(period)
+                    return pd.DatetimeIndex(accepted)
+                cash_periods=statement_periods(cash,supplemental[1],[
+                    ('Operating Cash Flow','Operating Cash Flow')])
+                balance_periods=statement_periods(balance,supplemental[2],[
+                    ('Total Assets','Total Assets'),('Stockholders Equity','Stockholders Equity')])
+                combined=tuple(fill_matching_statement_periods(primary,secondary,matched)
+                               for primary,secondary,matched in zip((fin,cash,balance),supplemental,
+                                                                    (periods,cash_periods,balance_periods)))
                 if any(not enriched.equals(primary) for enriched,primary in zip(combined,(fin,cash,balance))):
                     fin,cash,balance=combined
                     info['_report_source']='Börsdata Pro+ + Yahoo Finance (matchad årsperiod och valuta)'
@@ -1184,7 +1454,7 @@ st.caption('Automatisk bolagsöversikt · Svenska börsbolag · Egna rapporter �
 ADDITIONAL_COMPANIES = {
     'Bokusgruppen AB':'BOKUS.ST',
     'Attendo':'ATT.ST',
-    'Humana':'HUM.ST',
+     # Humana delisted 2026-10-27: https://www.mfn.se/a/humana/avnotering-av-humana
     'Byggmax':'BMAX.ST',
     'Rusta':'RUSTA.ST',
     'RevolutionRace':'RVRC.ST',
@@ -1201,7 +1471,7 @@ ADDITIONAL_COMPANIES = {
     'Fortnox':'FNOX.ST','Garo':'GARO.ST','Hansa Biopharma':'HNSA.ST',
     'Heba B':'HEBA-B.ST','Hexpol B':'HPOL-B.ST','Instalco':'INSTAL.ST',
     'Inwido':'INWI.ST','Karnov Group':'KAR.ST','Knowit':'KNOW.ST',
-    'Lime Technologies':'LIME.ST','Maha Energy':'MAHA-A.ST','Medcap':'MCAP.ST',
+    'Lime Technologies':'LIME.ST','Keo Capital':'KEOC.ST','Medcap':'MCAP.ST',
     'Midsona B':'MSON-B.ST','MilDef Group':'MILDEF.ST','Momentum Group B':'MMGR-B.ST',
     'Nelly Group':'NELLY.ST','Nolato B':'NOLA-B.ST','OEM International B':'OEM-B.ST',
     'Scandi Standard':'SCST.ST','Scandic Hotels':'SHOT.ST','Scandinavian Enviro Systems':'SES.ST',
@@ -1209,7 +1479,7 @@ ADDITIONAL_COMPANIES = {
     'SinterCast':'SINT.ST','Sleep Cycle':'SLEEP.ST','Softronic B':'SOF-B.ST',
     'Solid Försäkring':'SFAB.ST','Stillfront Group':'SF.ST','Storytel B':'STORY-B.ST',
     'Studsvik':'SVIK.ST','Surgical Science':'SUS.ST','SynAct Pharma':'SYNACT.ST',
-    'Avarda Bank':'AVARDA.ST','Tobii Dynavox':'TDVOX.ST','Troax Group':'TROAX.ST',
+    'Avarda Bank':'AVARDA.ST','Dynavox Group':'DYVOX.ST','Troax Group':'TROAX.ST',
     'Cynca Nordic':'CYNCA.ST','VBG Group B':'VBG-B.ST','Volati AB':'VOLO.ST',
     'Wästbygg Gruppen B':'WBGR-B.ST','XANO Industri B':'XANO-B.ST'
 }
@@ -1223,7 +1493,7 @@ INVESTMENT_TICKERS={
     'KINV-B.ST','BURE.ST','EQT.ST'
 }
 BANK_TICKERS={'SEB-A.ST','SHB-A.ST','SWED-A.ST','NDA-SE.ST','AZA.ST','SAVE.ST','AVARDA.ST'}
-INSURANCE_TICKERS={'SAMPO-SDB.ST','SFAB.ST'}
+INSURANCE_TICKERS={'SAMPO-SEK.ST','SFAB.ST'}
 PROPERTY_TICKERS={
     'BALD-B.ST','CAST.ST','CATE.ST','FABG.ST','SAGA-B.ST','WALL-B.ST',
     'WIHL.ST','HUFV-A.ST','ATRLJ-B.ST','PNDX-B.ST','NP3.ST','CORE-B.ST',
@@ -1233,6 +1503,9 @@ PROPERTY_TICKERS={
 # Datum avser värderingsdatum, inte datum då börskursen hämtades.
 VOLATI_Q3_2026={'ebita_ltm':245_000_000.0,'net_debt':1_331_000_000.0,'ordinary_shares':79_406_571.0,'as_of':'2026-09-30','source':'https://www.mfn.se/a/volati/volati-delarsrapport-januari-september-2026'}
 REPORTED_NAV={
+    'BALD-B.ST':{'nav':97.03,'date':'2026-09-30','source':'https://www.balder.se/om-balder/press/rapporter/10232026-0800/fastighets-ab-balders--publ--del-rsrapport-januari-september-2026','kind':'Långsiktigt substansvärde'},
+    'CATE.ST':{'nav':468.87,'date':'2026-09-30','source':'https://www.catena.se/investerare/pressmeddelanden/?data=https%3A%2F%2Ffeed.mfn.se%2Fv1%2Ffeed%2Fcde4cc06-d748-445a-8d49-b6c023bbc9da%2Fitem%2Fc0495d63-155d-4657-9533-1217cedec34f.html','kind':'EPRA NRV'},
+    'WALL-B.ST':{'nav':65.00,'date':'2026-09-30','source':'https://www.wallenstam.se/sv/om_oss/Press_och_media/finansiella-rapporter/?pressItemId=2487989','kind':'Substansvärde'},
     'INVE-A.ST':{'nav':411.0,'date':'2026-09-30','source':'https://www.mfn.se/cis/a/investor/investor-delarsredogorelse-januari-september-2026-c66c331e.iframe','kind':'Justerat substansvärde'},
     'INVE-B.ST':{'nav':411.0,'date':'2026-09-30','source':'https://www.mfn.se/cis/a/investor/investor-delarsredogorelse-januari-september-2026-c66c331e.iframe','kind':'Justerat substansvärde'},
     'LUND-B.ST':{'nav':644.0,'date':'2026-11-23','source':'https://www.lundbergforetagen.se/sv/press/lundbergs-delarsrapport-januari-september-2026-2500329','kind':'Substansvärde efter uppskjuten skatt'},
@@ -1241,6 +1514,18 @@ REPORTED_NAV={
     'LATO-B.ST':{'nav':223.0,'date':'2026-11-02','source':'https://www.mfn.se/cis/a/latour/delarsrapport-januari-september-2026-d993ea5e.iframe','kind':'Substansvärde'},
     'INDU-C.ST':{'nav':517.0,'date':'2026-09-30','source':'https://mfn.se/a/industrivarden/delarsrapport-1-januari-30-september-2026.iframe','kind':'Substansvärde'}
 }
+def current_reported_nav(symbol, currency, as_of=None):
+    """Published SEK/share reference only; no unlabelled FX or stale report substitution."""
+    record=REPORTED_NAV.get(symbol)
+    if not record or currency!='SEK': return None
+    amount=numeric(record.get('nav'))
+    date=pd.to_datetime(record.get('date'),errors='coerce')
+    today=pd.Timestamp.today().normalize() if as_of is None else pd.Timestamp(as_of).normalize()
+    if (amount is None or amount<=0 or pd.isna(date) or
+        not 0<=(today-date).days<=180 or not record.get('source') or not record.get('kind')):
+        return None
+    return record
+
 def borsapi_key():
     try: return str(st.secrets.get('BORSAPI_API_KEY','')).strip()
     except Exception: return ''
@@ -1362,7 +1647,7 @@ def borsapi_annual_frames(symbol,api_key):
     records.sort(key=lambda pair:pair[0],reverse=True)
     currency=str(records[0][1]['currency']).upper()
     maps=[
-        {'EBITDA':'ebitda','Tax Provision':'tax_Provision','EBITA':'ebita','Amortization Of Intangibles':'amortization_Of_Intangibles','Total Revenue':'revenues','Gross Profit':'gross_Income','Operating Income':'operating_Income','Pretax Income':'profit_Before_Tax','Interest Expense':'interest_Expense','Net Income Common Stockholders':'profit_To_Equity_Holders','Basic EPS':'earnings_Per_Share'},
+        {'EBITDA':'ebitda','Tax Provision':'tax_Provision','EBITA':'ebita','Amortization Of Intangibles':'amortization_Of_Intangibles','Total Revenue':'revenues','Net Sales':'net_Sales','Gross Profit':'gross_Income','Operating Income':'operating_Income','Pretax Income':'profit_Before_Tax','Interest Expense':'interest_Expense','Net Income Common Stockholders':'profit_To_Equity_Holders','Basic EPS':'earnings_Per_Share'},
         {'Invested Capital':'invested_Capital','Total Debt':'total_Debt','Net Debt':'net_Debt','Cash And Cash Equivalents':'cash_And_Equivalents','Stockholders Equity':'total_Equity','Total Assets':'total_Assets','Current Assets':'current_Assets','Current Liabilities':'current_Liabilities','Ordinary Shares Number':'number_Of_Shares'},
         {'Operating Cash Flow':'cash_Flow_From_Operating_Activities','Investing Cash Flow':'cash_Flow_From_Investing_Activities','Financing Cash Flow':'cash_Flow_From_Financing_Activities','Free Cash Flow':'free_Cash_Flow','Capital Expenditure':'capital_Expenditure','Depreciation And Amortization':'depreciation_And_Amortization','Change In Working Capital':'change_In_Working_Capital'}]
     frames=[{} for _ in maps]
@@ -1478,7 +1763,7 @@ def verified_capitalization(symbol,info,quick,fin,history):
         notes.append('Tidigare aktieantal avviker över 8 % och används inte.')
     if symbol=='VOLO.ST':
         notes.append('Stamaktier och preferensaktier värderas separat och summeras.')
-    if symbol.endswith(('-A.ST','-B.ST','-C.ST')) or symbol in ('VOLO.ST','SAMPO-SDB.ST'):
+    if symbol.endswith(('-A.ST','-B.ST','-C.ST')) or symbol in ('VOLO.ST','SAMPO-SEK.ST'):
         notes.append('Olika aktieslag kan ha olika kurser: värdet är en approximation.')
     result.update(market_cap=cap,source=source+' '+date,warnings=notes,verified=True)
     return result
@@ -1494,7 +1779,752 @@ def borsapi_debt_ebitda_map(api_key):
         return result,'' if result else 'Tomt nyckeltalssvar'
     except Exception as exc: return {},type(exc).__name__
 
+def official_r12_fcff(symbol, record, period):
+    """Independent filing-backed cash-flow supplements; never infer EBITA from total D&A."""
+    if symbol=='SINCH.ST':
+        # Sinch Q3 2026 pp. 9, 11, 14, 19: consolidated original SEK m R12.
+        # The cash-flow statement explicitly includes paid and received interest
+        # in CFO. Unlever the reported FCF using net interest after model tax.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        if ((sales is None and net_sales is None) or
+            (sales is not None and min(abs(sales-27199),abs(sales-(27199+355)),abs(sales-(27199+355+472)))>1.5) or
+            (net_sales is not None and abs(net_sales-27199)>1.5) or
+            ebit is None or abs(ebit-1133)>1.5 or
+            ocf is None or abs(ocf-3320)>1.5 or
+            debt is None or abs(debt-6813)>1.5):
+            return None
+        tax=0.206
+        return {'fcff':(3320-622+(332-77)*(1-tax))*1e6,
+                'fcff_tax_rate':tax,
+                'sources':('https://www.group.sinch.com/files/Main/22250/4420391/sinch-third-quarter-2026-result.pdf',),
+                'fcff_note':('Sinch R12: rapporterat operativt kassaflöde minus nettoinvesteringar, '
+                             'plus betalda nettoräntor efter modellskatt 20,6 %. '
+                             'Nettoskulden inkluderar IFRS 16. Historiskt FCFF före leasingamortering; '
+                             'normalisera kassaskatt, rörelsekapital och framtida leasinginvesteringar. '
+                             'Operational EBITA är justerat; separat immateriell avskrivning utan '
+                             'nedskrivningar har inte verifierats.')}
+
+    if symbol=='THULE.ST':
+        # Thule Q3 2026 pp. 2, 8, 16 and Q4 2025 pp. 2, 6, 15.
+        # Original consolidated SEK m; Q4 2025 + 9M 2026, no acquisition cash flow.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        if ((sales is None and net_sales is None) or
+            (sales is not None and abs(sales-(1835+8596))>1.5) or
+            (net_sales is not None and abs(net_sales-(1835+8596))>1.5) or
+            ebit is None or abs(ebit-(83+1701))>1.5 or
+            ocf is None or abs(ocf-(54+1641))>1.5):
+            return None
+        tax=(19+370)/(41+1593)
+        da=91+271
+        # Use the difference between reported operating cash flow and the
+        # subtotal before changes in working capital to avoid rounding drift.
+        wc=(54-73)+(1641-1652)
+        net_capex=109+290
+        return {'fcff':((83+1701)*(1-tax)+da+wc-net_capex)*1e6,
+                'fcff_tax_rate':tax,
+                'sources':(
+                    'https://www.thulegroup.com/sites/thulegroup/files/pr/20261022-70f54ab6-960f-45c1-82ad-2ccb1e6ead80-1.pdf',
+                    'https://www.thulegroup.com/sites/thulegroup/files/pr/20260210-cca8796e-b1f6-46eb-8eb5-314f1f9cdc06-1.pdf',
+                ),
+                'fcff_note':('Thule R12: historisk FCFF-indikation baserad på rapporterat EBIT efter effektiv skatt, '
+                             'av- och nedskrivningar, rörelsekapitalets kassaflödeseffekt och nettoinvesteringar '
+                             'i materiella och immateriella tillgångar; exklusive förvärv och leasingamortering. '
+                             'Övriga ej kassaflödespåverkande poster är inte särredovisade här. '
+                             'Tullåterbetalningen om 52 MSEK, lagerautomatiseringen i Polen och framtida '
+                             'leasinginvesteringar behöver normaliseras. Separat EBITA har inte verifierats.')}
+
+    if symbol=='AAK.ST':
+        # AAK Q3 2026, pp. 2, 12 and 15. Consolidated original SEK millions.
+        # R12 = FY 2025 + 9M 2026 - 9M 2025; gross capex excludes disposals.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        if ((sales is None and net_sales is None) or
+            (sales is not None and min(abs(sales-45976),abs(sales-(46353+34713-34748)))>1.5) or
+            (net_sales is not None and abs(net_sales-45976)>1.5) or
+            ebit is None or abs(ebit-4777)>1.5 or
+            ocf is None or abs(ocf-(862+3972-574))>1.5):
+            return None
+        tax=(1068+818-818)/(4504+3426-3306)
+        da=882+638-671
+        noncash=-383-34+303
+        wc=-2999+489+2227
+        capex=1303+1092-961
+        return {'fcff':(4777*(1-tax)+da+noncash+wc-capex)*1e6,
+                'fcff_tax_rate':tax,
+                'sources':('https://storage.mfn.se/46b85c4c-a56a-40c3-9b38-d9b4ee246267/aak-interim-report-q3-2026.pdf',),
+                'fcff_note':('AAK R12: rapporterat EBIT efter effektiv skatt, av- och nedskrivningar, '
+                             'övriga ej kassaflödespåverkande poster, rörelsekapitalets kassaflöde och '
+                             'bruttoinvesteringar i materiella och immateriella tillgångar. Historiskt FCFF '
+                             'före leasingamortering; återinvesteringar och rörelsekapital behöver normaliseras. '
+                             'Separat EBITA kan inte härledas från sammanlagda av- och nedskrivningar.')}
+
+    if symbol=='LOOMIS.ST':
+        # Loomis Q3 2026, pp. 10 and 12. Consolidated IFRS figures, SEK m.
+        # R12 cash flow = FY 2025 + 9M 2026 - 9M 2025, not the non-IFRS
+        # cash-flow measure on p. 13 (which excludes leases and certain costs).
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        if ((sales is None and net_sales is None) or
+            (sales is not None and abs(sales-31253)>1.5) or
+            (net_sales is not None and abs(net_sales-31253)>1.5) or
+            ebit is None or abs(ebit-3651)>1.5 or
+            ocf is None or abs(ocf-(4609+3430-2796))>1.5):
+            return None
+        tax=987/3009
+        da=3186+2434-2379
+        other_noncash=973+402-504
+        wc=(-291-303+171)+(270-772+280)
+        capex=1406+1033-1014
+        return {'fcff':(3651*(1-tax)+da+other_noncash+wc-capex)*1e6,
+                'fcff_tax_rate':tax,
+                'sources':('https://mb.cision.com/Main/51/4417527/4346980.pdf',),
+                'fcff_note':('Loomis R12: IFRS EBIT efter rapporterad effektiv skatt, '
+                             'av- och nedskrivningar, övriga ej kassaflödespåverkande poster, '
+                             'rörelsekapital och bruttoinvesteringar. Historiskt FCFF före '
+                             'förvärv och leasingamortering; förvärvet av Hermes efter '
+                             'balansdagen, leasingskulder och återinvesteringar kräver separat prognos.')}
+
+    if symbol!='TRUE-B.ST' or str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+        return None
+    # Truecaller Q3 2026, pp. 23 and 26. R12 = FY 2025 + 9M 2026 - 9M 2025.
+    # Amounts below are in SEK thousands; match the primary provider in millions.
+    sales=(1912195+1218854-1461257)/1000
+    other=(3544+3125-1221+36134+22259-26959)/1000
+    ebit=(522969+232892-436458)/1000
+    ocf=(521397+266940-397842)/1000
+    revenue=bd_field(record,'revenues')
+    net_sales=bd_field(record,'net_Sales')
+    primary_ebit=bd_field(record,'operating_Income')
+    primary_ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+    if (revenue is None and net_sales is None) or (revenue is not None and min(abs(revenue-sales),abs(revenue-sales-other))>0.6) or (net_sales is not None and abs(net_sales-sales)>0.6):
+        return None
+    if primary_ebit is None or abs(primary_ebit-ebit)>0.6 or primary_ocf is None or abs(primary_ocf-ocf)>0.6:
+        return None
+    da=64379+49589-47914
+    capex=(3410+1520-3084)+(36134+20587-26959)
+    wc=(-21125-7180)+(-43905+10978)-(-36813+38562)
+    tax=0.206
+    return {'fcff':(ebit*1000*(1-tax)+da-capex+wc)*1000,
+            'fcff_tax_rate':tax,
+            'sources':('https://mb.cision.com/Main/20429/4419192/4352683.pdf',),
+            'fcff_note':('Truecaller R12: rapporterat EBIT, modellantagande om 20,6 % skatt, '
+                         'rapporterade av- och nedskrivningar, investeringar i materiella och immateriella tillgångar '
+                         'samt förändring av rörelsekapital. Historiskt FCFF före förvärv och leasingamortering; '
+                         'skattetvist, leasing och förvärv måste beaktas i prognosen. Separat EBITA ej härledd.')}
+
 def abb_r12_ebita(symbol, record, period):
+    if symbol=='RUSTA.ST':
+        # Rusta Q1 2026/27 pp. 2, 14, 27: consolidated LTM Aug 2025-Jul 2026.
+        # Report explicitly reconciles EBITA to EBIT with zero acquisition amortization.
+        # This is independently reported EBITA, not an EBIT substitute.
+        # The filing separately reports other operating income (252 MSEK)
+        # and expense (-226 MSEK); accept net sales or either explicitly
+        # reconcilable gross/net operating revenue presentation only.
+        if str(period)[:10]!='2026-07-31' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        if ((sales is None and net_sales is None) or
+            (sales is not None and min(abs(sales-12913),abs(sales-(12913+252)),abs(sales-(12913+252-226)))>1.5) or
+            (net_sales is not None and abs(net_sales-12913)>1.5) or
+            ebit is None or abs(ebit-1002)>1.5):
+            return None
+        result={'value':1002e6,'sources':('https://storage.mfn.se/a90c5848-eeba-4465-b87c-cfa7440058e3/rusta-interim-report-q1-2026-2027.pdf',)}
+        # Consolidated IFRS cash flow p. 17, income statement p. 14.
+        # Reconcile inclusive net debt (not the ex-IFRS 16 net cash figure).
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        if (ocf is not None and abs(ocf-1949)<=1.5 and
+            debt is not None and abs(debt-4819)<=1.5):
+            tax_rate=177/767
+            # EBIT after effective tax, reported noncash adjustments and
+            # working-capital cash effect, less gross PPE/intangible capex.
+            # Do not subtract paid interest/tax again or count lease principal.
+            result.update(
+                fcff=(1002*(1-tax_rate)+1036+19+9+270-121-379)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Rusta R12 aug 2025–jul 2026: rapporterat EBIT efter effektiv skatt, '
+                           'avskrivningar och övriga ej kassaflödespåverkande poster, '
+                           'rörelsekapitalets kassaflödeseffekt och bruttoinvesteringar. '
+                           'Historiskt FCFF före leasingamortering om 822 MSEK; '
+                           'framtida nyttjanderättsinvesteringar och butiksutbyggnad måste normaliseras. '
+                           'Nettoskuld inklusive IFRS 16 är avstämd.'))
+        return result
+    if symbol=='SECU-B.ST':
+        # Securitas Q3 2026 p. 18, original consolidated MSEK.
+        # FY25 + 9M26 - 9M25. Add ONLY separately disclosed acquisition
+        # amortization to reported EBIT, keeping acquisition costs and IAC.
+        # The company's operating income before amortization excludes both;
+        # it is not the unadjusted EBITA used by this model.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        expected_sales=155113+112620-116691
+        other_income=76+61-57
+        expected_ebit=9073+8092-6227
+        amortization=563+410-427
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        if ((sales is None and net_sales is None) or
+            (sales is not None and min(abs(sales-expected_sales),abs(sales-expected_sales-other_income))>1.5) or
+            (net_sales is not None and abs(net_sales-expected_sales)>1.5) or
+            ebit is None or abs(ebit-expected_ebit)>1.5):
+            return None
+        return {'value':(expected_ebit+amortization)*1e6,
+                'sources':('https://www-prod-lv.securitasgroup.com/globalassets/com/files/interim-reports/2026/q3/q32026_eng_final.pdf',)}
+    if symbol=='BEIJ-B.ST':
+        # Beijer Ref Q3 2026 pp. 5, 12, 14-15: reported consolidated R12.
+        # EBITA includes comparability items; do not substitute adjusted EBITA.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        if (ebit is None or abs(ebit-3825)>1.5 or
+            (sales is None and net_sales is None) or
+            (sales is not None and min(abs(sales-39238),abs(sales-39440))>1.5) or
+            (net_sales is not None and abs(net_sales-39238)>1.5)):
+            return None
+        result={'value':4063e6,'sources':('https://mb.cision.com/Main/1860/4413478/4331217.pdf',)}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        # Match IFRS operating cash flow (not APM) and pension/lease-inclusive debt.
+        if (ocf is not None and abs(ocf-4331)<=1.5 and
+            debt is not None and abs(debt-11703)<=1.5):
+            tax_rate=836/3357
+            # IFRS non-cash adjustments and WC, with separately reported capex.
+            # Exclude acquisition cash flows and lease principal.
+            result.update(
+                fcff=(3825*(1-tax_rate)+1133+621-455)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Beijer Ref R12: rapporterat EBIT efter effektiv rapporterad skatt, '
+                           'plus IFRS-justeringar för ej kassaflödespåverkande poster och rörelsekapital, '
+                           'minus rapporterade investeringar i anläggningstillgångar. Historiskt FCFF före '
+                           'förvärv och leasingamortering; framtida leasinginvesteringar och '
+                           'minoritetsintressen måste beaktas. Nettoskuld inklusive pension och leasing är avstämd.'))
+        return result
+    if symbol=='AFRY.ST':
+        # AFRY Q3 2026, pp. 12 and 25: consolidated R12 (Oct 2025-Sep 2026).
+        # Use reported, not adjusted EBITA. Net sales and total revenue
+        # differ by 19 MSEK of other income; require the reported EBIT.
+        if str(period)[:10]!='2026-09-30' or record.get('currency')!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        if (sales is None or ebit is None or abs(ebit-1448)>1.5 or
+            min(abs(sales-25276),abs(sales-25295))>1.5 or
+            (net_sales is not None and abs(net_sales-25276)>1.5)):
+            return None
+        result={'value':1613e6,'sources':('https://afry.com/sites/default/files/2026-10/wkr0006_9.pdf',)}
+        # Consolidated cash-flow statement p. 14: FY 2025 + 9M 2026 - 9M 2025.
+        # The report explicitly discloses net purchases/disposals of tangible and
+        # intangible assets; use this NET amount, never label it gross capex.
+        # Net debt including pensions and IFRS 16 is explicitly reported on p. 25.
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        net_debt=bd_field(record,'net_Debt')
+        if (ocf is not None and abs(ocf-(2220+820-887))<=1.5 and
+            net_debt is not None and abs(net_debt-6285)<=1.5):
+            tax_rate=323/1182
+            da=836+607-628
+            noncash=129-15-45
+            wc=(378-60+51)+(152-197+188)
+            net_capex=88+55-63
+            result.update(fcff=(1448*(1-tax_rate)+da+noncash+wc-net_capex)*1e6,
+                          fcff_tax_rate=tax_rate,
+                          fcff_note=('AFRY R12: rapporterat EBIT efter effektiv skatt, avskrivningar, '
+                                     'övriga ej kassaflödespåverkande poster och rörelsekapital, '
+                                     'minus rapporterade nettoinvesteringar inklusive avyttringar. '
+                                     'Historiskt FCFF före förvärv och leasingamortering; '
+                                     'avyttringar, framtida nyttjanderättsinvesteringar och '
+                                     'engångsposter behöver normaliseras före prognos. '
+                                     'Nettoskuld inklusive pension och IFRS 16 är avstämd.'))
+        return result
+    # Curated company filings, keyed by exact reporting period and listing.
+    # R12 consolidated net sales, EBIT and separately reported EBITA, all MSEK.
+    # Source pages are 1 (Bravida, Instalco), 11 and 14 (Addtech),
+    # and 1, 15, 16, 18 and 28 (Bokusgruppen).
+    filings={
+        'BOKUS.ST':(2210.3,106.7,152.6,'https://storage.mfn.se/81dda649-d26e-4ccd-9dfe-bcc080ed3b11/bokusgruppen-ab-publ-delarsrapport-januari-september-2026.pdf'),
+        'BRAV.ST':(29614,1996,1996,'https://www.bravida.se/4aa4cd/contentassets/9f029b25d6b5454f975af1a2bbb580f6/en-bravidainterimreportjulyseptember2026.pdf'),
+        'ADDT-B.ST':(23493,3288,3888,'https://attachment.news.eu.nasdaq.com/aefe28c8ca9dfc813d7f28af3fed5608b'),
+        'INSTAL.ST':(14604,859,1001,'https://attachment.news.eu.nasdaq.com/a5d3d52407b7880f8e086d9e3715ee809'),
+    }
+    if symbol in filings:
+        if str(period)[:10]!='2026-09-30' or record.get('currency')!='SEK':
+            return None
+        expected_sales, expected_ebit, reported_ebita, url=filings[symbol]
+        sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        # Allow only rounding differences between the two published datasets.
+        if symbol=='INSTAL.ST':
+            # Report pp. 1, 10 and 15: net sales 14,604; total operating revenue
+            # 14,705. The published individual quarters sum to EBIT 858
+            # while the R12 column shows 859, due to independent rounding.
+            net_sales=bd_field(record,'net_Sales')
+            if (sales is None or ebit is None or abs(ebit-859)>1.5 or
+                min(abs(sales-14604),abs(sales-14705))>1.5 or
+                (net_sales is not None and abs(net_sales-14604)>1.5)):
+                return None
+        elif sales is None or ebit is None or abs(sales-expected_sales)>0.6 or abs(ebit-expected_ebit)>0.6:
+            return None
+        result={'value':reported_ebita*1e6,'sources':(url,)}
+        # Bravida Q3 2026, pp. 1, 13, 16: adjusted operating cash flow
+        # is explicitly before income taxes, net financial items and after
+        # machinery/equipment investments. Use statutory operating tax as
+        # an assumption, excluding the reported 158 MSEK divestment gain.
+        # The provider net debt must include the same lease obligations.
+        if symbol=='BRAV.ST':
+            ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+            net_debt=bd_field(record,'net_Debt')
+            if (ocf is not None and abs(ocf-2411)<=1 and
+                net_debt is not None and abs(net_debt-2564)<=1):
+                tax_rate=0.206
+                result.update(
+                    fcff=(2724-(1996-158)*tax_rate)*1e6,
+                    fcff_tax_rate=tax_rate,
+                    fcff_note=('Bravida R12: rapporterat ränte- och skattejusterat operativt kassaflöde '
+                               'efter maskin- och inventarieinvesteringar, minus antagen rörelseskatt 20,6 % '
+                               'på EBIT exklusive realisationsvinst. Historiskt FCFF före förvärv '
+                               'och leasingamortering; framtida nyttjanderättsinvesteringar måste normaliseras.'))
+        # Instalco Q3 2026, pp. 10, 13, 15 and 17: original SEK R12.
+        # Use net investments in PPE and intangible assets, not the aggregate
+        # investing cash flow, and match lease-inclusive net debt.
+        if symbol=='INSTAL.ST':
+            ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+            net_debt=bd_field(record,'net_Debt')
+            if (ocf is not None and abs(ocf-723)<=1.5 and
+                net_debt is not None and abs(net_debt-4724)<=1.5):
+                tax_rate=0.206
+                result.update(
+                    fcff=(859*(1-tax_rate)+572-151-226)*1e6,
+                    fcff_tax_rate=tax_rate,
+                    fcff_note=('Instalco R12: rapporterat EBIT efter antagen rörelseskatt 20,6 %, '
+                               'plus avskrivningar, minus nettoinvesteringar i materiella och immateriella '
+                               'tillgångar samt rörelsekapitalets kassaflöde. Historiskt FCFF före förvärv; '
+                               'leasinginvesteringar, minoritetsintressen och Fabris delårskonsolidering '
+                               'måste beaktas i prognosen.'))
+        # Addtech Q2 2026/27, pp. 16-17: R12 reported EBITDA, EBIT,
+        # pre-tax/after-tax profit, net non-current-asset investments and WC.
+        # Acquisition flows are excluded from this historical organic FCFF bridge.
+        if symbol=='ADDT-B.ST':
+            ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+            if ocf is not None and abs(ocf-2982)<=1:
+                tax_rate=(3064-2357)/3064
+                result.update(
+                    fcff=(3288*(1-tax_rate)+(4374-3288)-192-310)*1e6,
+                    fcff_tax_rate=tax_rate,
+                    fcff_note=('Addtech R12: EBIT efter rapporterad effektiv skatt, plus EBITDA minus EBIT, '
+                               'minus nettoinvesteringar i anläggningstillgångar och rörelsekapitalets kassaflöde. '
+                               'Historiskt FCFF före förvärv; framtida förvärv, leasing och minoritetsintressen '
+                               'måste beaktas separat i en normaliserad prognos.'))
+        # Bokusgruppen Q3 2026, pp. 15, 16 and 18, R12 original SEK.
+        # Net debt includes finance and operating lease liabilities. Do not
+        # pair lease-inclusive earnings with a lease-excluded provider debt.
+        if symbol=='BOKUS.ST':
+            ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+            net_debt=bd_field(record,'net_Debt')
+            lease_inclusive_debt=188.4+143.2+132.5-11.1
+            if (ocf is not None and abs(ocf-268.6)<=0.6 and
+                net_debt is not None and abs(net_debt-lease_inclusive_debt)<=0.6):
+                tax_rate=18.5/105.3
+                result.update(
+                    fcff=(106.7*(1-tax_rate)+201.9-26.1-13.2-4.7)*1e6,
+                    fcff_tax_rate=tax_rate,
+                    fcff_note=('Bokusgruppen R12: EBIT efter effektiv rapporterad skatt, plus av- och nedskrivningar, '
+                               'minus materiella och immateriella investeringar samt rörelsekapitalets kassaflödeseffekt. '
+                               'Historiskt kassaflöde före förvärv och leasingamortering; framtida leasinginvesteringar '
+                               'måste normaliseras separat. Nettoskuld inklusive leasing är avstämd.'))
+        return result
+    if symbol=='ASSA-B.ST':
+        # ASSA ABLOY Q3 2026 pp. 11-13: consolidated SEK R12.
+        # The adjusted EBITA excludes a positive 12 MSEK comparability item.
+        # Use reported EBIT plus acquisition-related amortization instead.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'net_Sales')
+        if sales is None: sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        if sales is None or ebit is None or abs(sales-154088)>1.5 or abs(ebit-25702)>1.5:
+            return None
+        result={'value':(25702+1740)*1e6,'sources':(
+            'https://www.assaabloy.com/group/sv/documents/investors/interim-reports/2026/Q3%20Kvartalsrapport%202026.pdf',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        # Reconcile IFRS operating cash flow, not the alternative KPI:
+        # Q4 2025 = 7815+770+481-195-1461; 9M 2026 = 17631.
+        if (ocf is not None and abs(ocf-(17631+7815+770+481-195-1461))<=2 and
+            debt is not None and abs(debt-64212)<=1.5):
+            tax_rate=5747/22717
+            # Historical organic FCFF before acquisition flows and lease
+            # principal; capex is net investments as disclosed in the filing.
+            result.update(
+                fcff=(25702*(1-tax_rate)+6287-3129+814)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('ASSA ABLOY R12: rapporterat EBIT efter effektiv rapporterad skatt, '
+                           'plus av- och nedskrivningar, minus nettoinvesteringar och inklusive '
+                           'rörelsekapitalets kassaflödeseffekt. Historiskt FCFF före förvärv '
+                           'och leasingamortering; framtida leasinginvesteringar måste normaliseras.'))
+        return result
+    if symbol=='SAND.ST':
+        # Sandvik Q3 2026 pp. 1, 13, 15, 21 and Q4 2025 pp. 1, 15.
+        # R12 = 9M 2026 + Q4 2025. Reverse the published IAC adjustments;
+        # the company's EBITA also excludes acquisition-related D&A/impairment.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'net_Sales')
+        if sales is None: sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        reported_ebit=20491+5885
+        if sales is None or ebit is None or abs(sales-(105164+32461))>1.5 or abs(ebit-reported_ebit)>1.5:
+            return None
+        result={'value':(22920-1041+6373-57)*1e6,'sources':(
+            'https://mb.cision.com/Main/208/4413645/4331953.pdf',
+            'https://gamma.home.sandvik/siteassets/investors/reports--presentations/interim-reports/2025/interim-report-q4-2025.pdf',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        if (ocf is not None and abs(ocf-(14499+7405))<=1.5 and
+            debt is not None and abs(debt-36949)<=1.5):
+            tax_rate=(4810+1366)/(19695+5566)
+            da=6032+1885
+            # Rental equipment capex is classified in operating cash flow;
+            # count it once in gross capex, alongside PPE and intangibles.
+            capex=824+209+2119+819+631+206
+            wc=-8130+450
+            result.update(
+                fcff=(reported_ebit*(1-tax_rate)+da-capex+wc)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Sandvik R12: EBIT efter effektiv rapporterad skatt, plus av- och nedskrivningar, '
+                           'minus bruttoinvesteringar i materiella och immateriella tillgångar samt '
+                           'uthyrningsutrustning, med rörelsekapitalets kassaflödeseffekt. Historiskt '
+                           'före förvärv och leasingamortering; normalisera framtida leasinginvesteringar '
+                           'och övriga icke-kassaflödesposter. Nettoskuld inklusive pensioner och leasing är avstämd.'))
+        return result
+    if symbol=='LIFCO-B.ST':
+        # Lifco Q3 2026 consolidated IFRS and APM reconciliation.
+        # R12 = FY 2025 + 9M 2026 - 9M 2025. Use EBITA after acquisition
+        # expenses (6,764), not the adjusted headline amount (6,790).
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'net_Sales')
+        if sales is None: sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        if sales is None or ebit is None or abs(sales-29822)>1.5 or abs(ebit-5597)>1.5:
+            return None
+        result={'value':(6273+5054-4563)*1e6,'sources':(
+            'https://mfn.se/a/lifco/interim-report-january-september-2026',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        # Require debt including leases AND acquisition options.
+        if (ocf is not None and abs(ocf-(5124+3514-3138))<=1.5 and
+            debt is not None and abs(debt-12321)<=1.5):
+            tax_rate=0.206
+            da=1858+1486-1357
+            wc=(-29-146+263)+(-210-315-148)-(-360-450+305)
+            capex=(432+40)+(255+26)-(309+24)
+            result.update(
+                fcff=(5597*(1-tax_rate)+da+wc-capex)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Lifco R12: EBIT efter antagen rörelseskatt 20,6 %, plus avskrivningar, '
+                           'minus nettoinvesteringar och med rörelsekapitalets kassaflödeseffekt. '
+                           'Historiskt före förvärv och leasingamortering; framtida leasinginvesteringar '
+                           'och minoritetsintressen måste beaktas. Nettoskuld inklusive förvärvsoptioner '
+                           'och leasing är avstämd.'))
+        return result
+    if symbol=='VOLO.ST':
+        # Volati Q3 2026, pp. 2, 15, 16, 27. R12 continuing operations
+        # exclude Salix (distributed June 2026); the IFRS cash-flow
+        # statement includes discontinued operations and cannot be used as FCFF.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'net_Sales')
+        if sales is None: sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        total_sales=bd_field(record,'revenues')
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        inclusive_debt=1464+19+281+115-210
+        group_anchors=(ocf is not None and abs(ocf-566)<=1.5 and
+                       debt is not None and abs(debt-inclusive_debt)<=1.5)
+        income_matches=(sales is not None and ebit is not None and
+                        abs(sales-4594)<=1.5 and abs(ebit-155)<=1.5 and
+                        (total_sales is None or abs(total_sales-4594)<=1.5))
+        # After Salix's distribution, use the official IFRS 5 operating
+        # bundle independently if all income anchors conflict but same-date
+        # group cash and debt agree. Never blend the two scopes.
+        restated=(group_anchors and sales is not None and total_sales is not None and ebit is not None
+                  and abs(sales-4594)>1.5 and abs(total_sales-4594)>1.5 and abs(ebit-155)>1.5)
+        if not income_matches and not restated:
+            return None
+        result={'value':245e6,'sources':(
+            'https://storage.mfn.se/6ab6cdeb-5198-4c76-8f43-b6e00bdb21fc/volati-q3-report-2026.pdf',
+        )}
+        if restated:
+            result.update(restated_sales=4594e6,restated_ebit=155e6,net_debt=inclusive_debt*1e6,
+                          debt_note='Volati Q3 2026: IFRS 5 omräknad kvarvarande verksamhet; nettoskuld inklusive samtliga leasingskulder.')
+        if group_anchors:
+            tax_rate=0.206
+            # Use only continuing-operations APM components on p. 27.
+            # Group IFRS operating cash flow is solely a reconciliation check.
+            result.update(
+                fcff=(155*(1-tax_rate)+(461-155)-12+85-97)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Volati R12 kvarvarande verksamhet: rapporterat EBIT efter antagen rörelseskatt 20,6 %, '
+                           'plus avskrivningar enligt EBITDA minus EBIT, justerat för övriga icke-kassaflödesposter, '
+                           'rörelsekapital och nettoinvesteringar. Salix ingår inte. Historiskt FCFF före förvärv '
+                           'och leasingamortering; framtida leasinginvesteringar och preferenskapital måste verifieras.'))
+        return result
+    if symbol=='LAGR-B.ST':
+        # Lagercrantz Q2 2026/27, pp. 12, 15, 17: exact R12 original SEK.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'net_Sales')
+        if sales is None: sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        if sales is None or ebit is None or abs(sales-11576)>1.5 or abs(ebit-1838)>1.5:
+            return None
+        result={'value':2080e6,'sources':(
+            'https://storage.mfn.se/032d3804-2ff2-41fb-9744-2bfd11515488/interim-report-q2-2026-27.pdf',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        # Reconcile IFRS 16/pension-inclusive debt, not operating net debt.
+        if (ocf is not None and abs(ocf-1498)<=1.5 and
+            debt is not None and abs(debt-5190)<=1.5):
+            tax_rate=(1667-1332)/1667
+            result.update(
+                fcff=(1838*(1-tax_rate)+(2452-1838)-226-159-299+152)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Lagercrantz R12: EBIT efter effektiv skatt, plus rapporterade avskrivningar, '
+                           'minus nettoinvesteringar utanför företagsförvärv och med rörelsekapitalets '
+                           'kassaflödeseffekt. Historisk FCFF före förvärv; framtida leasinginvesteringar, '
+                           'förvärvsfinansiering och optioner avseende minoritetsandelar behöver normaliseras.'))
+        return result
+    if symbol=='ALIF-B.ST':
+        # AddLife's official Q3 2026 report provides unadjusted consolidated
+        # EBITA and the complete R12 cash-flow reconciliation in original SEK.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'net_Sales')
+        if sales is None: sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        if sales is None or ebit is None or abs(sales-10698)>1.5 or abs(ebit-1079)>1.5:
+            return None
+        root='https://reports.add.life/en/interim-report-q3-2026/financial-information/'
+        result={'value':1501e6,'sources':(
+            root+'other-information/alternative-performance-measures/',
+            root+'group-summary/consolidated-cash-flow-statement/',
+            'https://reports.add.life/en/interim-report-q3-2026/summary/',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        net_debt=bd_field(record,'net_Debt')
+        # Net interest-bearing debt includes leases, pensions, contingent
+        # consideration and provisions. Reject different provider definitions.
+        if (ocf is not None and abs(ocf-1393)<=1.5 and
+            net_debt is not None and abs(net_debt-4746)<=1.5):
+            tax_rate=(894-646)/894
+            # EBIT + noncash adjustments + working-capital cash effect, minus
+            # net investments in non-current assets and assumed operating tax.
+            # Acquisition payments and lease principal are not included.
+            result.update(
+                fcff=(1079*(1-tax_rate)+740-9-279)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('AddLife R12: EBIT efter rapporterad effektiv skatt, plus kassaflödesjusteringar '
+                           'för poster utan kassaflöde, inklusive rörelsekapitalets kassaflödeseffekt, '
+                           'minus nettoinvesteringar i anläggningstillgångar. Historiskt FCFF före förvärv '
+                           'och leasingamortering; normalisera förvärv, avyttringsvinster, omvärderade '
+                           'tilläggsköpeskillingar och framtida leasinginvesteringar före prognos.'))
+        return result
+    if symbol=='EPI-A.ST':
+        # Epiroc Q3 2026 and Q4 2025, pp. 3, 7 and 19. All MSEK.
+        # R12 = Jan-Sep 2026 + Oct-Dec 2025; use reported, not adjusted EBIT.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        if (sales is None or abs(sales-(47828+16090))>1.5 or
+            ebit is None or abs(ebit-(9573+3204))>1.5):
+            return None
+        result={'value':(10374+3479)*1e6,'sources':(
+            'https://www.epirocgroup.com/content/dam/epiroc/corporate/documents/quarterly-results-presentations-/2026-q3/english/Epiroc%20Interim%20Report%20Q3%202026.pdf',
+            'https://www.epirocgroup.com/content/dam/epiroc/corporate/documents/quarterly-results-presentations-/2025-q4/Epiroc%20Interim%20Report%20Q4_2025.pdf',
+        )}
+        # IFRS cash from operating activities, not the company's APM.
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        if (ocf is not None and abs(ocf-(5020+3081))<=1.5 and
+            debt is not None and abs(debt-11222)<=1.5):
+            tax_rate=((9134-6951)+(3089-2347))/(9134+3089)
+            # Reconcile noncash items, pension cash and working capital.
+            # Gross investments include rental fleet, PPE and intangibles.
+            capex=818+208+808+352+447+215
+            result.update(
+                fcff=((9573+3204)*(1-tax_rate)+2391+776-410-157-32-33-2559+135-capex)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Epiroc R12: rapporterat EBIT efter effektiv skatt, plus av- och nedskrivningar '
+                           'och övriga kassaflödesjusteringar, inklusive pensionsutbetalningar och rörelsekapital, '
+                           'minus bruttoinvesteringar i uthyrningsutrustning, materiella och immateriella tillgångar. '
+                           'Historiskt FCFF före förvärv, tillgångsavyttringar och leasingamortering. '
+                           'Framtida nyttjanderättsinvesteringar behöver normaliseras.'))
+        return result
+    if symbol=='ALFA.ST':
+        # Alfa Laval Q3 2026 pp. 4, 17, 20, 24 and 28; consolidated R12 MSEK.
+        # EBITA bridge adds back acquisition step-up amortization only.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        if (sales is None or abs(sales-71778)>1.5 or
+            (net_sales is not None and abs(net_sales-71778)>1.5) or
+            ebit is None or abs(ebit-11837)>1.5):
+            return None
+        result={'value':(11837+723)*1e6,'sources':(
+            'https://www.alfalaval.com/contentassets/5c29a03d3d1e437798d3f66b5d3c19cf/wkr0006.pdf',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        if (ocf is not None and abs(ocf-10419)<=1.5 and
+            debt is not None and abs(debt-13813)<=1.5):
+            tax_rate=2985/11195
+            # Interest is classified as financing; apply modeled tax to EBIT.
+            # Gross capex excludes acquisition payments and disposal proceeds.
+            result.update(
+                fcff=(11837*(1-tax_rate)+2833+395-131-1117-3165)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Alfa Laval R12: rapporterat EBIT efter effektiv skatt, plus avskrivningar '
+                           'och övriga icke-kassaflödespåverkande poster, inklusive rörelsekapitalets '
+                           'kassaflödeseffekt, minus bruttoinvesteringar i anläggningstillgångar. '
+                           'Räntor klassificeras som finansiering. Före förvärv, avyttringar och '
+                           'leasingamortering; framtida nyttjanderättsinvesteringar behöver normaliseras. '
+                           'EBITA avser rapporterat EBIT före avskrivning på förvärvsrelaterade övervärden.'))
+        return result
+    if symbol=='ROKO-B.ST':
+        # Röko Q3 2026 pp. 1, 10, 12, 25-26. R12 = FY 2025 + 9M 2026 - 9M 2025.
+        # Use all reported intangible amortisation, not Adj. EBITA (which excludes acquisition costs).
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'net_Sales')
+        if sales is None: sales=bd_field(record,'revenues')
+        ebit=bd_field(record,'operating_Income')
+        if sales is None or ebit is None or abs(sales-(6452+6078-4776))>1.5 or abs(ebit-(1051+1033-758))>1.5:
+            return None
+        result={'value':(1051+1033-758+242+214-180)*1e6,'sources':(
+            'https://storage.mfn.se/145548d3-0c30-4290-ab30-4aede238dc47/261023-roko-delarsrapport-q32026-final.pdf',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        # Recognise only the four precisely identifiable debt definitions.
+        # The enterprise-to-equity bridge must include both IFRS 16 liabilities
+        # and put/call option / contingent consideration debt (not double count).
+        if debt is not None and min(abs(debt-x) for x in (2044,2811,4842,5609))<=1.5:
+            result['net_debt']=5609e6
+            result['debt_note']='Röko Q3 2026: 2 044 MSEK räntebärande nettoskuld + 767 MSEK leasingskulder + 2 798 MSEK optionsskulder och tilläggsköpeskillingar.'
+        if ocf is not None and abs(ocf-(1073+973-717))<=1.5 and 'net_debt' in result:
+            pretax=1010+918-732
+            tax_rate=(pretax-(755+661-553))/pretax
+            noncash=422+371-311
+            wc=-24-71+110
+            capex=(15+7-13)+(52+65-40)
+            result.update(
+                fcff=((1051+1033-758)*(1-tax_rate)+noncash+wc-capex)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Röko R12: rapporterat EBIT efter effektiv skatt, plus ej kassaflödespåverkande poster '
+                           'och rörelsekapitalets kassaflödeseffekt, minus bruttoinvesteringar i materiella och '
+                           'immateriella tillgångar. Historiskt FCFF före förvärv, avyttringar och '
+                           'leasingamortering; normalisera framtida förvärv, leasinginvesteringar och '
+                           'utbetalningar för minoritetsandelar före prognos.'))
+        return result
+    if symbol=='INDT.ST':
+        # Indutrade Q3 2026 pp. 1, 6, 17 and 27; consolidated R12 MSEK.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        if (sales is None or abs(sales-34148)>1.5 or
+            (net_sales is not None and abs(net_sales-34148)>1.5) or
+            ebit is None or abs(ebit-4098)>1.5):
+            return None
+        result={'value':4844e6,'sources':(
+            'https://storage.mfn.se/27f063cf-1b04-4cf1-9e43-f6ad8c5dab89/interim-report-q3-2026.pdf',
+        )}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        # Reconcile operating cash flow and full interest-bearing debt,
+        # including leases, acquisition consideration and pension liabilities.
+        if (ocf is not None and abs(ocf-4331)<=1.5 and
+            debt is not None and abs(debt-9574)<=1.5):
+            tax_rate=(3664-2813)/3664
+            result.update(
+                fcff=(4098*(1-tax_rate)+1827-156-477)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Indutrade R12: rapporterat EBIT efter effektiv skatt, plus rapporterade '
+                           'icke-kassaflödespåverkande poster och rörelsekapitalets kassaflödeseffekt, '
+                           'minus nettoinvesteringar i materiella och immateriella tillgångar. '
+                           'Exklusive förvärv, finansiella betalningar och leasingamortering; '
+                           'framtida nyttjanderättsinvesteringar behöver normaliseras.'))
+        return result
+    if symbol in ('ATCO-A.ST','ATCO-B.ST'):
+        # Atlas Copco Q3 2026 and Q4 2025, consolidated MSEK.
+        # R12 = Jan-Sep 2026 + Oct-Dec 2025, not two overlapping YTD periods.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        ebit=27460+8470
+        sales=133434+42782
+        ebita=29451+9152
+        reported_sales=bd_field(record,'revenues')
+        reported_ebit=bd_field(record,'operating_Income')
+        if (reported_sales is None or abs(reported_sales-sales)>1.5 or
+            reported_ebit is None or abs(reported_ebit-ebit)>1.5):
+            return None
+        result={'value':ebita*1e6,'sources':(
+            'https://www.atlascopcogroup.com/content/dam/brands/atlas-copco-group/cision/20261022-en-Q3_2026.pdf',
+            'https://www.atlascopcogroup.com/content/dam/brands/atlas-copco-group/cision/20260127-en-Q4_2025.pdf.coredownload.pdf',
+        )}
+        # Q3 p. 13 and Q4 p. 14: rental equipment investment is in
+        # operating cash flow; include it in capex once, alongside PPE and
+        # intangible investments. Exclude disposal proceeds and acquisitions.
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        net_debt=bd_field(record,'net_Debt')
+        if (ocf is not None and abs(ocf-(23754+8393))<=1.5 and
+            net_debt is not None and abs(net_debt-14244)<=1.5):
+            tax_rate=((27047-21058)+(8338-6627))/(27047+8338)
+            da=7616+2673
+            capex=1380+513+2491+1105+1389+529
+            wc=-2984+649
+            result.update(
+                fcff=(ebit*(1-tax_rate)+da-capex+wc)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Atlas Copco R12: rapporterat EBIT efter effektiv skatt, plus av- och nedskrivningar, '
+                           'minus bruttoinvesteringar i uthyrningsutrustning, materiella och immateriella tillgångar, '
+                           'samt rörelsekapitalets kassaflödeseffekt. Historiskt FCFF före förvärv, '
+                           'avyttringar och framtida nyttjanderättsinvesteringar. EBITA följer bolagets definition '
+                           'exklusive förvärvsrelaterade immateriella av- och nedskrivningar.'))
+        return result
     if symbol!='ABB.ST' or str(period)[:10]!='2026-09-30' or record.get('currency')!='USD':
         return None
     # The 2025 and 2026 reports reconcile continuing operations on the same basis.
@@ -1622,12 +2652,12 @@ VALUATION_PROFILES={
 }
 PROFILE_TICKERS={
     'Tillverkningsindustri':{'ATCO-A.ST','ATCO-B.ST','AQ.ST'},
-    'Industrikonglomerat':{'VOLO.ST','STOR-B.ST','ROKO.ST'},
+    'Industrikonglomerat':{'VOLO.ST','STOR-B.ST','ROKO-B.ST'},
     'Förvärvsbolag':{'SALIX.ST','INDT.ST','ADDT-B.ST','LIFCO-B.ST','LAGR-B.ST','BERG-B.ST','BEIA-B.ST','OEM-B.ST','MMGR-B.ST','ADDV-B.ST','ALIF-B.ST','MCAP.ST'},
     'IT-konsulter':{'AFRY.ST','SWEC-B.ST','KNOW.ST','SOF-B.ST'},
     'Bygg och installation':{'BRAV.ST','SKA-B.ST','NCC-B.ST','PEAB-B.ST','INSTAL.ST','WBGR-B.ST','LIND-B.ST','LIAB.ST','CYNCA.ST'},
     'Logistik och transport':{'VOLV-B.ST','VOLV-A.ST','LOOMIS.ST','ELAN-B.ST','CTT.ST'},
-    'Teknik och mjukvara':{'VIT-B.ST','ANOD-B.ST','HMS.ST','SINCH.ST','TRUE-B.ST','YUBICO.ST','PDX.ST','SF.ST','STORY-B.ST','LIME.ST','FNOX.ST','SLEEP.ST','TDVOX.ST','ERIC-B.ST','TEL2-B.ST','TELIA.ST','HEXA-B.ST','SECT-B.ST','EMBRAC-B.ST'},
+    'Teknik och mjukvara':{'VIT-B.ST','ANOD-B.ST','HMS.ST','SINCH.ST','TRUE-B.ST','YUBICO.ST','PDX.ST','SF.ST','STORY-B.ST','LIME.ST','FNOX.ST','SLEEP.ST','DYVOX.ST','ERIC-B.ST','TEL2-B.ST','TELIA.ST','HEXA-B.ST','SECT-B.ST','EMBRAC-B.ST'},
     'Hälsovård och medicinteknik':{'AZN.ST','GETI-B.ST','SOBI.ST','EKTA-B.ST','BIOA-B.ST','CAMX.ST','BONEX.ST','VITR.ST','MCOV-B.ST','ASKER.ST','ARJO-B.ST','ACE.ST','BACTI-B.ST','HNSA.ST','SEZI.ST','SUS.ST','SYNACT.ST','COALA.ST'},
     'Konsumentvaror och detaljhandel':{'HM-B.ST','ESSITY-B.ST','AXFO.ST','ELUX-B.ST','HUSQ-B.ST','THULE.ST','DOM.ST','SHOT.ST','SKIS-B.ST','BETS-B.ST','BILI-A.ST','NEWA-B.ST','BOKUS.ST','BMAX.ST','RUSTA.ST','RVRC.ST','BHG.ST','BOOZT.ST','CLA-B.ST','DUNI.ST','FOI-B.ST','NELLY.ST','SCST.ST','MSON-B.ST','EVO.ST','CLAS-B.ST','ACAD.ST','VSURE.ST','KAR.ST'}
 }
@@ -1697,7 +2727,7 @@ PROFILE_BY_SYMBOL.update({
     'STG.CO':'Konsumentvaror och detaljhandel',
     'SSAB-B.ST':'Stålindustri',
     'SECU-B.ST':'Säkerhetstjänster',
-    'MAHA-A.ST':'Energi – prospektering och produktion',
+    'KEOC.ST':'Finansiella tjänster',
     'SES.ST':'Energi – prospektering och produktion',
 })
 
@@ -1740,7 +2770,7 @@ ADDITIONAL_GROUP_FALLBACK={
     'FOI-B.ST':'Konsument och övrigt','NELLY.ST':'Konsument och övrigt',
     'SCST.ST':'Konsument och övrigt','MSON-B.ST':'Konsument och övrigt',
     'STG.CO':'Konsument och övrigt','KAR.ST':'Teknik och telekom',
-    'MAHA-A.ST':'Material och skog','SES.ST':'Material och skog',
+    'KEOC.ST':'Bank och finans','SES.ST':'Material och skog',
     'SVIK.ST':'Industri','CTT.ST':'Industri','ELAN-B.ST':'Industri',
     'ENGCON-B.ST':'Industri','GARO.ST':'Industri','INSTAL.ST':'Industri',
     'INWI.ST':'Industri','MILDEF.ST':'Industri','NOLA-B.ST':'Industri',
@@ -1757,7 +2787,7 @@ ADDITIONAL_GROUP_FALLBACK={
     'KNOW.ST':'Teknik och telekom','LIME.ST':'Teknik och telekom',
     'SOF-B.ST':'Teknik och telekom','SLEEP.ST':'Teknik och telekom',
     'STORY-B.ST':'Teknik och telekom','SF.ST':'Teknik och telekom',
-    'TDVOX.ST':'Teknik och telekom','BERG-B.ST':'Industri',
+    'DYVOX.ST':'Teknik och telekom','BERG-B.ST':'Industri',
     'MMGR-B.ST':'Industri','OEM-B.ST':'Industri','SDIP-B.ST':'Industri'
 }
 KNOWN_GROUP_BY_TICKER.update(ADDITIONAL_GROUP_FALLBACK)
@@ -1771,7 +2801,8 @@ def comparable_ev_ebita(ebita_amount,net_debt_amount,share_count,multiple,fx):
 
 def valuation_category(symbol, info=None):
     """Konservativ kategorisering: särskilda affärsmodeller kräver andra metoder."""
-    if symbol in ('MAHA-A.ST','SES.ST'): return 'Energi – prospektering och produktion'
+    if symbol=='KEOC.ST': return 'Bank / finansiella tjänster'
+    if symbol=='SES.ST': return 'Energi – prospektering och produktion'
     if symbol=='HEM.ST': return 'Rörelsedrivande bolag'
     if symbol=='EQT.ST': return 'Kapitalförvaltare'
     if symbol in INVESTMENT_TICKERS: return 'Investmentbolag / kapitalförvaltning'
@@ -1860,88 +2891,11 @@ def render_biotech_scenario(ticker,category,valuation):
         except (ValueError,TypeError,OverflowError) as exc: st.error(str(exc))
 
 def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
-    # ROIC primary for matching annual statements; never mix currencies or periods.
-    primary_source=info.get('_report_source','Börsdata/Avanza')
-    key=roic_key() if use_roic else ''
-    if key:
-        try:
-            data,_=roic_company_data(symbol,key)
-            income=data.get('income',[])
-            balances=data.get('balance',[])
-            def field(record,keys):
-                return val(record,*keys)
-            imap={'Total Revenue':('is_sales_revenue_turnover','revenue','total_revenue'),
-                  'Operating Income':('is_operating_income','operating_income','ebit'),
-                  'EBITA':('is_ebita','ebita'),
-                  'Amortization Of Intangibles':('is_amortization_of_intangibles','amortization_of_intangibles'),
-                  'Net Income Common Stockholders':('net_income_common_stockholders','is_net_income_common_stockholders'),
-                  'Interest Expense':('is_interest_expense','interest_expense')}
-            bmap={'Total Debt':('bs_total_debt','total_debt','totalDebt'),
-                  'Cash And Cash Equivalents':('bs_cash_and_cash_equivalents','cash_and_cash_equivalents'),
-                  'Net Debt':('bs_net_debt','net_debt'),
-                  'Common Stock Equity':('bs_common_stock_equity','common_stock_equity')}
-            if income and balances:
-                ccy=income[0].get('currency')
-                paired=[]
-                for inc in income:
-                    for bal in balances:
-                        if ccy and inc.get('currency')==ccy and bal.get('currency')==ccy and inc.get('period_end_date')==bal.get('period_end_date'):
-                            paired.append((inc,bal))
-                if paired:
-                    fi={pd.Timestamp(i['period_end_date']):{k:field(i,v) for k,v in imap.items()} for i,b in paired}
-                    ba={pd.Timestamp(b['period_end_date']):{k:field(b,v) for k,v in bmap.items()} for i,b in paired}
-                    rf=pd.DataFrame(fi).dropna(how='all')
-                    rb=pd.DataFrame(ba).dropna(how='all')
-                    if not rf.empty and not rb.empty:
-                        latest_period=max(rf.columns)
-                        usable=any(k in rf.index and numeric(rf.at[k,latest_period]) is not None for k in ('EBITA','Operating Income'))
-                        debt_ok=('Net Debt' in rb.index and numeric(rb.at['Net Debt',latest_period]) is not None) or all(k in rb.index and numeric(rb.at[k,latest_period]) is not None for k in ('Total Debt','Cash And Cash Equivalents'))
-                        if usable and debt_ok and (fin.empty or latest_period>=max(pd.Timestamp(p) for p in fin.columns)):
-                            if info.get('financialCurrency')==ccy:
-                                rf=rf.combine_first(fin.reindex(columns=rf.columns))
-                                rb=rb.combine_first(balance.reindex(columns=rb.columns))
-                                primary_source='ROIC.ai + Börsdata/Avanza (matchad period och valuta)'
-                            else:
-                                cash=pd.DataFrame()
-                                primary_source='ROIC.ai'
-                            fin,balance=rf,rb
-                            info=dict(info,financialCurrency=ccy)
-        except Exception:
-            primary_source='Börsdata/Avanza (ROIC ej tillgänglig)'
-
-    # Börsdata annual reports take precedence when matched by date and original currency.
-    if use_roic:
-        try:
-            bd,error=borsapi_reports(symbol,borsapi_key())
-            records=[r for r in bd.get('periods',[]) if isinstance(r,dict) and str(r.get('period'))=='5']
-            records=[r for r in records if r.get('currency') and (r.get('report_End_Date') or r.get('reportEndDate'))]
-            records.sort(key=lambda r:pd.Timestamp(r.get('report_End_Date') or r.get('reportEndDate')),reverse=True)
-            if records:
-                ccy=str(records[0]['currency']).upper()
-                fi,ba,cf={},{},{}
-                for record in records:
-                    if str(record['currency']).upper()!=ccy: continue
-                    date=pd.Timestamp(record.get('report_End_Date') or record.get('reportEndDate')).normalize()
-                    def amount(key):
-                        value=bd_field(record,key)
-                        return value*1e6 if value is not None else None
-                    fi[date]={'EBITA':amount('ebita'),'Amortization Of Intangibles':amount('amortization_Of_Intangibles'),'Total Revenue':amount('revenues'),'Operating Income':amount('operating_Income'),'Pretax Income':amount('profit_Before_Tax'),'Net Income Common Stockholders':amount('profit_To_Equity_Holders')}
-                    ba[date]={'Net Debt':amount('net_Debt'),'Cash And Cash Equivalents':amount('cash_And_Equivalents'),'Stockholders Equity':amount('total_Equity')}
-                    cf[date]={'Operating Cash Flow':amount('cash_Flow_From_Operating_Activities'),'Capital Expenditure':amount('capital_Expenditure'),'Depreciation And Amortization':amount('depreciation_And_Amortization'),'Change In Working Capital':amount('change_In_Working_Capital'),'Free Cash Flow':amount('free_Cash_Flow')}
-                rf,rb,rc=pd.DataFrame(fi).dropna(how='all'),pd.DataFrame(ba).dropna(how='all'),pd.DataFrame(cf).dropna(how='all')
-                latest=max(fi)
-                if not rf.empty and not rb.empty and numeric(fi[latest]['Operating Income']) is not None and numeric(ba[latest]['Net Debt']) is not None and (fin.empty or latest>=max(pd.Timestamp(p) for p in fin.columns)):
-                    if info.get('financialCurrency')==ccy:
-                        rf=rf.combine_first(fin.reindex(columns=rf.columns))
-                        rb=rb.combine_first(balance.reindex(columns=rb.columns))
-                        rc=rc.combine_first(cash.reindex(columns=rf.columns))
-                        primary_source='Börsdata Pro+ (primär) + kompletterande matchad rapportdata'
-                    else:
-                        primary_source='Börsdata Pro+ (primär)'
-                    fin,balance,cash=rf,rb,rc
-                    info=dict(info,financialCurrency=ccy)
-        except Exception:
-            pass
+    # fetch() is the sole annual-statement adapter. Its Börsdata-first frames
+    # already contain only date/currency/financial-anchor matched Yahoo supplements.
+    # Never re-fetch or override these statements with unverified ROIC data.
+    primary_source=info.get('_report_source','Rapportkälla ej angiven')
+    # The legacy use_roic flag now controls optional live R12 retrieval only.
 
     category=valuation_category(symbol,info)
     profile=operating_valuation_profile(symbol,info)
@@ -2016,14 +2970,9 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 earnings=row(fin,['EBITA'],period)
                 if earnings is None:
                     ebit=row(fin,['Operating Income','EBIT'],period)
-                    amort=row(fin,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+                    amort=row(fin,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
                     if amort is None and period in cash.columns:
-                        amort=row(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
-                    if amort is None and period in cash.columns:
-                        total_da=row(cash,['Depreciation And Amortization','Depreciation Amortization Depletion'],period)
-                        depreciation=row(cash,['Depreciation','Depreciation And Depletion'],period)
-                        if total_da is not None and depreciation is not None and abs(total_da)>=abs(depreciation):
-                            amort=abs(total_da)-abs(depreciation)
+                        amort=row(cash,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
                     if ebit is not None:
                         earnings=ebit+abs(amort) if amort is not None else ebit
                         earnings_label='EBITA (beräknad)' if amort is not None else 'EBIT'
@@ -2041,11 +2990,6 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     wc=row(cash,['Change In Working Capital'],period)
                     if all(v is not None for v in (ebit,da,cap,wc)):
                         fcff=ebit*(1-0.206)+da-abs(cap)+wc
-                    else:
-                        ocf=row(cash,['Operating Cash Flow','Cash Flow From Continuing Operating Activities'],period)
-                        interest=row(fin,['Interest Expense'],period)
-                        if all(v is not None for v in (ocf,cap,interest)):
-                            fcff=ocf-abs(cap)+abs(interest)*(1-0.206)
             # Prefer a complete, currency-matched trailing report bundle; never mix annual cash flows with R12 earnings.
             r12_sales=None
             r12_used=False
@@ -2062,26 +3006,56 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     rdebt=ramount('net_Debt')
                     rsales=ramount('revenues')
                     rebita=ramount('ebita')
-                    filing=abb_r12_ebita(symbol,rec,rdate) if rebita is None else None
-                    if filing: rebita=filing['value']
+                    filing=abb_r12_ebita(symbol,rec,rdate)
+                    restated_scope=bool(filing and filing.get('restated_sales') is not None)
+                    if restated_scope:
+                        rsales=filing['restated_sales']
+                        rebit=filing['restated_ebit']
+                        rebita=filing['value']
+                    elif filing:
+                        if rebita is None:
+                            rebita=filing['value']
+                        elif abs(rebita-filing['value'])>0.6e6:
+                            # Do not attach a conflicting filing to provider EBITA.
+                            filing=None
+                    if filing and filing.get('net_debt') is not None:
+                        # Use a filing-reconciled, complete debt definition only for this same R12 period.
+                        rdebt=filing['net_debt']
                     if rebita is None and rebit is not None:
                         amort=ramount('amortization_Of_Intangibles')
                         if amort is not None: rebita=rebit+abs(amort)
-                    if rebita is None and rccy==report and rebit is not None and rdebt is not None and rsales is not None and rsales>0 and (earnings is None or earnings_label=='EBIT'):
-                        # Official report fallback; strict R12 period and original currency.
-                        hit=report_ebita_extract(str(info.get('website') or ''),str(info.get('longName') or info.get('shortName') or symbol),str(rdate.date()),rccy)
-                        if hit and hit.get('currency')==rccy and hit.get('period')==str(rdate.date()):
-                            rebita=numeric(hit.get('value'))
-                    # Do not discard a usable annual EBITA or FCFF model for an incomplete R12 bundle.
+                    # A quarterly reserve is accepted only after exact date, listing, currency and flow reconciliation.
+                    bridge={}
+                    if not restated_scope and rccy==report and rebit is not None and (rebita is None or not all(ramount(k) is not None for k in ('depreciation_And_Amortization','capital_Expenditure','change_In_Working_Capital'))):
+                        bridge=matched_yahoo_r12(symbol,currency,report,rec,str(rdate.date()))
+                        if rebita is None: rebita=bridge.get('ebita')
+                    # PDF layout hits alone do not establish consolidated EBITA or reconcile sales and EBIT.
+                    # Preserve matched evidence even if a separate annual model has more complete inputs.
+                    if rccy==report and rebit is not None and rsales is not None and rsales>0 and rebita is not None:
+                        out['r12_ebita_evidence']={'value':rebita,'period':str(rdate.date()),'currency':rccy,
+                                                   'net_debt':rdebt,'source':'Bolagsrapport (omräknad kvarvarande verksamhet)' if restated_scope else 'Bolagsrapport (avstämd)' if filing else 'Yahoo Finance (avstämd R12)' if bridge.get('ebita') is not None else 'Börsdata Pro+',
+                                                   'sources':filing['sources'] if filing else ()}
+                    # Keep all operating inputs on the same trailing report date.
                     rda=ramount('depreciation_And_Amortization')
                     rcapex=ramount('capital_Expenditure')
                     rwc=ramount('change_In_Working_Capital')
                     rfcff=filing.get('fcff') if filing else None
-                    if rfcff is None and all(v is not None for v in (rebit,rda,rcapex,rwc)):
-                        rfcff=rebit*(1-0.206)+rda-abs(rcapex)+rwc
-                    preserves_models=(earnings is None or earnings_label=='EBIT' or rebita is not None) and (
-                        fcff is None or fcff<=0 or (rfcff is not None and rfcff>0))
-                    if preserves_models and rccy and rccy==report and (not common or rdate>=pd.Timestamp(common[0])) and rebit is not None and rdebt is not None and rsales is not None and rsales>0:
+                    # Volati's consolidated IFRS cash flow includes the distributed Salix business.
+                    # Only the explicitly reconciled continuing-operations filing can supply R12 FCFF.
+                    if symbol!='VOLO.ST':
+                        if rfcff is None and all(v is not None for v in (rebit,rda,rcapex,rwc)):
+                            rfcff=rebit*(1-0.206)+rda-abs(rcapex)+rwc
+                        if rfcff is None: rfcff=bridge.get('fcff')
+                    cash_filing=official_r12_fcff(symbol,rec,rdate) if rfcff is None else None
+                    if cash_filing: rfcff=cash_filing['fcff']
+                    # A newer currency-matched R12 with reconciled revenue and EBIT
+                    # takes precedence even if an input is missing. An older annual
+                    # EBITA/FCFF/debt must not mask missing or adverse current data.
+                    current_r12=(pd.notna(rdate) and rdate<=pd.Timestamp.now().normalize() and
+                                 (not common or rdate>=pd.Timestamp(common[0])) and
+                                 bool(rccy) and rccy==report and rebit is not None and
+                                 rsales is not None and rsales>0)
+                    if current_r12:
                         earnings=rebita if rebita is not None else rebit
                         earnings_label='EBITA' if rebita is not None else 'EBIT'
                         debt=rdebt
@@ -2089,18 +3063,34 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                         r12_sales=rsales
                         r12_used=True
                         out['period']=str(rdate.date())
-                        out['source']='Börsdata Pro+ R12 · matchad valuta och period'
+                        out['source']='Volati Q3 2026 · IFRS 5 omräknad kvarvarande verksamhet R12' if restated_scope else 'Börsdata Pro+ R12 · matchad valuta och period'
+                        if bridge:
+                            out['source']+=' + Yahoo Finance (avstämd R12)'
                         if filing:
                             out['ebita_sources']=filing['sources']
-                            out['fcff_note']=filing['fcff_note']
-                            out['fcff_tax_rate']=filing['fcff_tax_rate']
-                            out['source']='ABB:s rapporter (beräknad EBITA) + Börsdata R12'
+                            if filing.get('fcff_note'): out['fcff_note']=filing['fcff_note']
+                            if filing.get('debt_note'): out['debt_note']=filing['debt_note']
+                            if filing.get('fcff_tax_rate') is not None: out['fcff_tax_rate']=filing['fcff_tax_rate']
+                            if not restated_scope: out['source']+=' + bolagsrapport (avstämd EBITA)'
+                        if cash_filing:
+                            out['fcff_sources']=cash_filing['sources']
+                            out['fcff_note']=cash_filing['fcff_note']
+                            out['fcff_tax_rate']=cash_filing['fcff_tax_rate']
+                            out['source']+=' + bolagsrapport (avstämt FCFF)'
                         if rebita is None: out['missing'].append('R12: separat EBITA saknas.')
                         if rfcff is None: out['missing'].append('R12: FCFF saknar komplett underlag.')
+                        if rdebt is None: out['missing'].append('R12: nettoskuld saknar komplett underlag.')
             has_complete_model=earnings is not None and earnings_label!='EBIT' and fcff is not None and fcff>0 and debt is not None
             fallback_date=pd.Timestamp('2026-09-30')
             model_date=pd.to_datetime(out.get('period'),errors='coerce')
-            allow_report_fallback=(not has_complete_model and
+            # Legacy point-in-time snapshots must never replace an already
+            # reconciled R12 bundle or usable annual operating model. In
+            # particular, a missing EBITA is not permission to erase a
+            # verified FCFF, or to substitute older hard-coded share counts.
+            has_usable_annual=(earnings is not None and debt is not None and
+                               (earnings_label!='EBIT' or fcff is not None))
+            allow_report_fallback=(not has_complete_model and not r12_used and not has_usable_annual and
+                                   report=='SEK' and currency=='SEK' and
                                    0<=(pd.Timestamp.today().normalize()-fallback_date).days<=180 and
                                    (pd.isna(model_date) or model_date<=fallback_date))
             if allow_report_fallback and symbol=='VOLO.ST':
@@ -2175,9 +3165,32 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
             preferred=latest(balance,['Preferred Stock','Preferred Stock Equity'])
             if (preferred is not None and preferred>0) or symbol=='VOLO.ST':
                 audit.append('Preferenskapital: marknadsvärde och rättigheter måste verifieras innan stamaktievärdet kan användas som köpsignal')
+            if symbol=='LOOMIS.ST' and r12_used:
+                audit.append('Loomis: Hermes-förvärvet slutfördes efter balansdagen; verifiera pro forma resultat, nettoskuld, leasing, minoritetsintressen och framtida investeringar innan signal används.')
+            if symbol=='TRUE-B.ST' and r12_used:
+                audit.append('Truecaller: verifiera skattetvist, text+-förvärv, nya lån, leasing, återköp och utspädning före signal.')
             if symbol=='BOL.ST': audit.append('Nexa-förvärv: kontrollera status, finansiering och pro forma kassaflöden innan riktkurs används')
+            if symbol=='BRAV.ST' and r12_used and out.get('fcff_note'):
+                audit.append('Bravida: historiskt FCFF före leasingamortering; verifiera framtida nyttjanderättsinvesteringar och engångsposter före köp-/säljsignal')
+            if symbol=='BOKUS.ST' and r12_used and out.get('fcff_note'):
+                audit.append('Bokusgruppen: historiskt FCFF före leasingamortering; normalisera framtida nyttjanderättsinvesteringar före köp-/säljsignal')
+            if symbol in ('ATCO-A.ST','ATCO-B.ST') and r12_used and out.get('fcff_note'):
+                audit.append('Atlas Copco: historiskt FCFF före förvärv; verifiera framtida leasinginvesteringar och skillnader i A- och B-aktiernas marknadsvärde före signal')
+            if symbol=='LAGR-B.ST' and r12_used and out.get('fcff_note'):
+                audit.append('Lagercrantz: historiskt FCFF före förvärv; verifiera framtida leasing, förvärvsfinansiering och minoritetsoptioner före signal')
+            if symbol=='ROKO-B.ST':
+                if not r12_used or not out.get('debt_note'):
+                    audit.append('Röko: nettoskuld inklusive leasing, köp-/säljoptioner och tilläggsköpeskillingar ej avstämd.')
+                audit.append('Röko: historiskt FCFF före förvärv; verifiera framtida förvärvsfinansiering, leasing och minoritetsutbetalningar före signal.')
+            if symbol=='ALIF-B.ST' and r12_used and out.get('fcff_note'):
+                audit.append('AddLife: historiskt FCFF före förvärv; normalisera engångsposter, leasing och förvärvsfinansiering före signal')
+            if symbol=='ADDT-B.ST' and r12_used and out.get('fcff_note'):
+                audit.append('Addtech: historiskt FCFF före förvärv; verifiera leasing, minoritetsintressen och framtida förvärvsfinansiering innan signal används')
             out['audit']=audit
             out['inputs']={earnings_label:earnings,'Nettoskuld':debt,'Antal aktier':shares,'FCFF':fcff,'Valutakurs':fx}
+            # Preserve operating inputs if later replaced by a P/E reserve.
+            out['operating_inputs']=dict(out['inputs'])
+            out['operating_period']=out.get('period')
             use_ebit=earnings_label=='EBIT'
             # Explicit separate illustrative EBIT multiple, not a measured peer median.
             effective_multiple=max(1.0,m-1.0) if use_ebit else m
@@ -2186,6 +3199,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                 out['assumptions']['EV/EBIT']=effective_multiple
             preferred_market=info.get('_preferred_cap')
             adjusted_debt=debt+preferred_market/fx if debt is not None and preferred_market is not None and fx and fx>0 else None
+            if symbol=='ROKO-B.ST' and (not r12_used or not out.get('debt_note')):
+                adjusted_debt=None  # Do not value the shares on an incomplete debt definition.
             multiple_value=comparable_ev_ebita(earnings,adjusted_debt,shares,effective_multiple,fx)
             if multiple_value is not None: out['models']['EV/EBIT' if use_ebit else 'EV/EBITA']=multiple_value
             else: out['missing'].append('EV/EBITA: jämförbar EBITA, nettoskuld, aktier eller valuta')
@@ -2234,11 +3249,15 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
             out['inputs']={'Eget kapital':equity,'Antal aktier':shares,'ROE':roe,'Motiverat P/B':pb}
         if not out['models']: out['missing'].append('Positivt eget kapital, ROE, aktieantal och valuta')
     elif category in ('Fastigheter','Investmentbolag / kapitalförvaltning'):
-        nav=REPORTED_NAV.get(symbol)
-        if nav and currency=='SEK':
-            out['models']['Rapporterat NAV']=nav['nav']
+        nav=current_reported_nav(symbol,currency)
+        if nav:
+            out['nav_reference']=nav['nav']
+            out['method']='Rapporterat substansvärde (referens)'
+            out['missing'].append('Oberoende värderingsmodell saknas; rapporterat NAV är inte en riktkurs.')
             out['period']=nav['date']
             out['source']=nav['source']
+            out['nav_kind']=nav['kind']
+            out.setdefault('audit',[]).append('Rapporterat substansvärde är ett referensvärde per aktie, inte en oberoende prognos. Kontrollera aktuell portfölj, avkastningskrav och eventuell substansrabatt före signal.')
         else: out['missing'].append('Rapporterat NAV eller verifierat driftnetto och direktavkastningskrav' if category=='Fastigheter' else 'Rapporterat substansvärde')
     elif category=='Läkemedel – royalty och pipeline': out['missing'].append('Sum-of-parts: normaliserade produkt- och royaltykassaflöden, riskjusterad pipeline, nettokassa och utspädning')
     elif category=='Forskningsbolag': out['missing'].append('rNPV: projektkassaflöden, sannolikheter, nettokassa och utspädning')
@@ -2356,7 +3375,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
         out['upside']=(target/price-1)*100
         out['buy_limit']=target*0.8
         out['status']='Undervärderad enligt modellen' if out['upside']>=20 else 'Övervärderad enligt modellen' if out['upside']<=-20 else 'Rimligt värderad enligt modellen'
-    else: out['status']='Modellvärde – aktuell kurs saknas' if target is not None else 'Saknat underlag'
+    else: out['status']='Modellvärde – aktuell kurs saknas' if target is not None else 'Rapporterat NAV – riktkurs saknas' if out.get('nav_reference') is not None else 'Saknat underlag'
     if target is not None and out.get('audit'):
         out['status']='Preliminär värdering – kontroll krävs'
     return out
@@ -2551,7 +3570,7 @@ def growth_stability(fin):
         rev=get(p,['Total Revenue','Operating Revenue'])
         ebit=get(p,['Operating Income','EBIT'])
         ebita=get(p,['EBITA'])
-        amort=get(p,['Amortization Of Intangibles','Amortization Of Intangible Assets'])
+        amort=get(p,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'])
         if ebita is None and ebit is not None and amort is not None: ebita=ebit+abs(amort)
         rows.append({'date':str(p)[:10],'revenue':rev,'ebita':ebita,'ebit':ebit})
     def stats(key):
@@ -2578,16 +3597,10 @@ def growth_stability(fin):
 def screener_snapshot(symbol):
     try:
         info,hist,fin,cash,balance,quick,errors=fetch(symbol)
-        try:
-            result=valuation_engine(symbol,info,fin,cash,balance,quick,hist)
-        except Exception as exc:
-            result=valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=False)
-            result['missing'].append('Primär modell: '+type(exc).__name__+': '+str(exc)[:200])
-        if result.get('target') is None and roic_key():
-            fallback=valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=False)
-            if fallback.get('target') is not None:
-                fallback['missing'].append('ROIC-underlag gav ingen riktkurs; extern reservmodell används.')
-                result=fallback
+        # The legacy flag disables primary R12 retrieval, not just ROIC.
+        # Never retry with older annual data merely because current R12 cannot
+        # support a target, or the primary model raised an exception.
+        result=valuation_engine(symbol,info,fin,cash,balance,quick,hist)
         result['website']=info.get('website')
         if result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag'):
             result['stability']=growth_stability(fin)
@@ -2600,10 +3613,10 @@ def screener_snapshot(symbol):
     except Exception as exc:
         return {'category':valuation_category(symbol),'target':None,'status':'Saknat underlag','missing':['Datafel: '+type(exc).__name__+': '+str(exc)[:300]]}
 
-if st.session_state.get('screener_model_version')!='unified-v51-combined':
+if st.session_state.get('screener_model_version')!='unified-v52-primary-r12':
     st.session_state['screener_results']={}
     st.session_state['screener_running']=False
-    st.session_state['screener_model_version']='unified-v51-combined'
+    st.session_state['screener_model_version']='unified-v52-primary-r12'
 if not isinstance(st.session_state.get('screener_results'),dict): st.session_state['screener_results']={}
 if not isinstance(st.session_state.get('screener_running'),bool): st.session_state['screener_running']=False
 # Exclude confirmed delistings from the active universe.
@@ -2811,11 +3824,11 @@ if pe is None and price is not None and price>0 and quote_ccy:
                 eps_value,eps_origin=candidate,'ROIC'
                 break
         # Börsdata års-EPS får bara användas när årsperioden överensstämmer.
-        if eps_value is None and report_year and fin is not None and not fin.empty:
+        if eps_value is None and report_end and report.get('currency')==report_ccy and fin is not None and not fin.empty:
             for column in fin.columns:
-                try: column_year=str(pd.Timestamp(column).year)
+                try: column_date=str(pd.Timestamp(column).date())
                 except (TypeError,ValueError): continue
-                if column_year!=report_year: continue
+                if column_date!=report_end: continue
                 for row in ('Diluted EPS','Basic EPS'):
                     if row in fin.index:
                         candidate=numeric(fin.loc[row,column])
@@ -2860,7 +3873,7 @@ if _roic_income and market_cap is not None and market_cap>0 and quote_ccy:
     report_date=str(inc.get('period_end_date') or '')[:10]
     report_currency=inc.get('currency')
     ebita_annual=_record_number(inc,('is_ebita','ebita'))
-    if report_date and report_currency and ebita_annual is not None and ebita_annual>0:
+    if report_date and report_currency and report_currency==report_ccy and ebita_annual is not None and ebita_annual>0:
         balance_match=next((x for x in roic_balance if str(x.get('period_end_date') or '')[:10]==report_date and x.get('currency')==report_currency),None)
         debt_annual=_record_number(balance_match,(
             'bs_total_debt','total_debt','totalDebt','bs_short_long_term_debt_total',
@@ -2943,7 +3956,7 @@ valuation_result=screener_snapshot(ticker)
 # Selected company already has fetched statements; retry directly rather than relying on a cached failed snapshot.
 if valuation_result.get('target') is None:
     try:
-        direct_result=valuation_engine(ticker,info,fin,cash,balance,quick,hist,use_roic=False)
+        direct_result=valuation_engine(ticker,info,fin,cash,balance,quick,hist)
         if direct_result.get('target') is not None: valuation_result=direct_result
         else: valuation_result['missing']=list(dict.fromkeys(valuation_result.get('missing',[])+direct_result.get('missing',[])))
     except Exception as exc:
@@ -2964,7 +3977,7 @@ if valuation_earnings is not None:
 elif ebita is None and fin is not None and not fin.empty:
     for period in fin.columns:
         operating=_annual_balance_value(fin,['Operating Income','EBIT'],period)
-        amort=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+        amort=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
         if operating is not None and amort is not None:
             ebita=operating+abs(amort)
             break
@@ -2988,7 +4001,7 @@ elif pe is None and report_ccy and quote_ccy and price and price>0:
             break
 if dividend_yield is None: dividend_yield=trailing_dividend_yield(ticker,valuation_price)
  # No unlabelled provider-period fallback for annual ROE or growth.
-if _roic_income:
+if _roic_income and report_ccy and _roic_income[0].get('currency')==report_ccy:
     latest=_roic_income[0]
     if revenue is None: revenue=_record_number(latest,('is_sales_revenue_turnover','revenue','total_revenue'))
     if margin is None:
@@ -3006,13 +4019,9 @@ if ev_ebita is None and report_ccy and quote_ccy and market_cap is not None and 
         annual_ebita=_annual_balance_value(fin,['EBITA'],period)
         if annual_ebita is None:
             operating=_annual_balance_value(fin,['Operating Income','EBIT'],period)
-            amort=_annual_balance_value(fin,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
-            if amort is None: amort=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
-            if amort is None:
-                total_da=_annual_balance_value(cash,['Depreciation And Amortization','Depreciation Amortization Depletion'],period)
-                depreciation=_annual_balance_value(cash,['Depreciation','Depreciation And Depletion'],period)
-                if total_da is not None and depreciation is not None and abs(total_da)>=abs(depreciation):
-                    amort=abs(total_da)-abs(depreciation)
+            amort=_annual_balance_value(fin,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
+            if amort is None: amort=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
+            # Only explicit intangible amortization is accepted in annual overview.
             if operating is not None and amort is not None: annual_ebita=operating+abs(amort)
         annual_debt=_annual_balance_value(balance,['Net Debt'],period)
         if annual_debt is None:
@@ -3119,8 +4128,8 @@ if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade lä
         ed=_annual_balance_value(fin,['EBITDA'],period)
         if ed is None and e is not None and da is not None: ed=e+abs(da)
         ea=_annual_balance_value(fin,['EBITA'],period)
-        am=_annual_balance_value(fin,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
-        if am is None: am=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangible Assets'],period)
+        am=_annual_balance_value(fin,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
+        if am is None: am=_annual_balance_value(cash,['Amortization Of Intangibles','Amortization Of Intangibles Income Statement','Amortization Of Intangible Assets'],period)
         if ea is None and e is not None and am is not None: ea=e+abs(am)
         if netdebt_ebitda is None and d is not None and ed is not None and ed>0:
             netdebt_ebitda=d/ed
@@ -3145,16 +4154,7 @@ if valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade lä
     else:
         with st.expander('Börsdata – nyckeltalstäckning'):
             st.caption(bd_kpi_error or 'Nettoskuld/EBITDA saknas för matchat instrument i nyckeltalssvaret.')
-if ebita is None and valuation_result.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag') and bd_overview_period and report_ccy:
-    report_hit=report_ebita_extract(str(info.get('website') or ''),str(name or company),bd_overview_period,report_ccy)
-    if report_hit:
-        ebita=report_hit['value']
-        st.caption('Rapporterad EBITA R12 '+report_hit['period']+' · '+report_hit['currency']+' · [Delårsrapport]('+report_hit['url']+')')
-        matched_debt=bd_field(bd_overview[0],'net_Debt') if str(bd_overview[0].get('currency') or '').upper()==report_ccy else None
-        rate=fx_rate(quote_ccy,report_ccy) if quote_ccy else None
-        if matched_debt is not None and rate and market_cap is not None and ebita>0:
-            ev_ebita=(market_cap*rate+matched_debt*1e6)/ebita
-            ev_ebita_source='Rapporterad EBITA R12; matchad Börsdata nettoskuld'
+# Unreconciled PDF layout hits cannot be used for the financial overview.
 st.markdown('### Finansiell översikt')
 # Use the selected model's paired EBITA and net debt whenever they are available.
 model_ebita=valuation_inputs.get('EBITA')
@@ -3167,10 +4167,21 @@ if model_ebita is not None and model_currency==report_ccy and valuation_debt is 
     ev_ebita_source='Värderingsmodell '+str(valuation_result.get('period') or '')
     st.caption('EBITA: '+ev_ebita_source)
     if valuation_result.get('ebita_sources'):
-        st.markdown('EBITA = rapporterat EBIT plus förvärvsrelaterade avskrivningar. '+
+        st.markdown('Rapporterad eller avstämd EBITA enligt källrapport. '+
                     ' · '.join(f'[Källrapport {i}]({url})' for i,url in enumerate(valuation_result['ebita_sources'],1)))
 
-st.caption('Börsvärde: '+str(info.get('_cap_source') or 'Ej verifierat')+' · Leverantörens eget börsvärde, inte egen beräkning.')
+# Display separately matched R12 EBITA rather than an older annual model metric.
+r12_evidence=valuation_result.get('r12_ebita_evidence') or {}
+if r12_evidence.get('currency')==report_ccy and r12_evidence.get('period')==bd_overview_period and r12_evidence.get('value') is not None:
+    ebita=r12_evidence['value']
+    matched_debt=r12_evidence.get('net_debt')
+    rate=fx_rate(quote_ccy,report_ccy) if quote_ccy else None
+    ev_ebita=(market_cap*rate+matched_debt)/ebita if market_cap is not None and rate and matched_debt is not None and ebita>0 else None
+    ev_ebita_source='Börsdata R12 '+bd_overview_period
+    st.caption('EBITA R12 '+bd_overview_period+' · '+r12_evidence['source']+' · separat från eventuell årsbaserad värdering.')
+    if r12_evidence.get('sources'):
+        st.markdown(' · '.join(f'[Källrapport {i}]({url})' for i,url in enumerate(r12_evidence['sources'],1)))
+st.caption('Börsvärde: '+str(info.get('_cap_source') or 'Ej verifierat')+' · Kapitalisering enligt kontrollerat underlag.')
 av_snapshot=info.get('_avanza_snapshot',{})
 if av_snapshot:
     st.caption('Avanza kontrollkälla: '+show(av_snapshot.get('price'),' '+str(av_snapshot.get('currency') or ''),2)+' · Börsvärde '+show(av_snapshot['market_cap']/1e9,' md',2) if av_snapshot.get('market_cap') is not None else 'Avanza: börsvärde ännu inte verifierat.')
@@ -3253,8 +4264,8 @@ if valuation_result.get('category') in ('Investmentbolag / kapitalförvaltning',
                 break
     equity_fx=fx_rate(report_ccy,quote_ccy)
     pb=cap/(equity*equity_fx) if cap and equity and equity>0 and equity_fx and equity_fx>0 else None
-    nav_record=REPORTED_NAV.get(ticker)
-    nav=numeric(nav_record.get('nav')) if nav_record and quote_ccy=='SEK' and 0<=(pd.Timestamp.today().normalize()-pd.Timestamp(nav_record['date'])).days<=180 else None
+    nav_record=current_reported_nav(ticker,quote_ccy)
+    nav=numeric(nav_record.get('nav')) if nav_record else None
     overview_items=[overview_items[0],overview_items[1],
         ('Eget kapital (M)',show(equity/1e6,'',0) if equity is not None else 'Saknas'),
         ('Nettoresultat (M)',show(profit/1e6,'',0) if profit is not None else 'Saknas'),
@@ -4486,6 +5497,10 @@ with four:
         if v.get('price') is not None: fig.add_vline(x=v['price'],line_dash='dash',line_color='#64748b',annotation_text='Aktuell kurs')
         fig.update_layout(template='plotly_white',height=max(230,65*len(model_rows)+80),margin=dict(l=10,r=85,t=35,b=15),xaxis_title=ccy,yaxis=dict(autorange='reversed'))
         st.plotly_chart(fig,use_container_width=True)
+    elif v.get('nav_reference') is not None:
+        st.metric('Rapporterat substansvärde per aktie (referens)',show(v['nav_reference'],' '+ccy,2))
+        st.caption(str(v.get('nav_kind') or 'NAV')+' · '+str(v.get('period') or '')+' · [Källa]('+str(v.get('source') or '')+')')
+        st.info('Substansvärdet är inte en oberoende riktkurs. Kurspotential beräknas först när en självständig modell finns.')
     else: st.info('Värderingsunderlag saknas.')
     implied=numeric(v.get('reverse_growth'))
     assumed=numeric(v.get('assumptions',{}).get('FCFF-tillväxt (%)'))
@@ -4593,6 +5608,8 @@ with four:
         st.caption(valuation_result['pending_acquisition_note'])
         st.markdown('[Förvärvsmeddelande](https://investors.boliden.com/en/press/boliden-acquire-controlling-stake-nexa-resources)')
     if valuation_result.get('fcff_note'): st.caption(valuation_result['fcff_note'])
+    if valuation_result.get('fcff_sources'):
+        st.markdown(' · '.join(f'[FCFF-källrapport {i}]({url})' for i,url in enumerate(valuation_result['fcff_sources'],1)))
     st.markdown('### Kapitalavkastning')
     operating=v.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag')
     periods=sorted(balance.columns,key=pd.Timestamp)
