@@ -1743,6 +1743,36 @@ def borsapi_debt_ebitda_map(api_key):
 
 def official_r12_fcff(symbol, record, period):
     """Independent filing-backed cash-flow supplements; never infer EBITA from total D&A."""
+    if symbol=='LOOMIS.ST':
+        # Loomis Q3 2026, pp. 10 and 12. Consolidated IFRS figures, SEK m.
+        # R12 cash flow = FY 2025 + 9M 2026 - 9M 2025, not the non-IFRS
+        # cash-flow measure on p. 13 (which excludes leases and certain costs).
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        if ((sales is None and net_sales is None) or
+            (sales is not None and abs(sales-31253)>1.5) or
+            (net_sales is not None and abs(net_sales-31253)>1.5) or
+            ebit is None or abs(ebit-3651)>1.5 or
+            ocf is None or abs(ocf-(4609+3430-2796))>1.5):
+            return None
+        tax=987/3009
+        da=3186+2434-2379
+        other_noncash=973+402-504
+        wc=(-291-303+171)+(270-772+280)
+        capex=1406+1033-1014
+        return {'fcff':(3651*(1-tax)+da+other_noncash+wc-capex)*1e6,
+                'fcff_tax_rate':tax,
+                'sources':('https://mb.cision.com/Main/51/4417527/4346980.pdf',),
+                'fcff_note':('Loomis R12: IFRS EBIT efter rapporterad effektiv skatt, '
+                             'av- och nedskrivningar, övriga ej kassaflödespåverkande poster, '
+                             'rörelsekapital och bruttoinvesteringar. Historiskt FCFF före '
+                             'förvärv och leasingamortering; förvärvet av Hermes efter '
+                             'balansdagen, leasingskulder och återinvesteringar kräver separat prognos.')}
+
     if symbol!='TRUE-B.ST' or str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
         return None
     # Truecaller Q3 2026, pp. 23 and 26. R12 = FY 2025 + 9M 2026 - 9M 2025.
@@ -2924,6 +2954,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
             preferred=latest(balance,['Preferred Stock','Preferred Stock Equity'])
             if (preferred is not None and preferred>0) or symbol=='VOLO.ST':
                 audit.append('Preferenskapital: marknadsvärde och rättigheter måste verifieras innan stamaktievärdet kan användas som köpsignal')
+            if symbol=='LOOMIS.ST' and r12_used:
+                audit.append('Loomis: Hermes-förvärvet slutfördes efter balansdagen; verifiera pro forma resultat, nettoskuld, leasing, minoritetsintressen och framtida investeringar innan signal används.')
             if symbol=='TRUE-B.ST' and r12_used:
                 audit.append('Truecaller: verifiera skattetvist, text+-förvärv, nya lån, leasing, återköp och utspädning före signal.')
             if symbol=='BOL.ST': audit.append('Nexa-förvärv: kontrollera status, finansiering och pro forma kassaflöden innan riktkurs används')
