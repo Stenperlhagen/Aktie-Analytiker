@@ -229,6 +229,24 @@ class QualityTests(unittest.TestCase):
         self.assertTrue(annual(primary,income).empty)
         self.assertEqual(trailing(income,cash,record,end,trailing=True),{})
 
+    def test_loomis_r12_fcff_uses_ifrs_cash_flows(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("official_r12_fcff",ns)
+        record={"currency":"SEK","revenues":31253,"net_Sales":31253,
+                "operating_Income":3651,"cash_Flow_From_Operating_Activities":5243}
+        end="2026-09-30"
+        result=calc("LOOMIS.ST",record,end)
+        self.assertAlmostEqual(result["fcff"],(3651*(1-987/3009)+3241+871-645-1425)*1e6)
+        self.assertIn("Hermes",result["fcff_note"])
+        self.assertNotIn("ebita",result)
+        self.assertIsNone(calc("LOOMIS.ST",{**record,"currency":"USD"},end))
+        self.assertIsNone(calc("LOOMIS.ST",record,"2026-06-30"))
+        self.assertIsNone(calc("LOOMIS.ST",{**record,"cash_Flow_From_Operating_Activities":3613},end))
+        self.assertIsNone(calc("LOOMIS.ST",{**record,"operating_Income":4291},end))
+        self.assertIsNone(calc("LOOMIS.ST",{**record,"net_Sales":30000},end))
+
     def test_emission(self):
         calc = load_function("emission_adjustment", {})
         result = calc(100, 200, 10, 20, 500, 1000)
