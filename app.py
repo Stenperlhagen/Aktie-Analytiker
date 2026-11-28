@@ -1943,19 +1943,28 @@ def abb_r12_ebita(symbol, record, period):
         if sales is None: sales=bd_field(record,'revenues')
         ebit=bd_field(record,'operating_Income')
         total_sales=bd_field(record,'revenues')
-        if (sales is None or ebit is None or abs(sales-4594)>1.5 or abs(ebit-155)>1.5 or
-            (total_sales is not None and abs(total_sales-4594)>1.5)):
-            return None
-        result={'value':245e6,'sources':(
-            'https://www.volati.se/backnet/media_archive/original/a00ead089b7fc173aac6ad515b745056.pdf',
-        )}
         ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
         debt=bd_field(record,'net_Debt')
-        # Balance-sheet debt including all IFRS 16 leases less cash, not
-        # Volati's alternative net-debt measure (excludes operating leases).
         inclusive_debt=1464+19+281+115-210
-        if (ocf is not None and abs(ocf-566)<=1.5 and
-            debt is not None and abs(debt-inclusive_debt)<=1.5):
+        group_anchors=(ocf is not None and abs(ocf-566)<=1.5 and
+                       debt is not None and abs(debt-inclusive_debt)<=1.5)
+        income_matches=(sales is not None and ebit is not None and
+                        abs(sales-4594)<=1.5 and abs(ebit-155)<=1.5 and
+                        (total_sales is None or abs(total_sales-4594)<=1.5))
+        # After Salix's distribution, use the official IFRS 5 operating
+        # bundle independently if all income anchors conflict but same-date
+        # group cash and debt agree. Never blend the two scopes.
+        restated=(group_anchors and sales is not None and total_sales is not None and ebit is not None
+                  and abs(sales-4594)>1.5 and abs(total_sales-4594)>1.5 and abs(ebit-155)>1.5)
+        if not income_matches and not restated:
+            return None
+        result={'value':245e6,'sources':(
+            'https://storage.mfn.se/6ab6cdeb-5198-4c76-8f43-b6e00bdb21fc/volati-q3-report-2026.pdf',
+        )}
+        if restated:
+            result.update(restated_sales=4594e6,restated_ebit=155e6,net_debt=inclusive_debt*1e6,
+                          debt_note='Volati Q3 2026: IFRS 5 omräknad kvarvarande verksamhet; nettoskuld inklusive samtliga leasingskulder.')
+        if group_anchors:
             tax_rate=0.206
             # Use only continuing-operations APM components on p. 27.
             # Group IFRS operating cash flow is solely a reconciliation check.
@@ -2677,7 +2686,12 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                     rsales=ramount('revenues')
                     rebita=ramount('ebita')
                     filing=abb_r12_ebita(symbol,rec,rdate)
-                    if filing:
+                    restated_scope=bool(filing and filing.get('restated_sales') is not None)
+                    if restated_scope:
+                        rsales=filing['restated_sales']
+                        rebit=filing['restated_ebit']
+                        rebita=filing['value']
+                    elif filing:
                         if rebita is None:
                             rebita=filing['value']
                         elif abs(rebita-filing['value'])>0.6e6:
@@ -2691,14 +2705,14 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                         if amort is not None: rebita=rebit+abs(amort)
                     # A quarterly reserve is accepted only after exact date, listing, currency and flow reconciliation.
                     bridge={}
-                    if rccy==report and rebit is not None and (rebita is None or not all(ramount(k) is not None for k in ('depreciation_And_Amortization','capital_Expenditure','change_In_Working_Capital'))):
+                    if not restated_scope and rccy==report and rebit is not None and (rebita is None or not all(ramount(k) is not None for k in ('depreciation_And_Amortization','capital_Expenditure','change_In_Working_Capital'))):
                         bridge=matched_yahoo_r12(symbol,currency,report,rec,str(rdate.date()))
                         if rebita is None: rebita=bridge.get('ebita')
                     # PDF layout hits alone do not establish consolidated EBITA or reconcile sales and EBIT.
                     # Preserve matched evidence even if a separate annual model has more complete inputs.
                     if rccy==report and rebit is not None and rsales is not None and rsales>0 and rebita is not None:
                         out['r12_ebita_evidence']={'value':rebita,'period':str(rdate.date()),'currency':rccy,
-                                                   'net_debt':rdebt,'source':'Bolagsrapport (avstämd)' if filing else 'Yahoo Finance (avstämd R12)' if bridge.get('ebita') is not None else 'Börsdata Pro+',
+                                                   'net_debt':rdebt,'source':'Bolagsrapport (omräknad kvarvarande verksamhet)' if restated_scope else 'Bolagsrapport (avstämd)' if filing else 'Yahoo Finance (avstämd R12)' if bridge.get('ebita') is not None else 'Börsdata Pro+',
                                                    'sources':filing['sources'] if filing else ()}
                     # Keep all operating inputs on the same trailing report date.
                     rda=ramount('depreciation_And_Amortization')
@@ -2726,7 +2740,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                         r12_sales=rsales
                         r12_used=True
                         out['period']=str(rdate.date())
-                        out['source']='Börsdata Pro+ R12 · matchad valuta och period'
+                        out['source']='Volati Q3 2026 · IFRS 5 omräknad kvarvarande verksamhet R12' if restated_scope else 'Börsdata Pro+ R12 · matchad valuta och period'
                         if bridge:
                             out['source']+=' + Yahoo Finance (avstämd R12)'
                         if filing:
@@ -2734,7 +2748,7 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                             if filing.get('fcff_note'): out['fcff_note']=filing['fcff_note']
                             if filing.get('debt_note'): out['debt_note']=filing['debt_note']
                             if filing.get('fcff_tax_rate') is not None: out['fcff_tax_rate']=filing['fcff_tax_rate']
-                            out['source']+=' + bolagsrapport (avstämd EBITA)'
+                            if not restated_scope: out['source']+=' + bolagsrapport (avstämd EBITA)'
                         if rebita is None: out['missing'].append('R12: separat EBITA saknas.')
                         if rfcff is None: out['missing'].append('R12: FCFF saknar komplett underlag.')
                         if rdebt is None: out['missing'].append('R12: nettoskuld saknar komplett underlag.')
