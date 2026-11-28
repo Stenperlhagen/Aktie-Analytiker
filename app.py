@@ -1781,6 +1781,35 @@ def borsapi_debt_ebitda_map(api_key):
 
 def official_r12_fcff(symbol, record, period):
     """Independent filing-backed cash-flow supplements; never infer EBITA from total D&A."""
+    if symbol=='AAK.ST':
+        # AAK Q3 2026, pp. 2, 12 and 15. Consolidated original SEK millions.
+        # R12 = FY 2025 + 9M 2026 - 9M 2025; gross capex excludes disposals.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        if ((sales is None and net_sales is None) or
+            (sales is not None and min(abs(sales-45976),abs(sales-(46353+34713-34748)))>1.5) or
+            (net_sales is not None and abs(net_sales-45976)>1.5) or
+            ebit is None or abs(ebit-4777)>1.5 or
+            ocf is None or abs(ocf-(862+3972-574))>1.5):
+            return None
+        tax=(1068+818-818)/(4504+3426-3306)
+        da=882+638-671
+        noncash=-383-34+303
+        wc=-2999+489+2227
+        capex=1303+1092-961
+        return {'fcff':(4777*(1-tax)+da+noncash+wc-capex)*1e6,
+                'fcff_tax_rate':tax,
+                'sources':('https://storage.mfn.se/46b85c4c-a56a-40c3-9b38-d9b4ee246267/aak-interim-report-q3-2026.pdf',),
+                'fcff_note':('AAK R12: rapporterat EBIT efter effektiv skatt, av- och nedskrivningar, '
+                             'övriga ej kassaflödespåverkande poster, rörelsekapitalets kassaflöde och '
+                             'bruttoinvesteringar i materiella och immateriella tillgångar. Historiskt FCFF '
+                             'före leasingamortering; återinvesteringar och rörelsekapital behöver normaliseras. '
+                             'Separat EBITA kan inte härledas från sammanlagda av- och nedskrivningar.')}
+
     if symbol=='LOOMIS.ST':
         # Loomis Q3 2026, pp. 10 and 12. Consolidated IFRS figures, SEK m.
         # R12 cash flow = FY 2025 + 9M 2026 - 9M 2025, not the non-IFRS
