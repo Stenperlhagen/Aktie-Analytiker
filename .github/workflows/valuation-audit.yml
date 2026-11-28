@@ -5,6 +5,7 @@ on:
       - 'valuation_audit.py'
       - 'app.py'
       - 'tests/test_quality.py'
+      - 'avanza-registry.json'
       - '.github/workflows/valuation-audit.yml'
   pull_request:
     paths:
@@ -20,6 +21,8 @@ concurrency:
   cancel-in-progress: true
 jobs:
   provider-probe:
+    # Fork pull requests cannot access the repository's API secret.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
@@ -35,7 +38,8 @@ jobs:
           if [ -n "$BORSAPI_API_KEY" ]; then
             python valuation_audit.py --live --probe
           else
-            echo '::notice::Live provider probe skipped because BORSAPI_API_KEY is unavailable.'
+            echo '::error::Authenticated provider probe requires BORSAPI_API_KEY.'
+            exit 2
           fi
   audit:
     needs: provider-probe
@@ -56,7 +60,8 @@ jobs:
           if [ -n "$BORSAPI_API_KEY" ]; then
             python valuation_audit.py --live
           else
-            echo '::notice::Live coverage skipped because BORSAPI_API_KEY is unavailable.'
+            echo '::error::Authenticated coverage requires BORSAPI_API_KEY.'
+            exit 2
           fi
       - uses: actions/upload-artifact@v4
         if: always() && github.event.repository.private == true
