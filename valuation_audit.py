@@ -16,7 +16,7 @@ from functools import lru_cache
 
 # Load exact production definitions without executing Streamlit UI.
 tree=ast.parse(pathlib.Path('app.py').read_text(encoding='utf-8'))
-names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','current_reported_nav','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_instrument_events','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_r12_response','request_borsdata','borsapi_market_cap_map','bd_field','yahoo_annual_statements','yahoo_r12_bridge','matched_yahoo_r12','comparable_yahoo_periods','fill_matching_statement_periods','abb_r12_ebita','reported_operating_metrics','trailing_dividend_yield','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
+names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','current_reported_nav','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_instrument_events','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_r12_response','request_borsdata','borsapi_market_cap_map','bd_field','matched_yahoo_quote','yahoo_annual_statements','yahoo_r12_bridge','matched_yahoo_r12','comparable_yahoo_periods','fill_matching_statement_periods','abb_r12_ebita','reported_operating_metrics','trailing_dividend_yield','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
 nodes=[]
 for node in tree.body:
     if isinstance(node,ast.FunctionDef) and node.name in names:
@@ -133,6 +133,29 @@ def tests():
             else:
                 assert not error and snapshot['id']=='900001' and snapshot['price']==123
                 assert snapshot['quote_timestamp']>0 and snapshot['verified']
+    # Yahoo is a last-resort quote, never an unverified ticker lookup.
+    class FakeYahooQuote:
+        def __init__(self, ticker='AAK.ST', currency='SEK', exchange='STO',
+                     isin='SE0011337708', age=1):
+            self.profile={'symbol':ticker,'currency':currency,'exchange':exchange}
+            self.isin=isin
+            self.age=age
+        def get_info(self): return self.profile
+        def get_isin(self): return self.isin
+        def history(self,**kwargs):
+            assert kwargs['auto_adjust'] is False
+            return pd.DataFrame({'Close':[123.]},index=[pd.Timestamp.today().normalize()-pd.Timedelta(days=self.age)])
+    quote_identity={'isin':'SE0011337708','stockPriceCurrency':'SEK'}
+    for overrides in ({},{'ticker':'AAK-A.ST'},{'currency':'EUR'},{'exchange':'CPH'},
+                      {'isin':'SE0000000000'},{'age':8},{'age':-1}):
+        with patch.object(yf,'Ticker',return_value=FakeYahooQuote(**overrides)):
+            result,error=matched_yahoo_quote('AAK.ST',quote_identity,'SEK')
+        if overrides: assert not result and error
+        else: assert result['price']==123 and not error
+    with patch.object(yf,'Ticker',return_value=FakeYahooQuote(ticker='BOKUS.ST')):
+        assert not matched_yahoo_quote('BOKUS.ST',quote_identity,'SEK')[0]
+    with patch.object(yf,'Ticker',side_effect=AssertionError('Unverified currency queried')):
+        assert not matched_yahoo_quote('AAK.ST',{'isin':'SE0011337708'},'SEK')[0]
     assert abs(comparable_ev_ebita(245e6,1331e6,79406571,12,1)-20.263)<0.01
     assert comparable_ev_ebita(100,None,10,12,1) is None
     assert comparable_ev_ebita(100,1300,10,12,1) is None
