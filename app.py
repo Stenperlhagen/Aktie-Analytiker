@@ -327,6 +327,25 @@ def avanza_market_snapshot(symbol):
     except Exception as exc:
         return {},'Avanza: '+type(exc).__name__
 
+def yahoo_identity_matches(listing,profile,symbol,identity,trade_currency,report_currency=None):
+    """Require a provider-confirmed instrument before consuming any Yahoo data."""
+    isin=str(identity.get('isin') or '').upper()
+    if not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]',isin):
+        return False
+    if not trade_currency or str(identity.get('stockPriceCurrency') or '').upper()!=trade_currency:
+        return False
+    first_north=symbol in ('BOKUS.ST','SUS.ST','SES.ST')
+    expected=({'FNSE','FIRSTNORTHSTOCKHOLM','FIRSTNORTHSWEDEN'} if first_north else
+              {'CPH','XCSE','COPENHAGEN','NASDAQCOPENHAGEN'} if symbol.endswith('.CO') else
+              {'STO','XSTO','STOCKHOLM','NASDAQSTOCKHOLM'} if symbol.endswith('.ST') else set())
+    normalize=lambda value: re.sub(r'[^A-Z0-9]','',str(value or '').upper())
+    return bool(expected and
+                str(profile.get('symbol') or '').upper()==symbol.upper() and
+                str(profile.get('currency') or '').upper()==trade_currency and
+                normalize(profile.get('exchange')) in expected and
+                (report_currency is None or str(profile.get('financialCurrency') or '').upper()==report_currency) and
+                str(listing.get_isin() or '').upper()==isin)
+
 @st.cache_data(ttl=1800,show_spinner=False)
 def matched_yahoo_quote(symbol, identity, trade_currency):
     """Last resort only: exact instrument, venue, currency and dated close."""
@@ -335,19 +354,10 @@ def matched_yahoo_quote(symbol, identity, trade_currency):
         return {},'Yahoo: verifierad ISIN saknas'
     if not trade_currency or str(identity.get('stockPriceCurrency') or '').upper()!=trade_currency:
         return {},'Yahoo: handelsvaluta inte verifierad av Börsdata'
-    first_north=symbol in ('BOKUS.ST','SUS.ST','SES.ST')
-    expected=({'FNSE','FIRSTNORTHSTOCKHOLM','FIRSTNORTHSWEDEN'} if first_north else
-              {'CPH','XCSE','COPENHAGEN','NASDAQCOPENHAGEN'} if symbol.endswith('.CO') else
-              {'STO','XSTO','STOCKHOLM','NASDAQSTOCKHOLM'} if symbol.endswith('.ST') else set())
-    if not expected: return {},'Yahoo: handelsplats saknas'
-    normalize=lambda value: re.sub(r'[^A-Z0-9]','',str(value or '').upper())
     try:
         listing=yf.Ticker(symbol)
         profile=listing.get_info()
-        if (str(profile.get('symbol') or '').upper()!=symbol.upper() or
-            str(profile.get('currency') or '').upper()!=trade_currency or
-            normalize(profile.get('exchange')) not in expected or
-            str(listing.get_isin() or '').upper()!=isin):
+        if not yahoo_identity_matches(listing,profile,symbol,identity,trade_currency):
             return {},'Yahoo: instrument, valuta eller handelsplats avviker'
         history=listing.history(period='1mo',interval='1d',auto_adjust=False)
         if history.empty or 'Close' not in history.columns:
@@ -365,11 +375,10 @@ def matched_yahoo_quote(symbol, identity, trade_currency):
 def yahoo_annual_statements(symbol,trade_currency,report_currency):
     if not report_currency or not trade_currency: return None
     try:
+        identity,_=borsapi_instrument(symbol,borsapi_key())
         listing=yf.Ticker(symbol)
         profile=listing.get_info()
-        if (str(profile.get('symbol') or '').upper()!=symbol.upper() or
-            str(profile.get('currency') or '').upper()!=trade_currency or
-            str(profile.get('financialCurrency') or '').upper()!=report_currency):
+        if not yahoo_identity_matches(listing,profile,symbol,identity,trade_currency,report_currency):
             return None
     except Exception:
         return None
@@ -471,9 +480,8 @@ def matched_yahoo_r12(symbol, trade_currency, report_currency, record, period):
     try:
         listing=yf.Ticker(symbol)
         profile=listing.get_info()
-        if (str(profile.get('symbol') or '').upper()!=symbol.upper() or
-            str(profile.get('currency') or '').upper()!=trade_currency or
-            str(profile.get('financialCurrency') or '').upper()!=report_currency):
+        identity,_=borsapi_instrument(symbol,borsapi_key())
+        if not yahoo_identity_matches(listing,profile,symbol,identity,trade_currency,report_currency):
             return {}
         def frames(attributes):
             result=[]
