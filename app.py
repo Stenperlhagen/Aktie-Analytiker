@@ -1936,13 +1936,16 @@ def abb_r12_ebita(symbol, record, period):
         # Rusta Q1 2026/27 pp. 2, 14, 27: consolidated LTM Aug 2025-Jul 2026.
         # Report explicitly reconciles EBITA to EBIT with zero acquisition amortization.
         # This is independently reported EBITA, not an EBIT substitute.
+        # The filing separately reports other operating income (252 MSEK)
+        # and expense (-226 MSEK); accept net sales or either explicitly
+        # reconcilable gross/net operating revenue presentation only.
         if str(period)[:10]!='2026-07-31' or str(record.get('currency') or '').upper()!='SEK':
             return None
         sales=bd_field(record,'revenues')
         net_sales=bd_field(record,'net_Sales')
         ebit=bd_field(record,'operating_Income')
         if ((sales is None and net_sales is None) or
-            (sales is not None and min(abs(sales-12913),abs(sales-(12913+252)))>1.5) or
+            (sales is not None and min(abs(sales-12913),abs(sales-(12913+252)),abs(sales-(12913+252-226)))>1.5) or
             (net_sales is not None and abs(net_sales-12913)>1.5) or
             ebit is None or abs(ebit-1002)>1.5):
             return None
