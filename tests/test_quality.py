@@ -229,6 +229,25 @@ class QualityTests(unittest.TestCase):
         self.assertTrue(annual(primary,income).empty)
         self.assertEqual(trailing(income,cash,record,end,trailing=True),{})
 
+    def test_afry_r12_fcff_requires_reconciled_lease_inclusive_debt(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("abb_r12_ebita",ns)
+        record={"currency":"SEK","revenues":25295,"net_Sales":25276,
+                "operating_Income":1448,"cash_Flow_From_Operating_Activities":2153,
+                "net_Debt":6285}
+        date="2026-09-30"
+        result=calc("AFRY.ST",record,date)
+        self.assertEqual(result["value"],1613e6)
+        self.assertAlmostEqual(result["fcff"],(1448*(1-323/1182)+815+69+512-80)*1e6)
+        self.assertIn("nettoinvesteringar",result["fcff_note"])
+        self.assertNotIn("fcff",calc("AFRY.ST",{**record,"net_Debt":4843},date))
+        self.assertNotIn("fcff",calc("AFRY.ST",{**record,"cash_Flow_From_Operating_Activities":2220},date))
+        self.assertIsNone(calc("AFRY.ST",{**record,"currency":"EUR"},date))
+        self.assertIsNone(calc("AFRY.ST",{**record,"operating_Income":1387},date))
+        self.assertIsNone(calc("AFRY.ST",record,"2026-06-30"))
+
     def test_loomis_r12_fcff_uses_ifrs_cash_flows(self):
         ns={"math":math,"pd":pd,"re":re}
         load_function("numeric",ns)
