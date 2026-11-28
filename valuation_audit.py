@@ -17,7 +17,7 @@ from functools import lru_cache
 
 # Load exact production definitions without executing Streamlit UI.
 tree=ast.parse(pathlib.Path('app.py').read_text(encoding='utf-8'))
-names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','current_reported_nav','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_instrument_events','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_r12_response','request_borsdata','borsapi_market_cap_map','bd_field','yahoo_identity_matches','matched_yahoo_quote','yahoo_annual_statements','yahoo_r12_bridge','matched_yahoo_r12','comparable_yahoo_periods','fill_matching_statement_periods','abb_r12_ebita','official_r12_fcff','reported_operating_metrics','trailing_dividend_yield','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
+names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','current_reported_nav','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_instrument_events','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_r12_response','request_borsdata','borsapi_market_cap_map','bd_field','yahoo_isin_reverse_match','yahoo_identity_matches','matched_yahoo_quote','yahoo_annual_statements','yahoo_r12_bridge','matched_yahoo_r12','comparable_yahoo_periods','fill_matching_statement_periods','abb_r12_ebita','official_r12_fcff','reported_operating_metrics','trailing_dividend_yield','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
 nodes=[]
 for node in tree.body:
     if isinstance(node,ast.FunctionDef) and node.name in names:
@@ -29,6 +29,7 @@ for node in tree.body:
         nodes.append(node)
 exec(compile(ast.Module(body=nodes,type_ignores=[]),'app.py','exec'))
 fx_rate=lru_cache(maxsize=128)(fx_rate)
+yahoo_isin_reverse_match=lru_cache(maxsize=512)(yahoo_isin_reverse_match)
 roic_company_data=lru_cache(maxsize=256)(roic_company_data)
 def roic_key():
     return os.environ.get('ROIC_API_KEY','').strip()
@@ -603,6 +604,7 @@ if __name__=='__main__':
                     checks={'primary_isin_valid':bool(re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]',primary_isin)),
                             'yahoo_isin_valid':bool(re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]',yahoo_isin)),
                             'isin_match':bool(primary_isin and yahoo_isin==primary_isin),
+                            'reverse_lookup_match':bool(primary_isin and yahoo_isin_reverse_match(primary_isin,symbol,tuple(sorted(expected_exchange)))) if identity_ok and yahoo_isin!=primary_isin else False,
                             'symbol_match':str(profile.get('symbol') or '').upper()==symbol.upper(),
                             'exchange_match':norm(profile.get('exchange')) in expected_exchange,
                             'primary_trade_currency_match':str(identity.get('stockPriceCurrency') or '').upper()==info.get('currency'),
