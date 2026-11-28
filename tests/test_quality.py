@@ -39,6 +39,24 @@ class QualityTests(unittest.TestCase):
                 self.assertIsNone(calc(symbol,record,"2025-12-31"))
                 self.assertIsNone(calc(symbol,{"currency":"SEK","operating_Income":ebit},period))
 
+    def test_rusta_r12_fcff_requires_ifrs_cash_and_debt(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("abb_r12_ebita",ns)
+        record={"currency":"SEK","net_Sales":12913,"revenues":13165,
+                "operating_Income":1002,"cash_Flow_From_Operating_Activities":1949,
+                "net_Debt":4819}
+        date="2026-07-31"
+        result=calc("RUSTA.ST",record,date)
+        self.assertEqual(result["value"],1002e6)
+        self.assertAlmostEqual(result["fcff"],(1002*(1-177/767)+1036+19+9+270-500)*1e6)
+        self.assertAlmostEqual(result["fcff_tax_rate"],177/767)
+        for key,value in (("net_Debt",-587),("cash_Flow_From_Operating_Activities",1663),
+                          ("net_Debt",None),("cash_Flow_From_Operating_Activities",None)):
+            self.assertNotIn("fcff",calc("RUSTA.ST",{**record,key:value},date))
+        self.assertIsNone(calc("RUSTA.ST",record,"2026-04-30"))
+
     def test_sinch_r12_fcff_unlevers_reported_cash_flow(self):
         ns={"math":math,"pd":pd,"re":re}
         load_function("numeric",ns)
