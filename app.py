@@ -1741,6 +1741,36 @@ def borsapi_debt_ebitda_map(api_key):
         return result,'' if result else 'Tomt nyckeltalssvar'
     except Exception as exc: return {},type(exc).__name__
 
+def official_r12_fcff(symbol, record, period):
+    """Independent filing-backed cash-flow supplements; never infer EBITA from total D&A."""
+    if symbol!='TRUE-B.ST' or str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+        return None
+    # Truecaller Q3 2026, pp. 23 and 26. R12 = FY 2025 + 9M 2026 - 9M 2025.
+    # Amounts below are in SEK thousands; match the primary provider in millions.
+    sales=(1912195+1218854-1461257)/1000
+    other=(3544+3125-1221+36134+22259-26959)/1000
+    ebit=(522969+232892-436458)/1000
+    ocf=(521397+266940-397842)/1000
+    revenue=bd_field(record,'revenues')
+    net_sales=bd_field(record,'net_Sales')
+    primary_ebit=bd_field(record,'operating_Income')
+    primary_ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+    if (revenue is None and net_sales is None) or (revenue is not None and min(abs(revenue-sales),abs(revenue-sales-other))>0.6) or (net_sales is not None and abs(net_sales-sales)>0.6):
+        return None
+    if primary_ebit is None or abs(primary_ebit-ebit)>0.6 or primary_ocf is None or abs(primary_ocf-ocf)>0.6:
+        return None
+    da=64379+49589-47914
+    capex=(3410+1520-3084)+(36134+20587-26959)
+    wc=(-21125-7180)+(-43905+10978)-(-36813+38562)
+    tax=0.206
+    return {'fcff':(ebit*1000*(1-tax)+da-capex+wc)*1000,
+            'fcff_tax_rate':tax,
+            'sources':('https://mb.cision.com/Main/20429/4419192/4352683.pdf',),
+            'fcff_note':('Truecaller R12: rapporterat EBIT, modellantagande om 20,6 % skatt, '
+                         'rapporterade av- och nedskrivningar, investeringar i materiella och immateriella tillgångar '
+                         'samt förändring av rörelsekapital. Historiskt FCFF före förvärv och leasingamortering; '
+                         'skattetvist, leasing och förvärv måste beaktas i prognosen. Separat EBITA ej härledd.')}
+
 def abb_r12_ebita(symbol, record, period):
     if symbol=='BEIJ-B.ST':
         # Beijer Ref Q3 2026 pp. 5, 12, 14-15: reported consolidated R12.
@@ -2775,6 +2805,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                         if rfcff is None and all(v is not None for v in (rebit,rda,rcapex,rwc)):
                             rfcff=rebit*(1-0.206)+rda-abs(rcapex)+rwc
                         if rfcff is None: rfcff=bridge.get('fcff')
+                    cash_filing=official_r12_fcff(symbol,rec,rdate) if rfcff is None else None
+                    if cash_filing: rfcff=cash_filing['fcff']
                     # A newer currency-matched R12 with reconciled revenue and EBIT
                     # takes precedence even if an input is missing. An older annual
                     # EBITA/FCFF/debt must not mask missing or adverse current data.
@@ -2799,6 +2831,11 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
                             if filing.get('debt_note'): out['debt_note']=filing['debt_note']
                             if filing.get('fcff_tax_rate') is not None: out['fcff_tax_rate']=filing['fcff_tax_rate']
                             if not restated_scope: out['source']+=' + bolagsrapport (avstämd EBITA)'
+                        if cash_filing:
+                            out['fcff_sources']=cash_filing['sources']
+                            out['fcff_note']=cash_filing['fcff_note']
+                            out['fcff_tax_rate']=cash_filing['fcff_tax_rate']
+                            out['source']+=' + bolagsrapport (avstämt FCFF)'
                         if rebita is None: out['missing'].append('R12: separat EBITA saknas.')
                         if rfcff is None: out['missing'].append('R12: FCFF saknar komplett underlag.')
                         if rdebt is None: out['missing'].append('R12: nettoskuld saknar komplett underlag.')
@@ -2887,6 +2924,8 @@ def valuation_engine(symbol,info,fin,cash,balance,quick,hist,use_roic=True):
             preferred=latest(balance,['Preferred Stock','Preferred Stock Equity'])
             if (preferred is not None and preferred>0) or symbol=='VOLO.ST':
                 audit.append('Preferenskapital: marknadsvärde och rättigheter måste verifieras innan stamaktievärdet kan användas som köpsignal')
+            if symbol=='TRUE-B.ST' and r12_used:
+                audit.append('Truecaller: verifiera skattetvist, text+-förvärv, nya lån, leasing, återköp och utspädning före signal.')
             if symbol=='BOL.ST': audit.append('Nexa-förvärv: kontrollera status, finansiering och pro forma kassaflöden innan riktkurs används')
             if symbol=='BRAV.ST' and r12_used and out.get('fcff_note'):
                 audit.append('Bravida: historiskt FCFF före leasingamortering; verifiera framtida nyttjanderättsinvesteringar och engångsposter före köp-/säljsignal')
