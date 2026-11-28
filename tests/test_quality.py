@@ -52,6 +52,12 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(result["value"],1002e6)
         self.assertAlmostEqual(result["fcff"],(1002*(1-177/767)+1036+19+9+270-500)*1e6)
         self.assertAlmostEqual(result["fcff_tax_rate"],177/767)
+        for revenue in (12913,13165,12939):
+            variant=calc("RUSTA.ST",{**record,"revenues":revenue},date)
+            self.assertEqual(variant["value"],1002e6)
+            self.assertAlmostEqual(variant["fcff"],result["fcff"])
+        self.assertIsNone(calc("RUSTA.ST",{**record,"revenues":13000},date))
+        self.assertIsNone(calc("RUSTA.ST",{**record,"net_Sales":12939},date))
         for key,value in (("net_Debt",-587),("cash_Flow_From_Operating_Activities",1663),
                           ("net_Debt",None),("cash_Flow_From_Operating_Activities",None)):
             self.assertNotIn("fcff",calc("RUSTA.ST",{**record,key:value},date))
