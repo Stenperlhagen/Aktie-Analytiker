@@ -1781,6 +1781,35 @@ def borsapi_debt_ebitda_map(api_key):
 
 def official_r12_fcff(symbol, record, period):
     """Independent filing-backed cash-flow supplements; never infer EBITA from total D&A."""
+    if symbol=='SINCH.ST':
+        # Sinch Q3 2026 pp. 9, 11, 14, 19: consolidated original SEK m R12.
+        # The cash-flow statement explicitly includes paid and received interest
+        # in CFO. Unlever the reported FCF using net interest after model tax.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        if ((sales is None and net_sales is None) or
+            (sales is not None and min(abs(sales-27199),abs(sales-(27199+355)),abs(sales-(27199+355+472)))>1.5) or
+            (net_sales is not None and abs(net_sales-27199)>1.5) or
+            ebit is None or abs(ebit-1133)>1.5 or
+            ocf is None or abs(ocf-3320)>1.5 or
+            debt is None or abs(debt-6813)>1.5):
+            return None
+        tax=0.206
+        return {'fcff':(3320-622+(332-77)*(1-tax))*1e6,
+                'fcff_tax_rate':tax,
+                'sources':('https://www.group.sinch.com/files/Main/22250/4420391/sinch-third-quarter-2026-result.pdf',),
+                'fcff_note':('Sinch R12: rapporterat operativt kassaflöde minus nettoinvesteringar, '
+                             'plus betalda nettoräntor efter modellskatt 20,6 %. '
+                             'Nettoskulden inkluderar IFRS 16. Historiskt FCFF före leasingamortering; '
+                             'normalisera kassaskatt, rörelsekapital och framtida leasinginvesteringar. '
+                             'Operational EBITA är justerat; separat immateriell avskrivning utan '
+                             'nedskrivningar har inte verifierats.')}
+
     if symbol=='THULE.ST':
         # Thule Q3 2026 pp. 2, 8, 16 and Q4 2025 pp. 2, 6, 15.
         # Original consolidated SEK m; Q4 2025 + 9M 2026, no acquisition cash flow.
