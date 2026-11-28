@@ -266,6 +266,42 @@ class QualityTests(unittest.TestCase):
         self.assertIsNone(calc("LOOMIS.ST",{**record,"operating_Income":4291},end))
         self.assertIsNone(calc("LOOMIS.ST",{**record,"net_Sales":30000},end))
 
+    def test_yahoo_isin_reverse_requires_unambiguous_exchange_and_live_identity(self):
+        isin="SE0016074256"
+        other="SE0020050417"
+        quote={"symbol":"ABC-B.ST","quoteType":"EQUITY","exchange":"STO","isYahooFinance":True}
+        search=Mock()
+        search.return_value.quotes=[quote]
+        yf=Mock(Search=search)
+        av=Mock(return_value=({"verified":True,"isin":isin,"currency":"SEK","market":"XSTO"},""))
+        ns={"re":re,"yf":yf,"avanza_market_snapshot":av}
+        reverse=load_function("yahoo_isin_reverse_match",ns)
+        matches=load_function("yahoo_identity_matches",ns)
+        identity={"isin":isin,"stockPriceCurrency":"SEK"}
+        profile={"symbol":"ABC-B.ST","currency":"SEK","exchange":"STO","financialCurrency":"SEK"}
+        listing=Mock()
+        listing.get_isin.return_value="-"
+        self.assertTrue(matches(listing,profile,"ABC-B.ST",identity,"SEK","SEK"))
+        self.assertEqual(search.call_args.args,(isin,))
+        self.assertFalse(search.call_args.kwargs["enable_fuzzy_query"])
+        search.return_value.quotes=[quote,{**quote,"symbol":"ABC-A.ST"}]
+        self.assertFalse(matches(listing,profile,"ABC-B.ST",identity,"SEK","SEK"))
+        search.return_value.quotes=[{**quote,"exchange":"NYQ"}]
+        self.assertFalse(reverse(isin,"ABC-B.ST",("STO",)))
+        search.return_value.quotes=[{**quote,"isin":other}]
+        self.assertFalse(reverse(isin,"ABC-B.ST",("STO",)))
+        search.return_value.quotes=[quote]
+        listing.get_isin.return_value=other
+        self.assertFalse(matches(listing,profile,"ABC-B.ST",identity,"SEK","SEK"))
+        listing.get_isin.return_value=isin
+        self.assertTrue(matches(listing,profile,"ABC-B.ST",identity,"SEK","SEK"))
+        self.assertFalse(matches(listing,{**profile,"isin":other},"ABC-B.ST",identity,"SEK","SEK"))
+        self.assertFalse(matches(listing,{**profile,"currency":"EUR"},"ABC-B.ST",identity,"SEK","SEK"))
+        self.assertFalse(matches(listing,{**profile,"financialCurrency":"USD"},"ABC-B.ST",identity,"SEK","SEK"))
+        listing.get_isin.return_value="-"
+        av.return_value=({"verified":False,"isin":isin,"currency":"SEK","market":"XSTO"},"")
+        self.assertFalse(matches(listing,profile,"ABC-B.ST",identity,"SEK","SEK"))
+
     def test_emission(self):
         calc = load_function("emission_adjustment", {})
         result = calc(100, 200, 10, 20, 500, 1000)
