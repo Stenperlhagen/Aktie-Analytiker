@@ -16,6 +16,25 @@ def load_function(name, namespace):
     return namespace[name]
 
 class QualityTests(unittest.TestCase):
+    def test_sinch_r12_fcff_unlevers_reported_cash_flow(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("official_r12_fcff",ns)
+        record={"currency":"SEK","net_Sales":27199,"revenues":28026,
+                "operating_Income":1133,"cash_Flow_From_Operating_Activities":3320,
+                "net_Debt":6813}
+        date="2026-09-30"
+        result=calc("SINCH.ST",record,date)
+        self.assertAlmostEqual(result["fcff"],(2698+255*(1-.206))*1e6)
+        self.assertNotIn("ebita",result)
+        self.assertTrue(result["sources"][0].startswith("https://www.group.sinch.com/"))
+        for key,value in (("currency","USD"),("revenues",26000),("net_Sales",26000),
+                          ("operating_Income",2000),("cash_Flow_From_Operating_Activities",3000),
+                          ("net_Debt",6144)):
+            self.assertIsNone(calc("SINCH.ST",{**record,key:value},date))
+        self.assertIsNone(calc("SINCH.ST",record,"2026-06-30"))
+
     def test_reported_nav_is_current_currency_matched_and_sourced(self):
         ns={"math":math,"pd":pd}
         load_function("numeric",ns)
