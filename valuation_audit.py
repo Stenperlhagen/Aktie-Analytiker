@@ -1,4 +1,5 @@
 import ast
+import json
 import io
 import pathlib
 import csv
@@ -630,6 +631,10 @@ if __name__=='__main__':
                 for period,records in (('annual',annual_records),('R12',trailing)):
                     print(period,'response fields', sorted(records[0]) if records else [],flush=True)
         sys.exit(0)
+    registry=json.loads(pathlib.Path('avanza-registry.json').read_text(encoding='utf-8'))['listings']
+    expected=set(ALL_COMPANIES.values())
+    assert set(registry)==expected, 'Avanza registry differs from active universe'
+    assert len({str(entry.get('orderbook_id')) for entry in registry.values()})==len(expected), 'Duplicate Avanza orderbook IDs'
     rows=[]
     failures=[]
     for symbol in dict.fromkeys(ALL_COMPANIES.values()):
@@ -643,13 +648,17 @@ if __name__=='__main__':
                     assert abs(v['buy_limit']-v['target']*.8)<1e-7, 'Inconsistent buy limit'
                     assert abs(v['upside']-(v['target']/v['price']-1)*100)<1e-7, 'Inconsistent upside'
             avanza=info.get('_avanza_snapshot') or {}
+            entry=registry[symbol]
+            registry_match=bool(avanza.get('verified') and str(entry.get('orderbook_id'))==str(avanza.get('id')) and
+                                entry.get('isin')==avanza.get('isin') and entry.get('currency')==avanza.get('currency') and
+                                entry.get('market_code')==avanza.get('market'))
             stamp=numeric(avanza.get('quote_timestamp'))
             quote_age=dt.datetime.now(dt.timezone.utc).timestamp()-stamp/1000 if stamp is not None else None
             fresh=bool(avanza.get('verified') and numeric(avanza.get('price')) is not None and avanza['price']>0 and quote_age is not None and 0<=quote_age<=7*86400 and avanza.get('currency')==v.get('currency'))
             nav_only=v.get('nav_reference') is not None and not v.get('models')
             if nav_only:
                 assert v.get('target') is None and v.get('upside') is None and v.get('buy_limit') is None, 'NAV reference leaked into target or upside'
-            rows.append({'avanza_identity_verified':bool(avanza.get('verified')),'avanza_fresh_quote':fresh,'avanza_quote_timestamp':stamp,'nav_reference_only':nav_only,'upside':v.get('upside'),'price_source':info.get('_price_source'),'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Source not recorded'),'fetch_errors':str(errors),'annual_reports':not fin.empty,'price_history':not hist.empty,'report_verified':bool((v.get('r12_ebita_evidence') or {}).get('source') in ('Bolagsrapport (avstämd)','Bolagsrapport (omräknad kvarvarande verksamhet)') or (nav_only and v.get('nav_kind'))),'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
+            rows.append({'avanza_registry_match':registry_match,'avanza_identity_verified':bool(avanza.get('verified')),'avanza_fresh_quote':fresh,'avanza_quote_timestamp':stamp,'nav_reference_only':nav_only,'upside':v.get('upside'),'price_source':info.get('_price_source'),'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Source not recorded'),'fetch_errors':str(errors),'annual_reports':not fin.empty,'price_history':not hist.empty,'report_verified':bool((v.get('r12_ebita_evidence') or {}).get('source') in ('Bolagsrapport (avstämd)','Bolagsrapport (omräknad kvarvarande verksamhet)') or (nav_only and v.get('nav_kind'))),'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
         except Exception as e:
             failures.append(symbol+': '+str(e))
             rows.append({'ticker':symbol,'missing':type(e).__name__+': '+str(e),'report_verified':False})
@@ -696,9 +705,12 @@ if __name__=='__main__':
     print('Comparable model upside coverage:',len(rows)-len(missing_upside),'of',len(rows),flush=True)
     missing_dual=[r['ticker'] for r in rows if r.get('dual_model_status') not in ('Ej tillämpligt','Underlag finns')]
     missing_identity=[r['ticker'] for r in rows if not r.get('avanza_identity_verified')]
+    missing_registry=[r['ticker'] for r in rows if not r.get('avanza_registry_match')]
+    print('Live Avanza registry ID and identity coverage:',len(rows)-len(missing_registry),'of',len(rows),flush=True)
+    if missing_registry: print('Registry entries requiring rediscovery:',','.join(missing_registry),flush=True)
     missing_quotes=[r['ticker'] for r in rows if not r.get('avanza_fresh_quote') or
                     numeric(r.get('price')) is None or r['price']<=0]
-    incomplete=bool(missing_targets or missing_upside or missing_dual or missing_identity or missing_quotes)
+    incomplete=bool(missing_targets or missing_upside or missing_dual or missing_identity or missing_registry or missing_quotes)
     print('Publication coverage gate:', 'NOT READY' if incomplete else 'PASS',flush=True)
     print('Missing independent positive targets:',len(missing_targets),'Missing comparable upside:',len(missing_upside),'Missing applicable dual models:',len(missing_dual),
           'Missing verified identities:',len(missing_identity),'Missing fresh quotes:',len(missing_quotes),flush=True)
