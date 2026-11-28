@@ -1692,6 +1692,37 @@ def borsapi_debt_ebitda_map(api_key):
     except Exception as exc: return {},type(exc).__name__
 
 def abb_r12_ebita(symbol, record, period):
+    if symbol=='BEIJ-B.ST':
+        # Beijer Ref Q3 2026 pp. 5, 12, 14-15: reported consolidated R12.
+        # EBITA includes comparability items; do not substitute adjusted EBITA.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        if (ebit is None or abs(ebit-3825)>1.5 or
+            (sales is None and net_sales is None) or
+            (sales is not None and min(abs(sales-39238),abs(sales-39440))>1.5) or
+            (net_sales is not None and abs(net_sales-39238)>1.5)):
+            return None
+        result={'value':4063e6,'sources':('https://mb.cision.com/Main/1860/4413478/4331217.pdf',)}
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        # Match IFRS operating cash flow (not APM) and pension/lease-inclusive debt.
+        if (ocf is not None and abs(ocf-4331)<=1.5 and
+            debt is not None and abs(debt-11703)<=1.5):
+            tax_rate=836/3357
+            # IFRS non-cash adjustments and WC, with separately reported capex.
+            # Exclude acquisition cash flows and lease principal.
+            result.update(
+                fcff=(3825*(1-tax_rate)+1133+621-455)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Beijer Ref R12: rapporterat EBIT efter effektiv rapporterad skatt, '
+                           'plus IFRS-justeringar för ej kassaflödespåverkande poster och rörelsekapital, '
+                           'minus rapporterade investeringar i anläggningstillgångar. Historiskt FCFF före '
+                           'förvärv och leasingamortering; framtida leasinginvesteringar och '
+                           'minoritetsintressen måste beaktas. Nettoskuld inklusive pension och leasing är avstämd.'))
+        return result
     if symbol=='AFRY.ST':
         # AFRY Q3 2026, pp. 12 and 25: consolidated R12 (Oct 2025-Sep 2026).
         # Use reported, not adjusted EBITA. Net sales and total revenue
