@@ -1846,9 +1846,30 @@ def abb_r12_ebita(symbol, record, period):
             min(abs(sales-25276),abs(sales-25295))>1.5 or
             (net_sales is not None and abs(net_sales-25276)>1.5)):
             return None
-        # Do not infer FCFF from a net investment line that includes disposals.
-        # Retain the matched primary-provider cash-flow inputs.
-        return {'value':1613e6,'sources':('https://afry.com/sites/default/files/2026-10/afry_delarsrapport_januari-september_2026.pdf',)}
+        result={'value':1613e6,'sources':('https://afry.com/sites/default/files/2026-10/wkr0006_9.pdf',)}
+        # Consolidated cash-flow statement p. 14: FY 2025 + 9M 2026 - 9M 2025.
+        # The report explicitly discloses net purchases/disposals of tangible and
+        # intangible assets; use this NET amount, never label it gross capex.
+        # Net debt including pensions and IFRS 16 is explicitly reported on p. 25.
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        net_debt=bd_field(record,'net_Debt')
+        if (ocf is not None and abs(ocf-(2220+820-887))<=1.5 and
+            net_debt is not None and abs(net_debt-6285)<=1.5):
+            tax_rate=323/1182
+            da=836+607-628
+            noncash=129-15-45
+            wc=(378-60+51)+(152-197+188)
+            net_capex=88+55-63
+            result.update(fcff=(1448*(1-tax_rate)+da+noncash+wc-net_capex)*1e6,
+                          fcff_tax_rate=tax_rate,
+                          fcff_note=('AFRY R12: rapporterat EBIT efter effektiv skatt, avskrivningar, '
+                                     'övriga ej kassaflödespåverkande poster och rörelsekapital, '
+                                     'minus rapporterade nettoinvesteringar inklusive avyttringar. '
+                                     'Historiskt FCFF före förvärv och leasingamortering; '
+                                     'avyttringar, framtida nyttjanderättsinvesteringar och '
+                                     'engångsposter behöver normaliseras före prognos. '
+                                     'Nettoskuld inklusive pension och IFRS 16 är avstämd.'))
+        return result
     # Curated company filings, keyed by exact reporting period and listing.
     # R12 consolidated net sales, EBIT and separately reported EBITA, all MSEK.
     # Source pages are 1 (Bravida, Instalco), 11 and 14 (Addtech),
