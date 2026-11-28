@@ -16,7 +16,7 @@ from functools import lru_cache
 
 # Load exact production definitions without executing Streamlit UI.
 tree=ast.parse(pathlib.Path('app.py').read_text(encoding='utf-8'))
-names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','current_reported_nav','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_instrument_events','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_r12_response','request_borsdata','borsapi_market_cap_map','bd_field','matched_yahoo_quote','yahoo_annual_statements','yahoo_r12_bridge','matched_yahoo_r12','comparable_yahoo_periods','fill_matching_statement_periods','abb_r12_ebita','reported_operating_metrics','trailing_dividend_yield','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
+names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','current_reported_nav','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_instrument_events','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_r12_response','request_borsdata','borsapi_market_cap_map','bd_field','yahoo_identity_matches','matched_yahoo_quote','yahoo_annual_statements','yahoo_r12_bridge','matched_yahoo_r12','comparable_yahoo_periods','fill_matching_statement_periods','abb_r12_ebita','reported_operating_metrics','trailing_dividend_yield','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
 nodes=[]
 for node in tree.body:
     if isinstance(node,ast.FunctionDef) and node.name in names:
@@ -156,6 +156,23 @@ def tests():
         assert not matched_yahoo_quote('BOKUS.ST',quote_identity,'SEK')[0]
     with patch.object(yf,'Ticker',side_effect=AssertionError('Unverified currency queried')):
         assert not matched_yahoo_quote('AAK.ST',{'isin':'SE0011337708'},'SEK')[0]
+    # The same exact identity gate applies to annual and R12 financial reserves.
+    # Currency or ticker similarity alone must never permit statement reads.
+    from unittest.mock import Mock
+    for overrides in ({},{'ticker':'AAK-A.ST'},{'currency':'EUR'},{'exchange':'CPH'},{'isin':'SE0000000000'}):
+        listing=FakeYahooQuote(**overrides)
+        listing.profile['financialCurrency']='SEK'
+        assert yahoo_identity_matches(listing,listing.profile,'AAK.ST',quote_identity,'SEK','SEK') == (not overrides)
+    listing=FakeYahooQuote()
+    listing.profile['financialCurrency']='USD'
+    assert not yahoo_identity_matches(listing,listing.profile,'AAK.ST',quote_identity,'SEK','SEK')
+    wrong=Mock()
+    wrong.get_info.return_value={'symbol':'AAK.ST','currency':'SEK','financialCurrency':'SEK','exchange':'STO'}
+    wrong.get_isin.return_value='SE0000000000'
+    with patch.dict(globals(),{'borsapi_instrument':lambda *args:(quote_identity,'')}):
+        with patch.object(yf,'Ticker',return_value=wrong):
+            assert yahoo_annual_statements('AAK.ST','SEK','SEK') is None
+            assert matched_yahoo_r12('AAK.ST','SEK','SEK',{'currency':'SEK'},'2026-09-30')=={}
     assert abs(comparable_ev_ebita(245e6,1331e6,79406571,12,1)-20.263)<0.01
     assert comparable_ev_ebita(100,None,10,12,1) is None
     assert comparable_ev_ebita(100,1300,10,12,1) is None
@@ -562,9 +579,8 @@ if __name__=='__main__':
                 listing=yf.Ticker(symbol)
                 try:
                     profile=listing.get_info()
-                    identity_ok=(str(profile.get('symbol') or '').upper()==symbol.upper() and
-                                 str(profile.get('currency') or '').upper()==info.get('currency') and
-                                 str(profile.get('financialCurrency') or '').upper()==info.get('financialCurrency'))
+                    identity,_=borsapi_instrument(symbol,key)
+                    identity_ok=yahoo_identity_matches(listing,profile,symbol,identity,info.get('currency'),info.get('financialCurrency'))
                     print(symbol,'Yahoo identity match',identity_ok,flush=True)
                     for attrs,is_ttm in ((('quarterly_income_stmt','quarterly_cashflow'),False),
                                          (('ttm_income_stmt','ttm_cashflow'),True)):
