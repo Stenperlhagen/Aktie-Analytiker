@@ -1781,6 +1781,40 @@ def borsapi_debt_ebitda_map(api_key):
 
 def official_r12_fcff(symbol, record, period):
     """Independent filing-backed cash-flow supplements; never infer EBITA from total D&A."""
+    if symbol=='THULE.ST':
+        # Thule Q3 2026 pp. 2, 8, 16 and Q4 2025 pp. 2, 6, 15.
+        # Original consolidated SEK m; Q4 2025 + 9M 2026, no acquisition cash flow.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        if ((sales is None and net_sales is None) or
+            (sales is not None and abs(sales-(1835+8596))>1.5) or
+            (net_sales is not None and abs(net_sales-(1835+8596))>1.5) or
+            ebit is None or abs(ebit-(83+1701))>1.5 or
+            ocf is None or abs(ocf-(54+1641))>1.5):
+            return None
+        tax=(19+370)/(41+1593)
+        da=91+271
+        # Use the difference between reported operating cash flow and the
+        # subtotal before changes in working capital to avoid rounding drift.
+        wc=(54-73)+(1641-1652)
+        net_capex=109+290
+        return {'fcff':((83+1701)*(1-tax)+da+wc-net_capex)*1e6,
+                'fcff_tax_rate':tax,
+                'sources':(
+                    'https://www.thulegroup.com/sites/thulegroup/files/pr/20261022-70f54ab6-960f-45c1-82ad-2ccb1e6ead80-1.pdf',
+                    'https://www.thulegroup.com/sites/thulegroup/files/pr/20260210-cca8796e-b1f6-46eb-8eb5-314f1f9cdc06-1.pdf',
+                ),
+                'fcff_note':('Thule R12: historisk FCFF-indikation baserad på rapporterat EBIT efter effektiv skatt, '
+                             'av- och nedskrivningar, rörelsekapitalets kassaflödeseffekt och nettoinvesteringar '
+                             'i materiella och immateriella tillgångar; exklusive förvärv och leasingamortering. '
+                             'Övriga ej kassaflödespåverkande poster är inte särredovisade här. '
+                             'Tullåterbetalningen om 52 MSEK, lagerautomatiseringen i Polen och framtida '
+                             'leasinginvesteringar behöver normaliseras. Separat EBITA har inte verifierats.')}
+
     if symbol=='AAK.ST':
         # AAK Q3 2026, pp. 2, 12 and 15. Consolidated original SEK millions.
         # R12 = FY 2025 + 9M 2026 - 9M 2025; gross capex excludes disposals.

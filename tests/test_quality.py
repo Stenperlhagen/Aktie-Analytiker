@@ -266,6 +266,23 @@ class QualityTests(unittest.TestCase):
         self.assertIsNone(calc("AAK.ST",record,"2025-12-31"))
         self.assertIsNone(calc("AAK.ST",{**record,"cash_Flow_From_Operating_Activities":None},end))
 
+    def test_thule_r12_fcff_matches_cash_and_income_without_inventing_ebita(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("official_r12_fcff",ns)
+        record={"currency":"SEK","revenues":10431,"net_Sales":10431,
+                "operating_Income":1784,"cash_Flow_From_Operating_Activities":1695}
+        end="2026-09-30"
+        result=calc("THULE.ST",record,end)
+        self.assertAlmostEqual(result["fcff"],(1784*(1-389/1634)+362-30-399)*1e6)
+        self.assertEqual(len(result["sources"]),2)
+        self.assertNotIn("ebita",result)
+        self.assertIsNone(calc("THULE.ST",record,"2026-06-30"))
+        for field,value in (("currency","EUR"),("net_Sales",10000),
+                            ("operating_Income",1806),("cash_Flow_From_Operating_Activities",1641)):
+            self.assertIsNone(calc("THULE.ST",{**record,field:value},end))
+
     def test_loomis_r12_fcff_uses_ifrs_cash_flows(self):
         ns={"math":math,"pd":pd,"re":re}
         load_function("numeric",ns)
