@@ -1946,7 +1946,27 @@ def abb_r12_ebita(symbol, record, period):
             (net_sales is not None and abs(net_sales-12913)>1.5) or
             ebit is None or abs(ebit-1002)>1.5):
             return None
-        return {'value':1002e6,'sources':('https://storage.mfn.se/a90c5848-eeba-4465-b87c-cfa7440058e3/rusta-interim-report-q1-2026-2027.pdf',)}
+        result={'value':1002e6,'sources':('https://storage.mfn.se/a90c5848-eeba-4465-b87c-cfa7440058e3/rusta-interim-report-q1-2026-2027.pdf',)}
+        # Consolidated IFRS cash flow p. 17, income statement p. 14.
+        # Reconcile inclusive net debt (not the ex-IFRS 16 net cash figure).
+        ocf=bd_field(record,'cash_Flow_From_Operating_Activities')
+        debt=bd_field(record,'net_Debt')
+        if (ocf is not None and abs(ocf-1949)<=1.5 and
+            debt is not None and abs(debt-4819)<=1.5):
+            tax_rate=177/767
+            # EBIT after effective tax, reported noncash adjustments and
+            # working-capital cash effect, less gross PPE/intangible capex.
+            # Do not subtract paid interest/tax again or count lease principal.
+            result.update(
+                fcff=(1002*(1-tax_rate)+1036+19+9+270-121-379)*1e6,
+                fcff_tax_rate=tax_rate,
+                fcff_note=('Rusta R12 aug 2025–jul 2026: rapporterat EBIT efter effektiv skatt, '
+                           'avskrivningar och övriga ej kassaflödespåverkande poster, '
+                           'rörelsekapitalets kassaflödeseffekt och bruttoinvesteringar. '
+                           'Historiskt FCFF före leasingamortering om 822 MSEK; '
+                           'framtida nyttjanderättsinvesteringar och butiksutbyggnad måste normaliseras. '
+                           'Nettoskuld inklusive IFRS 16 är avstämd.'))
+        return result
     if symbol=='SECU-B.ST':
         # Securitas Q3 2026 p. 18, original consolidated MSEK.
         # FY25 + 9M26 - 9M25. Add ONLY separately disclosed acquisition
