@@ -570,7 +570,7 @@ if __name__=='__main__':
     globals()['ecb_exchange_rates']=lru_cache(maxsize=1)(ecb_exchange_rates)
     ALL_COMPANIES={name:sym for name,sym in ALL_COMPANIES.items() if sym not in {'FNOX.ST','COALA.ST','ADDV-B.ST','ADDV-A.ST'}}
     if '--probe' in sys.argv:
-        for symbol in ('BEIJ-B.ST','AFRY.ST','ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-B.ST','TRUE-B.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ALIF-B.ST','LAGR-B.ST','LIFCO-B.ST','SAND.ST','ASSA-B.ST','EPI-A.ST','INDT.ST','ALFA.ST'):
+        for symbol in ('RUSTA.ST','BEIJ-B.ST','AFRY.ST','ABB.ST','VOLO.ST','AAK.ST','BOL.ST','ATCO-B.ST','TRUE-B.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ALIF-B.ST','LAGR-B.ST','LIFCO-B.ST','SAND.ST','ASSA-B.ST','EPI-A.ST','INDT.ST','ALFA.ST'):
             key=borsapi_key()
             info,hist,fin,cash,balance,quick,errors=fetch(symbol)
             annual,_=borsapi_reports(symbol,key)
@@ -631,12 +631,23 @@ if __name__=='__main__':
                               'matched components',sorted(bridge),flush=True)
                 except Exception as exc:
                     print(symbol,'Yahoo diagnostic failure',type(exc).__name__,flush=True)
-            if symbol in ('BEIJ-B.ST','AFRY.ST','ALFA.ST','ABB.ST','LIFCO-B.ST','VOLO.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST','LAGR-B.ST','SAND.ST','ASSA-B.ST','EPI-A.ST','INDT.ST'):
+            if symbol in ('RUSTA.ST','BEIJ-B.ST','AFRY.ST','ALFA.ST','ABB.ST','LIFCO-B.ST','VOLO.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST','LAGR-B.ST','SAND.ST','ASSA-B.ST','EPI-A.ST','INDT.ST'):
                 if trailing:
                     record=trailing[0]
                     period=str(record.get('report_End_Date') or record.get('reportEndDate'))[:10]
                     matched=abb_r12_ebita(symbol,record,period)
                     # Compare only against public filing anchors; log booleans, never raw provider values.
+                    if symbol=='RUSTA.ST':
+                        anchors={'net_Sales':(12913,), 'revenues':(12913,13165,12939),
+                                 'operating_Income':(1002,), 'cash_Flow_From_Operating_Activities':(1949,),
+                                 'net_Debt':(4819,)}
+                        checks={}
+                        for field,expected_values in anchors.items():
+                            actual=bd_field(record,field)
+                            checks[field]='missing' if actual is None else ('match' if min(abs(actual-x) for x in expected_values)<=1.5 else 'mismatch')
+                        print(symbol,'public filing anchor checks',checks,
+                              'expected period match',period=='2026-07-31',
+                              'official FCFF matched',bool(matched and matched.get('fcff') is not None),flush=True)
                     if symbol in ('AFRY.ST','ALFA.ST'):
                         anchors=({'net_Sales':(25276,), 'revenues':(25276,25295), 'operating_Income':(1448,),
                                   'cash_Flow_From_Operating_Activities':(2153,), 'net_Debt':(6285,)}
