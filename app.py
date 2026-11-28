@@ -5365,6 +5365,8 @@ with four:
         st.caption(valuation_result['pending_acquisition_note'])
         st.markdown('[Förvärvsmeddelande](https://investors.boliden.com/en/press/boliden-acquire-controlling-stake-nexa-resources)')
     if valuation_result.get('fcff_note'): st.caption(valuation_result['fcff_note'])
+    if valuation_result.get('fcff_sources'):
+        st.markdown(' · '.join(f'[FCFF-källrapport {i}]({url})' for i,url in enumerate(valuation_result['fcff_sources'],1)))
     st.markdown('### Kapitalavkastning')
     operating=v.get('category') in ('Rörelsedrivande bolag','Etablerade läkemedelsbolag')
     periods=sorted(balance.columns,key=pd.Timestamp)
