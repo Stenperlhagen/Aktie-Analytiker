@@ -17,7 +17,7 @@ from functools import lru_cache
 
 # Load exact production definitions without executing Streamlit UI.
 tree=ast.parse(pathlib.Path('app.py').read_text(encoding='utf-8'))
-names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','current_reported_nav','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_instrument_events','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_r12_response','request_borsdata','borsapi_market_cap_map','bd_field','yahoo_identity_matches','matched_yahoo_quote','yahoo_annual_statements','yahoo_r12_bridge','matched_yahoo_r12','comparable_yahoo_periods','fill_matching_statement_periods','abb_r12_ebita','reported_operating_metrics','trailing_dividend_yield','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
+names={'emission_adjustment','investment_score','show','roic_company_data','GROUPS','CAT','ADDITIONAL_COMPANIES','ALL_COMPANIES','INVESTMENT_TICKERS','BANK_TICKERS','INSURANCE_TICKERS','PROPERTY_TICKERS','VOLATI_Q3_2026','REPORTED_NAV','current_reported_nav','VALUATION_PROFILES','PROFILE_TICKERS','PROFILE_BY_SYMBOL','RESEARCH_TICKERS','HYBRID_PHARMA_TICKERS','ESTABLISHED_PHARMA_TICKERS','KNOWN_GROUP_BY_TICKER','ADDITIONAL_GROUP_FALLBACK','numeric','val','fx_rate','ecb_exchange_rates','borsapi_instruments','borsapi_instrument','borsapi_instrument_events','borsapi_reports','borsapi_history','borsapi_annual_frames','borsapi_r12_records','borsapi_r12_response','request_borsdata','borsapi_market_cap_map','bd_field','yahoo_identity_matches','matched_yahoo_quote','yahoo_annual_statements','yahoo_r12_bridge','matched_yahoo_r12','comparable_yahoo_periods','fill_matching_statement_periods','abb_r12_ebita','official_r12_fcff','reported_operating_metrics','trailing_dividend_yield','report_ebita_extract','avanza_market_snapshot','verified_capitalization','fetch','operating_valuation_profile','comparable_ev_ebita','valuation_category','valuation_engine'}
 nodes=[]
 for node in tree.body:
     if isinstance(node,ast.FunctionDef) and node.name in names:
@@ -68,6 +68,16 @@ def avanza_market_snapshot(symbol):
 def verified_capitalization(symbol,info,quick,fin,history):
     return {'market_cap':None,'shares':None,'source':'Offline audit','warnings':[],'verified':False}
 def tests():
+    # Filing-backed FCFF is independent of unavailable separate EBITA.
+    true_record={'currency':'SEK','revenues':1706.674,'net_Sales':1669.792,'operating_Income':319.403,'cash_Flow_From_Operating_Activities':390.495}
+    true_fcff=official_r12_fcff('TRUE-B.ST',true_record,'2026-09-30')
+    assert true_fcff and abs(true_fcff['fcff']-(319403*.794+66054-31608-62981)*1000)<1e-6
+    assert 'value' not in true_fcff and 'ebita' not in true_fcff
+    assert official_r12_fcff('TRUE-B.ST',dict(true_record,currency='EUR'),'2026-09-30') is None
+    assert official_r12_fcff('TRUE-B.ST',true_record,'2026-06-30') is None
+    assert official_r12_fcff('TRUE-B.ST',dict(true_record,cash_Flow_From_Operating_Activities=400),'2026-09-30') is None
+    assert official_r12_fcff('TRUE-B.ST',dict(true_record,operating_Income=320.5),'2026-09-30') is None
+    assert official_r12_fcff('TRUE-B.ST',dict(true_record,net_Sales=1700),'2026-09-30') is None
     # Exercise the exact NAV production helper in the extracted audit namespace.
     nav=current_reported_nav('BALD-B.ST','SEK','2026-11-27')
     assert nav and nav['nav']==97.03 and nav['date']=='2026-09-30'
