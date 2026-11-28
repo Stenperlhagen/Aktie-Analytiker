@@ -327,6 +327,28 @@ def avanza_market_snapshot(symbol):
     except Exception as exc:
         return {},'Avanza: '+type(exc).__name__
 
+@st.cache_data(ttl=1800,show_spinner=False)
+def yahoo_isin_reverse_match(isin,symbol,expected_exchanges):
+    """Non-fuzzy reverse lookup: return evidence, never guess an ISIN from a name."""
+    normalize=lambda value: re.sub(r'[^A-Z0-9]','',str(value or '').upper())
+    try:
+        quotes=yf.Search(isin,max_results=20,news_count=0,lists_count=0,
+                         include_cb=False,enable_fuzzy_query=False,timeout=8).quotes
+        if not isinstance(quotes,list): return False
+        candidates=[q for q in quotes if isinstance(q,dict) and
+                    q.get('isYahooFinance') is True and
+                    str(q.get('quoteType') or '').upper()=='EQUITY' and
+                    normalize(q.get('exchange')) in expected_exchanges]
+        # A result for another share class on the same venue is ambiguous.
+        if len(candidates)!=1: return False
+        candidate=candidates[0]
+        if str(candidate.get('symbol') or '').upper()!=symbol.upper(): return False
+        returned=str(candidate.get('isin') or '').upper()
+        if returned and returned!=isin: return False
+        return True
+    except Exception:
+        return False
+
 def yahoo_identity_matches(listing,profile,symbol,identity,trade_currency,report_currency=None):
     """Require a provider-confirmed instrument before consuming any Yahoo data."""
     isin=str(identity.get('isin') or '').upper()
@@ -339,12 +361,28 @@ def yahoo_identity_matches(listing,profile,symbol,identity,trade_currency,report
               {'CPH','XCSE','COPENHAGEN','NASDAQCOPENHAGEN'} if symbol.endswith('.CO') else
               {'STO','XSTO','STOCKHOLM','NASDAQSTOCKHOLM'} if symbol.endswith('.ST') else set())
     normalize=lambda value: re.sub(r'[^A-Z0-9]','',str(value or '').upper())
-    return bool(expected and
-                str(profile.get('symbol') or '').upper()==symbol.upper() and
-                str(profile.get('currency') or '').upper()==trade_currency and
-                normalize(profile.get('exchange')) in expected and
-                (report_currency is None or str(profile.get('financialCurrency') or '').upper()==report_currency) and
-                str(listing.get_isin() or '').upper()==isin)
+    if not (expected and
+            str(profile.get('symbol') or '').upper()==symbol.upper() and
+            str(profile.get('currency') or '').upper()==trade_currency and
+            normalize(profile.get('exchange')) in expected and
+            (report_currency is None or str(profile.get('financialCurrency') or '').upper()==report_currency)):
+        return False
+    try:
+        direct=str(listing.get_isin() or '').upper()
+    except Exception:
+        direct=''
+    # Never override an explicit, conflicting identifier with a search hit.
+    explicit=[str(profile.get('isin') or '').upper(),direct]
+    valid=[v for v in explicit if re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]',v)]
+    if valid: return all(v==isin for v in valid)
+    # Some international listings do not expose an ISIN through get_isin().
+    # Require a live independent Avanza identity plus a unique non-fuzzy
+    # Yahoo response to the exact ISIN, on the already matched venue.
+    av,_=avanza_market_snapshot(symbol)
+    market='FNSE' if first_north else 'XCSE' if symbol.endswith('.CO') else 'XSTO'
+    return bool(av.get('verified') and av.get('isin')==isin and
+                av.get('currency')==trade_currency and av.get('market')==market and
+                yahoo_isin_reverse_match(isin,symbol,tuple(sorted(expected))))
 
 @st.cache_data(ttl=1800,show_spinner=False)
 def matched_yahoo_quote(symbol, identity, trade_currency):
