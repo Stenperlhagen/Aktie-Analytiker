@@ -327,6 +327,40 @@ def avanza_market_snapshot(symbol):
     except Exception as exc:
         return {},'Avanza: '+type(exc).__name__
 
+@st.cache_data(ttl=1800,show_spinner=False)
+def matched_yahoo_quote(symbol, identity, trade_currency):
+    """Last resort only: exact instrument, venue, currency and dated close."""
+    isin=str(identity.get('isin') or '').upper()
+    if not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]',isin):
+        return {},'Yahoo: verifierad ISIN saknas'
+    if not trade_currency or str(identity.get('stockPriceCurrency') or '').upper()!=trade_currency:
+        return {},'Yahoo: handelsvaluta inte verifierad av Börsdata'
+    first_north=symbol in ('BOKUS.ST','SUS.ST','SES.ST')
+    expected=({'FNSE','FIRSTNORTHSTOCKHOLM','FIRSTNORTHSWEDEN'} if first_north else
+              {'CPH','XCSE','COPENHAGEN','NASDAQCOPENHAGEN'} if symbol.endswith('.CO') else
+              {'STO','XSTO','STOCKHOLM','NASDAQSTOCKHOLM'} if symbol.endswith('.ST') else set())
+    if not expected: return {},'Yahoo: handelsplats saknas'
+    normalize=lambda value: re.sub(r'[^A-Z0-9]','',str(value or '').upper())
+    try:
+        listing=yf.Ticker(symbol)
+        profile=listing.get_info()
+        if (str(profile.get('symbol') or '').upper()!=symbol.upper() or
+            str(profile.get('currency') or '').upper()!=trade_currency or
+            normalize(profile.get('exchange')) not in expected or
+            str(listing.get_isin() or '').upper()!=isin):
+            return {},'Yahoo: instrument, valuta eller handelsplats avviker'
+        history=listing.history(period='1mo',interval='1d',auto_adjust=False)
+        if history.empty or 'Close' not in history.columns:
+            return {},'Yahoo: stängningskurs saknas'
+        date=pd.Timestamp(history.index[-1]).date()
+        price=numeric(history['Close'].iloc[-1])
+        if price is None or price<=0 or not 0<=(dt.date.today()-date).days<=7:
+            return {},'Yahoo: stängningskurs ogiltig eller inaktuell'
+        return {'price':price,'date':str(date),'currency':trade_currency,'isin':isin},''
+    except Exception as exc:
+        return {},'Yahoo: '+type(exc).__name__
+
+
 @st.cache_data(ttl=21600,show_spinner=False)
 def yahoo_annual_statements(symbol,trade_currency,report_currency):
     if not report_currency or not trade_currency: return None
@@ -556,6 +590,14 @@ def fetch(ticker):
         info['regularMarketPrice']=av['price']
         quick['last_price']=av['price']
         info['_price_source']='Avanza (reserv)'
+    if not info.get('currentPrice'):
+        reserve,reserve_error=matched_yahoo_quote(ticker,identity,info.get('currency'))
+        if reserve_error: errors['Yahoo kurs']=reserve_error
+        if reserve.get('price') is not None:
+            info['currentPrice']=reserve['price']
+            info['regularMarketPrice']=reserve['price']
+            quick['last_price']=reserve['price']
+            info['_price_source']='Yahoo Finance (matchad reserv, stängning '+reserve['date']+')'
     records,r12_error=borsapi_r12_response(ticker,borsapi_key())
     if r12_error: errors['Börsdata R12']=r12_error
     if records:
