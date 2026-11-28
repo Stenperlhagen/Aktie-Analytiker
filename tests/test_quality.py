@@ -16,6 +16,29 @@ def load_function(name, namespace):
     return namespace[name]
 
 class QualityTests(unittest.TestCase):
+    def test_rusta_and_securitas_r12_reported_ebita(self):
+        ns={"math":math,"pd":pd,"re":re}
+        load_function("numeric",ns)
+        load_function("bd_field",ns)
+        calc=load_function("abb_r12_ebita",ns)
+        fixtures=[
+            ("RUSTA.ST","2026-07-31",12913,13165,1002,1002),
+            ("SECU-B.ST","2026-09-30",151042,151122,10938,11484),
+        ]
+        for symbol,period,sales,revenue,ebit,ebita in fixtures:
+            with self.subTest(symbol=symbol):
+                record={"currency":"SEK","net_Sales":sales,"revenues":revenue,
+                        "operating_Income":ebit}
+                result=calc(symbol,record,period)
+                self.assertEqual(result["value"],ebita*1e6)
+                self.assertTrue(result["sources"][0].startswith("https://"))
+                self.assertNotIn("fcff",result)
+                for key,value in (("currency","EUR"),("net_Sales",sales+20),
+                                  ("revenues",revenue+1000),("operating_Income",ebit+100)):
+                    self.assertIsNone(calc(symbol,{**record,key:value},period))
+                self.assertIsNone(calc(symbol,record,"2025-12-31"))
+                self.assertIsNone(calc(symbol,{"currency":"SEK","operating_Income":ebit},period))
+
     def test_sinch_r12_fcff_unlevers_reported_cash_flow(self):
         ns={"math":math,"pd":pd,"re":re}
         load_function("numeric",ns)
