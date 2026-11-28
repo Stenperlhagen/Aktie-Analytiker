@@ -363,6 +363,16 @@ def tests():
     assert abb_r12_ebita('VOLO.ST',vol,'2026-06-30') is None
     assert 'fcff' not in abb_r12_ebita('VOLO.ST',{**vol,'net_Debt':1331},'2026-09-30')
     assert 'fcff' not in abb_r12_ebita('VOLO.ST',{**vol,'cash_Flow_From_Operating_Activities':321},'2026-09-30')
+    # Synthetic mismatched income scope (not live provider values):
+    # the official restatement must be adopted as an entire operating bundle.
+    old_scope={**vol,'net_Sales':6500,'revenues':6500,'operating_Income':350}
+    restated=abb_r12_ebita('VOLO.ST',old_scope,'2026-09-30')
+    assert restated['value']==245e6 and restated['restated_sales']==4594e6
+    assert restated['restated_ebit']==155e6 and restated['net_debt']==1669e6
+    assert abs(restated['fcff']-matched['fcff'])<1
+    for wrong in ({'currency':'EUR'},{'net_Debt':1331},{'cash_Flow_From_Operating_Activities':321},{'operating_Income':155}):
+        assert abb_r12_ebita('VOLO.ST',{**old_scope,**wrong},'2026-09-30') is None
+    assert abb_r12_ebita('VOLO.ST',old_scope,'2026-06-30') is None
     lag={'currency':'SEK','revenues':11576,'net_Sales':11576,'operating_Income':1838,
          'cash_Flow_From_Operating_Activities':1498,'net_Debt':5190}
     matched=abb_r12_ebita('LAGR-B.ST',lag,'2026-09-30')
@@ -570,7 +580,7 @@ if __name__=='__main__':
                             actual=bd_field(record,field)
                             checks[field]='missing' if actual is None else ('match' if min(abs(actual-x) for x in expected)<=1.5 else 'mismatch')
                         print(symbol,'public filing anchor checks',checks,flush=True)
-                    print(symbol,'official filing matched',bool(matched),'R12 period',period,
+                    print(symbol,'official filing matched',bool(matched),'official restatement used',bool(matched and matched.get('restated_sales') is not None),'R12 period',period,
                           'R12 reporting currency',record.get('currency'),'matched R12 EBITA evidence',bool(model.get('r12_ebita_evidence')),flush=True)
                 else: print(symbol,'no R12 record to reconcile',flush=True)
             if symbol=='ABB.ST':
@@ -600,7 +610,7 @@ if __name__=='__main__':
             nav_only=v.get('nav_reference') is not None and not v.get('models')
             if nav_only:
                 assert v.get('target') is None and v.get('upside') is None and v.get('buy_limit') is None, 'NAV reference leaked into target or upside'
-            rows.append({'avanza_identity_verified':bool(avanza.get('verified')),'avanza_fresh_quote':fresh,'avanza_quote_timestamp':stamp,'nav_reference_only':nav_only,'upside':v.get('upside'),'price_source':info.get('_price_source'),'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Source not recorded'),'fetch_errors':str(errors),'annual_reports':not fin.empty,'price_history':not hist.empty,'report_verified':bool((v.get('r12_ebita_evidence') or {}).get('source')=='Bolagsrapport (avstämd)' or (nav_only and v.get('nav_kind'))),'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
+            rows.append({'avanza_identity_verified':bool(avanza.get('verified')),'avanza_fresh_quote':fresh,'avanza_quote_timestamp':stamp,'nav_reference_only':nav_only,'upside':v.get('upside'),'price_source':info.get('_price_source'),'ticker':symbol,'category':v.get('category'),'target':v.get('target'),'price':v.get('price'),'method':v.get('method'),'period':v.get('period'),'inputs':str(v.get('inputs')),'models':str(v.get('models')),'missing':str(v.get('missing')),'source':v.get('source','Source not recorded'),'fetch_errors':str(errors),'annual_reports':not fin.empty,'price_history':not hist.empty,'report_verified':bool((v.get('r12_ebita_evidence') or {}).get('source') in ('Bolagsrapport (avstämd)','Bolagsrapport (omräknad kvarvarande verksamhet)') or (nav_only and v.get('nav_kind'))),'status':v.get('status'),'audit':str(v.get('audit',[])),'finite_positive_target':bool(v.get('target') is not None and math.isfinite(v['target']) and v['target']>0)})
         except Exception as e:
             failures.append(symbol+': '+str(e))
             rows.append({'ticker':symbol,'missing':type(e).__name__+': '+str(e),'report_verified':False})
