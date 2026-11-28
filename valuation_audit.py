@@ -340,6 +340,17 @@ def tests():
     assert abb_r12_ebita('LIFCO-B.ST',{**lifco,'net_Sales':28251},'2026-09-30') is None
     assert 'fcff' not in abb_r12_ebita('LIFCO-B.ST',{**lifco,'net_Debt':9603},'2026-09-30')
     assert 'fcff' not in abb_r12_ebita('LIFCO-B.ST',{**lifco,'cash_Flow_From_Operating_Activities':3514},'2026-09-30')
+    beij={'currency':'SEK','net_Sales':39238,'revenues':39440,'operating_Income':3825,
+          'cash_Flow_From_Operating_Activities':4331,'net_Debt':11703}
+    matched=abb_r12_ebita('BEIJ-B.ST',beij,'2026-09-30')
+    assert matched['value']==4063e6
+    assert abs(matched['fcff']-(3825*(1-836/3357)+1133+621-455)*1e6)<1
+    assert abb_r12_ebita('BEIJ-B.ST',{**beij,'revenues':39238},'2026-09-30')['value']==4063e6
+    for wrong in ({'currency':'EUR'},{'operating_Income':3976},{'net_Sales':37067},{'revenues':37067}):
+        assert abb_r12_ebita('BEIJ-B.ST',{**beij,**wrong},'2026-09-30') is None
+    assert abb_r12_ebita('BEIJ-B.ST',beij,'2026-06-30') is None
+    assert 'fcff' not in abb_r12_ebita('BEIJ-B.ST',{**beij,'net_Debt':8868},'2026-09-30')
+    assert 'fcff' not in abb_r12_ebita('BEIJ-B.ST',{**beij,'cash_Flow_From_Operating_Activities':4584},'2026-09-30')
     vol={'currency':'SEK','net_Sales':4594,'revenues':4594,'operating_Income':155,
          'cash_Flow_From_Operating_Activities':566,'net_Debt':1669}
     matched=abb_r12_ebita('VOLO.ST',vol,'2026-09-30')
