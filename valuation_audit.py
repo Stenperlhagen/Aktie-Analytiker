@@ -592,7 +592,23 @@ if __name__=='__main__':
                     profile=listing.get_info()
                     identity,_=borsapi_instrument(symbol,key)
                     identity_ok=yahoo_identity_matches(listing,profile,symbol,identity,info.get('currency'),info.get('financialCurrency'))
-                    print(symbol,'Yahoo identity match',identity_ok,flush=True)
+                    # Expose the reason for rejection, not proprietary financial values.
+                    expected_exchange=({'FNSE','FIRSTNORTHSTOCKHOLM','FIRSTNORTHSWEDEN'} if symbol in ('BOKUS.ST','SUS.ST','SES.ST') else
+                                       {'CPH','XCSE','COPENHAGEN','NASDAQCOPENHAGEN'} if symbol.endswith('.CO') else
+                                       {'STO','XSTO','STOCKHOLM','NASDAQSTOCKHOLM'} if symbol.endswith('.ST') else set())
+                    norm=lambda value: re.sub(r'[^A-Z0-9]','',str(value or '').upper())
+                    try: yahoo_isin=str(listing.get_isin() or '').upper()
+                    except Exception: yahoo_isin=''
+                    primary_isin=str(identity.get('isin') or '').upper()
+                    checks={'primary_isin_valid':bool(re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]',primary_isin)),
+                            'yahoo_isin_valid':bool(re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]',yahoo_isin)),
+                            'isin_match':bool(primary_isin and yahoo_isin==primary_isin),
+                            'symbol_match':str(profile.get('symbol') or '').upper()==symbol.upper(),
+                            'exchange_match':norm(profile.get('exchange')) in expected_exchange,
+                            'primary_trade_currency_match':str(identity.get('stockPriceCurrency') or '').upper()==info.get('currency'),
+                            'yahoo_trade_currency_match':str(profile.get('currency') or '').upper()==info.get('currency'),
+                            'report_currency_match':str(profile.get('financialCurrency') or '').upper()==info.get('financialCurrency')}
+                    print(symbol,'Yahoo identity match',identity_ok,'identity checks',checks,flush=True)
                     for attrs,is_ttm in ((('quarterly_income_stmt','quarterly_cashflow'),False),
                                          (('ttm_income_stmt','ttm_cashflow'),True)):
                         frames=[]
@@ -613,12 +629,23 @@ if __name__=='__main__':
                               'matched components',sorted(bridge),flush=True)
                 except Exception as exc:
                     print(symbol,'Yahoo diagnostic failure',type(exc).__name__,flush=True)
-            if symbol in ('BEIJ-B.ST','AFRY.ST','ABB.ST','LIFCO-B.ST','VOLO.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST','LAGR-B.ST','SAND.ST','ASSA-B.ST','EPI-A.ST','INDT.ST'):
+            if symbol in ('BEIJ-B.ST','AFRY.ST','ALFA.ST','ABB.ST','LIFCO-B.ST','VOLO.ST','BOKUS.ST','BRAV.ST','ADDT-B.ST','INSTAL.ST','ATCO-B.ST','ALIF-B.ST','LAGR-B.ST','SAND.ST','ASSA-B.ST','EPI-A.ST','INDT.ST'):
                 if trailing:
                     record=trailing[0]
                     period=str(record.get('report_End_Date') or record.get('reportEndDate'))[:10]
                     matched=abb_r12_ebita(symbol,record,period)
                     # Compare only against public filing anchors; log booleans, never raw provider values.
+                    if symbol in ('AFRY.ST','ALFA.ST'):
+                        anchors=({'net_Sales':(25276,), 'revenues':(25276,25295), 'operating_Income':(1448,),
+                                  'cash_Flow_From_Operating_Activities':(2153,), 'net_Debt':(6285,)}
+                                 if symbol=='AFRY.ST' else
+                                 {'net_Sales':(71778,), 'revenues':(71778,), 'operating_Income':(11837,),
+                                  'cash_Flow_From_Operating_Activities':(10419,), 'net_Debt':(13813,)})
+                        checks={}
+                        for field,expected in anchors.items():
+                            actual=bd_field(record,field)
+                            checks[field]='missing' if actual is None else ('match' if min(abs(actual-x) for x in expected)<=1.5 else 'mismatch')
+                        print(symbol,'public filing anchor checks',checks,flush=True)
                     if symbol in ('VOLO.ST','BEIJ-B.ST'):
                         anchors=({'net_Sales':(4594,), 'revenues':(4594,), 'operating_Income':(155,),
                                   'cash_Flow_From_Operating_Activities':(566,), 'net_Debt':(1669,)}
