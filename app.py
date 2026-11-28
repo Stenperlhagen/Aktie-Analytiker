@@ -1932,6 +1932,43 @@ def official_r12_fcff(symbol, record, period):
                          'skattetvist, leasing och förvärv måste beaktas i prognosen. Separat EBITA ej härledd.')}
 
 def abb_r12_ebita(symbol, record, period):
+    if symbol=='RUSTA.ST':
+        # Rusta Q1 2026/27 pp. 2, 14, 27: consolidated LTM Aug 2025-Jul 2026.
+        # Report explicitly reconciles EBITA to EBIT with zero acquisition amortization.
+        # This is independently reported EBITA, not an EBIT substitute.
+        if str(period)[:10]!='2026-07-31' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        if ((sales is None and net_sales is None) or
+            (sales is not None and min(abs(sales-12913),abs(sales-(12913+252)))>1.5) or
+            (net_sales is not None and abs(net_sales-12913)>1.5) or
+            ebit is None or abs(ebit-1002)>1.5):
+            return None
+        return {'value':1002e6,'sources':('https://storage.mfn.se/a90c5848-eeba-4465-b87c-cfa7440058e3/rusta-interim-report-q1-2026-2027.pdf',)}
+    if symbol=='SECU-B.ST':
+        # Securitas Q3 2026 p. 18, original consolidated MSEK.
+        # FY25 + 9M26 - 9M25. Add ONLY separately disclosed acquisition
+        # amortization to reported EBIT, keeping acquisition costs and IAC.
+        # The company's operating income before amortization excludes both;
+        # it is not the unadjusted EBITA used by this model.
+        if str(period)[:10]!='2026-09-30' or str(record.get('currency') or '').upper()!='SEK':
+            return None
+        expected_sales=155113+112620-116691
+        other_income=76+61-57
+        expected_ebit=9073+8092-6227
+        amortization=563+410-427
+        sales=bd_field(record,'revenues')
+        net_sales=bd_field(record,'net_Sales')
+        ebit=bd_field(record,'operating_Income')
+        if ((sales is None and net_sales is None) or
+            (sales is not None and min(abs(sales-expected_sales),abs(sales-expected_sales-other_income))>1.5) or
+            (net_sales is not None and abs(net_sales-expected_sales)>1.5) or
+            ebit is None or abs(ebit-expected_ebit)>1.5):
+            return None
+        return {'value':(expected_ebit+amortization)*1e6,
+                'sources':('https://www-prod-lv.securitasgroup.com/globalassets/com/files/interim-reports/2026/q3/q32026_eng_final.pdf',)}
     if symbol=='BEIJ-B.ST':
         # Beijer Ref Q3 2026 pp. 5, 12, 14-15: reported consolidated R12.
         # EBITA includes comparability items; do not substitute adjusted EBITA.
